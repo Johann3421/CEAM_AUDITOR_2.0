@@ -16,10 +16,15 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS — allow frontend dev server
+# CORS — allow frontend dev server and production domains
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://localhost:3000",
+        "https://auditor.sekaitech.com.pe",
+        "https://admin2.abadgroup.tech"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
