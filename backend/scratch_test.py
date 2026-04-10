@@ -36,55 +36,68 @@ async def main():
         
         await page.wait_for_timeout(2000)
 
-        print("Setting dates...")
-        fecha_inicio = "01/01/2025"
-        fecha_fin = "31/03/2025"
+        print("Setting dates natively...")
+        fecha_inicio = "2025-01-01"
+        fecha_fin = "2025-03-31"
         
-        # USE EVALUATE TO FORCE IT, IN CASE FILL FAILS
-        await page.evaluate(f"document.getElementById('fechaInicial').value = '{fecha_inicio}'")
-        await page.evaluate(f"document.getElementById('fechaFinal').value = '{fecha_fin}'")
-        print(f"Dates set: {fecha_inicio} - {fecha_fin}")
+        fi = page.locator("#fechaInicial")
+        await fi.click()
+        await fi.fill(fecha_inicio)
+        await fi.press("Tab")
+        print(f"Date set: {fecha_inicio}")
+
+        ff = page.locator("#fechaFinal")
+        await ff.click()
+        await ff.fill(fecha_fin)
+        await ff.press("Tab")
+        print(f"Date set: {fecha_fin}")
         
-        print("Checking Detallado...")
+        print("Check if chkDetallado is checked...")
         chk = page.locator("#chkDetallado")
         if not await chk.is_checked():
-            await chk.check()
+            await chk.click()
+            print("Checked it natively.")
+            await page.wait_for_timeout(2000)
 
-        print("Clicking Search...")
+        print("Clicking Search natively...")
         btn = page.locator("#btnBuscar")
-        await btn.click(force=True)
+        await btn.click()
 
-        print("Waiting 10s for new table...")
-        await page.wait_for_timeout(10000)
+        print("Waiting 3s for AJAX JS...")
+        await page.wait_for_timeout(3000)
 
-        # Print how many rows are in the table
+        print("Waiting for networkidle 90s...")
+        await page.wait_for_load_state("networkidle", timeout=90000)
+
+        print("Rows on screen:")
         rows = await page.locator("tr.FilaDatos").count()
-        print(f"Table row count: {rows}")
-        
+        print(rows)
+
         if rows > 0:
             first_row = await page.locator("tr.FilaDatos").first.inner_text()
-            print(f"First row sample: {first_row[:100]}")
-        else:
-            print("WARNING: TABLE IS EMPTY ON SCREEN!")
+            print(f"First row sample: {first_row.strip()}")
 
-        print("Waiting networkidle...")
-        try:
-            await page.wait_for_load_state("networkidle", timeout=15000)
-        except Exception:
-            pass
+        print("Saving screenshot to /debug_shot.png")
+        await page.screenshot(path="debug_shot.png", full_page=True)
 
-        print("Clicking Exportar XLSX...")
+        print("Waiting 5s to settle...")
+        await page.wait_for_timeout(5000)
+
+        print("Clicking #aExportarXLSX...")
         async with page.expect_download(timeout=60000) as download_info:
-            await page.locator("#aExportarXLSX").evaluate("node => node.click()")
+            xlsx = page.locator("#aExportarXLSX")
+            print("Exporting Button HTML:", await xlsx.first.evaluate("el => el.outerHTML"))
+            await xlsx.evaluate("node => node.click()")
+            
         download = await download_info.value
-        dest = "/tmp/test_export.xlsx"
+        dest = "test_export.xlsx"
         await download.save_as(dest)
         print("Downloaded!")
 
         print("Reading Excel...")
         df = pd.read_excel(dest, engine="openpyxl")
         print(f"Raw len(df): {len(df)}")
-        print(f"Raw Columns: {list(df.columns)}")
+        print(f"Raw len(df) skipping skiprows: {len(pd.read_excel(dest, engine='openpyxl', skiprows=5))}")
 
         await browser.close()
 

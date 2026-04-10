@@ -323,11 +323,16 @@ async def _download_excel(
             raise RuntimeError(f"Error al seleccionar Acuerdo Marco en el portal: {exc}") from exc
 
         # ── 2. Fill date range ────────────────────────────────────────────
-        if not fecha_inicio:
-            # Por petición del usuario, fijamos el default en un rango de 2025 que tenga datos
-            fecha_inicio = "01/01/2025"
-        if not fecha_fin:
-            fecha_fin = "31/03/2025"
+        # Chromium <input type="date"> STRÍCTAMENTE requiere formato YYYY-MM-DD para un .fill() programático.
+        def _format_date(d: str) -> str:
+            if "/" in d:
+                parts = d.split("/")
+                if len(parts) == 3 and len(parts[0]) == 2:  # DD/MM/YYYY
+                    return f"{parts[2]}-{parts[1]}-{parts[0]}"
+            return d
+
+        fecha_inicio = _format_date(fecha_inicio) if fecha_inicio else "2025-01-01"
+        fecha_fin = _format_date(fecha_fin) if fecha_fin else "2025-03-31"
 
         try:
             fi = page.locator("#fechaInicial")
