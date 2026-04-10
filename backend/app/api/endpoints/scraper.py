@@ -89,7 +89,24 @@ async def test_download(
         return {"status": "error", "phase": "playwright_download", "error": "No se descargó ningún archivo (filepath es None)"}
 
     try:
+        import pandas as pd
+        df_raw = pd.read_excel(filepath, engine="openpyxl")
+        raw_columns = list(df_raw.columns)
+        raw_rows_count = len(df_raw)
+
+        try:
+            df_skip = pd.read_excel(filepath, skiprows=5, engine="openpyxl")
+            skip_columns = list(df_skip.columns)
+        except Exception:
+            skip_columns = []
+
         orders = _process_excel(filepath)
+        
+        debug_info = {
+            "raw_columns": raw_columns,
+            "raw_rows_count": raw_rows_count,
+            "skip_columns": skip_columns
+        }
     except BaseException as exc:
         return {
             "status": "error",
@@ -120,4 +137,10 @@ async def test_download(
     finally:
         db.close()
 
-    return {"status": "ok", "orders_parsed": len(orders), "inserted": inserted, "updated": updated}
+    return {
+        "status": "ok", 
+        "orders_parsed": len(orders), 
+        "inserted": inserted, 
+        "updated": updated,
+        "debug_info": debug_info
+    }
