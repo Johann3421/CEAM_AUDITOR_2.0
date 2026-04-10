@@ -361,19 +361,12 @@ async def _download_excel(
             await btn.click(force=True)
             logger.info("Clicked INICIAR BÚSQUEDA")
 
-            # CRÍTICO: Esperar 5 segundos duros. Esto previene que wait_for_selector detecte la tabla antigua 
-            # y que networkidle dispare un falso positivo antes de que la petición AJAX empiece.
-            await page.wait_for_timeout(5000)
+            # CRÍTICO: La consulta Detallada de Perú Compras puede tomar entre 15 y 45 segundos.
+            await page.wait_for_timeout(3000) # Dar tiempo a que el AJAX JS dispare
 
-            # Esperar a que los nuevos resultados se anclen al DOM.
-            await page.wait_for_selector("tr.FilaDatos", state="attached", timeout=90000)
-            logger.info("Results table loaded (attached in DOM)")
-
-            # Esperar a que la carga asincrónica secundaria de DataTables termine
-            try:
-                await page.wait_for_load_state("networkidle", timeout=15000)
-            except Exception:
-                logger.warning("networkidle sync took >15s (ignored)")
+            logger.info("Waiting for network to completely settle...")
+            await page.wait_for_load_state("networkidle", timeout=90000)
+            logger.info("Network is idle. Search should be complete.")
 
             # Collect diagnostics
             rows_on_screen = await page.locator("tr.FilaDatos").count()
@@ -383,7 +376,7 @@ async def _download_excel(
             
             logger.info("ROWS ON SCREEN: %s, FIRST ROW: %s", rows_on_screen, first_row_text)
 
-            # Esperar unos segundos finales para asegurar que el server activó la sesión del Excel en este estado
+            # Esperar unos segundos finales para asentar ViewState ASP.NET
             await page.wait_for_timeout(5000)
 
         except PWTimeout:
