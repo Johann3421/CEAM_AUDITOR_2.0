@@ -16,6 +16,7 @@ Tested flow (verified manually on 2026-04-10):
 import logging
 import asyncio
 import os
+import re
 import tempfile
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -39,15 +40,38 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
     """
     logger.info("Processing Excel file: %s", filepath)
 
-    try:
-        df = pd.read_excel(filepath, skiprows=5, engine="openpyxl")
-    except Exception:
-        # If skiprows=5 fails, try without skipping (format may vary)
-        logger.warning("Failed with skiprows=5, trying raw read")
-        df = pd.read_excel(filepath, engine="openpyxl")
+    # ── Find the real header row dynamically ─────────────────────────────
+    # The Perú Compras XLSX starts with several metadata/title rows before
+    # the actual column headers. We scan the first 20 rows to find the one
+    # that contains recognisable field names ("nro" + "proveedor").
+    df_scan = pd.read_excel(filepath, header=None, engine="openpyxl", nrows=20)
+    header_row_idx = None
+    for i, row_data in df_scan.iterrows():
+        cleaned = [
+            re.sub(r"(_x[0-9a-fA-F]+_|\n|\r)", "", str(v)).strip().lower()
+            for v in row_data
+            if str(v).lower() not in ("nan", "none", "")
+        ]
+        line = " ".join(cleaned)
+        if ("nro" in line or "c\u00f3digo" in line or "codigo" in line) and "proveedor" in line:
+            header_row_idx = int(i)
+            logger.info("Found real header row at raw index %d", header_row_idx)
+            break
 
-    # Normalize column names: strip whitespace, remove Excel line feeds and XML hex markers like _x000d_
-    df.columns = df.columns.astype(str).str.replace(r"(_x[0-9a-fA-F]+_|\n|\r)", "", regex=True).str.strip()
+    if header_row_idx is None:
+        logger.warning("Header row not found in first 20 rows — defaulting to skiprows=5")
+        header_row_idx = 5
+
+    try:
+        df = pd.read_excel(filepath, skiprows=header_row_idx, engine="openpyxl")
+    except Exception as exc:
+        logger.error("Failed to read Excel with skiprows=%d: %s", header_row_idx, exc)
+        return []
+
+    # Normalize column names: strip whitespace, remove XML hex markers and line feeds
+    df.columns = df.columns.astype(str).str.replace(
+        r"(_x[0-9a-fA-F]+_|\n|\r)", "", regex=True
+    ).str.strip()
     logger.info("Excel loaded: %d raw rows, columns: %s", len(df), list(df.columns))
 
     if len(df) == 0:
