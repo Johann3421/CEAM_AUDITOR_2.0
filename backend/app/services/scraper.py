@@ -356,11 +356,17 @@ async def _download_excel(
             await btn.click()
             logger.info("Clicked INICIAR BÚSQUEDA")
 
-            # Wait for results table to appear (up to 60s for large queries)
-            await page.wait_for_selector("table tbody tr", timeout=60000)
-            logger.info("Results table loaded")
+            # Wait for results. We wait for 'attached' rather than 'visible' to bypass
+            # cases where the table is loaded but technically hidden by CSS or a loader overlay.
+            await page.wait_for_selector("tr.FilaDatos", state="attached", timeout=60000)
+            logger.info("Results table loaded (attached in DOM)")
 
-            # Give some extra time for the export links to activate
+            # Give time for the export links to activate and network to settle
+            try:
+                await page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                logger.warning("networkidle sync took >10s (ignored)")
+
             await page.wait_for_timeout(3000)
 
         except PWTimeout:
