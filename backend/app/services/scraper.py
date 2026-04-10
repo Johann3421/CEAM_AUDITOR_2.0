@@ -115,13 +115,23 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
         elif "moneda" in cl:
             col_map["moneda"] = col
         elif "sub" in cl and "total" in cl:
-            col_map["sub_total"] = col
+            # Prefer order-level "Sub Total Orden Electrónica" over delivery-level "Sub Total".
+            # "orden" is present only in the order-level variant, so set/overwrite when seen.
+            if "sub_total" not in col_map or "orden" in cl:
+                col_map["sub_total"] = col
         elif "igv" in cl:
-            col_map["igv"] = col
-        elif "monto" in cl and "total" in cl:
+            # Prefer order-level "IGV Orden Electrónica" over delivery-level "IGV Entrega".
+            if "igv" not in col_map or "orden" in cl:
+                col_map["igv"] = col
+        elif "total" in cl and "orden" in cl and "sub" not in cl and "igv" not in cl:
+            # "Total Orden Electrónica" — the real per-order total
             col_map["monto_total"] = col
-        elif "estado" in cl and ("orden" in cl or "entrega" in cl):
-            col_map["estado_orden"] = col
+        elif "monto_total" not in col_map and "monto" in cl and "total" in cl:
+            # Fallback: "Monto Total Entrega" (delivery-level) only if not already mapped
+            col_map["monto_total"] = col
+        elif "estado" in cl and ("orden" in cl or "entrega" in cl):  # Estado de la Orden Electrónica
+            if "estado_orden" not in col_map or ("orden" in cl and "entrega" not in cl):
+                col_map["estado_orden"] = col
         elif "plazo" in cl or ("días" in cl and "entrega" in cl):
             col_map["plazo_entrega_dias"] = col
         elif "orden" in cl and "compra" in cl and "nro_orden_fisica" not in col_map:
