@@ -354,25 +354,25 @@ async def _download_excel(
         # ── 4. Click "INICIAR BÚSQUEDA" ──────────────────────────────────
         try:
             btn = page.locator("#btnBuscar")
-            await btn.click()
+            await btn.click(force=True)
             logger.info("Clicked INICIAR BÚSQUEDA")
 
-            # Wait a moment for the AJAX request to start and the old table to clear
-            # This prevents a race condition where it detects the previous empty state.
-            await page.wait_for_timeout(2000)
+            # CRÍTICO: Esperar 5 segundos duros. Esto previene que wait_for_selector detecte la tabla antigua 
+            # y que networkidle dispare un falso positivo antes de que la petición AJAX empiece.
+            await page.wait_for_timeout(5000)
 
-            # Wait for results. We wait for 'attached' rather than 'visible' to bypass
-            # cases where the table is loaded but technically hidden by CSS or a loader overlay.
-            await page.wait_for_selector("tr.FilaDatos", state="attached", timeout=60000)
+            # Esperar a que los nuevos resultados se anclen al DOM.
+            await page.wait_for_selector("tr.FilaDatos", state="attached", timeout=90000)
             logger.info("Results table loaded (attached in DOM)")
 
-            # Give time for the export links to activate and network to settle
+            # Esperar a que la carga asincrónica secundaria de DataTables termine
             try:
-                await page.wait_for_load_state("networkidle", timeout=10000)
+                await page.wait_for_load_state("networkidle", timeout=15000)
             except Exception:
-                logger.warning("networkidle sync took >10s (ignored)")
+                logger.warning("networkidle sync took >15s (ignored)")
 
-            await page.wait_for_timeout(3000)
+            # Esperar unos segundos finales para asegurar que el server activó la sesión del Excel en este estado
+            await page.wait_for_timeout(5000)
 
         except PWTimeout:
             await browser.close()
