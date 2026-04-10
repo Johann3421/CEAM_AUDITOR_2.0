@@ -26,9 +26,9 @@ Dashboard inteligente y extractor de datos avanzado para auditar órdenes de com
    cp backend/.env.example backend/.env
    ```
 
-3. **Levantar con Docker:**
+3. **Levantar con Docker (Localmente):**
    ```bash
-   docker-compose up --build
+   docker-compose --env-file ./backend/.env up --build
    ```
    - **Frontend**: http://localhost:3087
    - **API/Docs**: http://localhost:8087/docs

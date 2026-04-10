@@ -40,7 +40,11 @@ services:
       dockerfile: Dockerfile
     container_name: ceam_api
     restart: unless-stopped
-    env_file: ./backend/.env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - PROJECT_NAME=${PROJECT_NAME}
     ports:
       - "8087:8000"
     depends_on:
@@ -58,7 +62,11 @@ services:
       dockerfile: Dockerfile
     container_name: ceam_worker
     restart: unless-stopped
-    env_file: ./backend/.env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - PROJECT_NAME=${PROJECT_NAME}
     command: celery -A app.worker.celery_app.celery_app worker --loglevel=info --concurrency=2
     depends_on:
       db:
@@ -75,7 +83,11 @@ services:
       dockerfile: Dockerfile
     container_name: ceam_flower
     restart: unless-stopped
-    env_file: ./backend/.env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - PROJECT_NAME=${PROJECT_NAME}
     command: celery -A app.worker.celery_app.celery_app flower --port=5555
     ports:
       - "5587:5555"
@@ -93,7 +105,7 @@ services:
     ports:
       - "3087:80"
     environment:
-      - VITE_API_URL=http://localhost:8000/api/v1
+      - VITE_API_URL=${VITE_API_URL}
     depends_on:
       - api
 
