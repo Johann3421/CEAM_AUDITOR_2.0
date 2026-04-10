@@ -46,8 +46,8 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
         logger.warning("Failed with skiprows=5, trying raw read")
         df = pd.read_excel(filepath, engine="openpyxl")
 
-    # Normalize column names
-    df.columns = df.columns.str.strip()
+    # Normalize column names: strip whitespace, remove Excel line feeds and XML hex markers like _x000d_
+    df.columns = df.columns.astype(str).str.replace(r"(_x[0-9a-fA-F]+_|\n|\r)", "", regex=True).str.strip()
     logger.info("Excel loaded: %d raw rows, columns: %s", len(df), list(df.columns))
 
     if len(df) == 0:
@@ -144,8 +144,12 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
                 row[c] = pd.to_numeric(group[c], errors="coerce").max()
         return row
 
-    merged = df.groupby(nro_col, sort=False).apply(_merge_group).reset_index(drop=True)
-    logger.info("Merged %d raw rows → %d unique orders", len(df), len(merged))
+    merged = df.groupby(nro_col, sort=False).apply(_merge_group).reset_index(drop=False)
+    # If the above created a duplicate column or weird naming, we ensure the column exists
+    if nro_col not in merged.columns and 'index' in merged.columns:
+        merged = merged.rename(columns={'index': nro_col})
+    
+    logger.info("Merged %d raw rows → %d unique orders. Columns: %s", len(df), len(merged), list(merged.columns))
 
     # ── Convert to PurchaseOrderCreate ────────────────────────────────────
     orders = []
