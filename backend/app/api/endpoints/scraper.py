@@ -76,7 +76,7 @@ async def test_download(
     from app.services import crud
 
     try:
-        filepath = await _download_excel(catalogo_keyword=catalogo)
+        filepath, rows_on_screen = await _download_excel(catalogo_keyword=catalogo)
     except BaseException as exc:
         return {
             "status": "error",
@@ -105,7 +105,8 @@ async def test_download(
         debug_info = {
             "raw_columns": raw_columns,
             "raw_rows_count": raw_rows_count,
-            "skip_columns": skip_columns
+            "skip_columns": skip_columns,
+            "rows_on_screen": rows_on_screen
         }
     except BaseException as exc:
         return {

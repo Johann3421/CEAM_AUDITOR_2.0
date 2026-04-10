@@ -333,11 +333,13 @@ async def _download_excel(
             fi = page.locator("#fechaInicial")
             await fi.click()
             await fi.fill(fecha_inicio)
+            await fi.press("Tab") # ASP.NET Datepickers need focus out
             logger.info("Fecha inicial: %s", fecha_inicio)
 
             ff = page.locator("#fechaFinal")
             await ff.click()
             await ff.fill(fecha_fin)
+            await ff.press("Tab")
             logger.info("Fecha final: %s", fecha_fin)
         except Exception as exc:
             logger.warning("Error filling dates: %s", exc)
@@ -346,8 +348,10 @@ async def _download_excel(
         try:
             chk = page.locator("#chkDetallado")
             if not await chk.is_checked():
-                await chk.check()
+                await chk.check(force=True)
                 logger.info("Checked 'Exportar Detallado'")
+                # Critical: sometimes this checkbox triggers an ASP.NET UpdatePanel
+                await page.wait_for_timeout(2000)
         except Exception as exc:
             logger.warning("Could not check 'Exportar Detallado': %s", exc)
 
@@ -370,6 +374,10 @@ async def _download_excel(
                 await page.wait_for_load_state("networkidle", timeout=15000)
             except Exception:
                 logger.warning("networkidle sync took >15s (ignored)")
+
+            # Count rows to debug
+            rows_on_screen = await page.locator("tr.FilaDatos").count()
+            logger.info(f"ROWS ON SCREEN BEFORE EXPORT: {rows_on_screen}")
 
             # Esperar unos segundos finales para asegurar que el server activó la sesión del Excel en este estado
             await page.wait_for_timeout(5000)
@@ -405,7 +413,7 @@ async def _download_excel(
             logger.info("Downloaded: %s (%s)", dest_path, filename)
 
             await browser.close()
-            return dest_path
+            return dest_path, rows_on_screen
 
         except PWTimeout:
             await browser.close()
@@ -436,7 +444,7 @@ def run_scrape_sync(
     async def _run():
         nonlocal inserted, updated
 
-        filepath = await _download_excel(catalogo_keyword=catalogo)
+        filepath, _ = await _download_excel(catalogo_keyword=catalogo)
 
         if not filepath or not os.path.exists(filepath):
             logger.error("No Excel file downloaded")
