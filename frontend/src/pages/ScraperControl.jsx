@@ -55,11 +55,11 @@ const ScraperControl = () => {
 
   const getStatusColor = (s) => {
     switch (s) {
-      case 'SUCCESS': return 'text-emerald-500';
+      case 'SUCCESS': return 'text-green-600';
       case 'FAILURE': return 'text-red-500';
       case 'PENDING': return 'text-amber-500';
       case 'STARTED': return 'text-blue-500';
-      default: return 'text-white/40';
+      default: return 'text-gray-500';
     }
   };
 
@@ -72,13 +72,13 @@ const ScraperControl = () => {
         {/* Configuration Card */}
         <div className="glass-effect p-8">
           <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
-            <Play size={20} className="text-emerald-500" />
+            <Play size={20} className="text-green-600" />
             Configurar Extracción
           </h3>
           
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-white/60 mb-2">Palabra Clave / Catálogo</label>
+              <label className="block text-sm font-medium text-gray-600 mb-2">Palabra Clave / Catálogo</label>
               <input 
                 type="text" 
                 className="input-custom" 
@@ -89,7 +89,7 @@ const ScraperControl = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-white/60 mb-2">Páginas Máximas: {maxPages}</label>
+              <label className="block text-sm font-medium text-gray-600 mb-2">Páginas Máximas: {maxPages}</label>
               <input 
                 type="range" 
                 min="1" 
@@ -127,9 +127,9 @@ const ScraperControl = () => {
         <div className="glass-effect p-8 flex flex-col justify-center items-center text-center">
           {!status ? (
             <>
-              <Clock size={64} className="text-white/5 mb-4" />
-              <h4 className="text-lg font-semibold text-white/40">Esperando ejecución...</h4>
-              <p className="text-sm text-white/20 mt-2">Configura los parámetros y presiona lanzar</p>
+              <Clock size={64} className="text-gray-200 mb-4" />
+              <h4 className="text-lg font-semibold text-gray-500">Esperando ejecución...</h4>
+              <p className="text-sm text-gray-400 mt-2">Configura los parámetros y presiona lanzar</p>
             </>
           ) : (
             <div className="w-full">
@@ -137,24 +137,24 @@ const ScraperControl = () => {
                 {polling ? (
                   <Loader2 size={64} className="text-blue-500 animate-spin mx-auto mb-4" />
                 ) : status.status === 'SUCCESS' ? (
-                  <CheckCircle size={64} className="text-emerald-500 mx-auto mb-4" />
+                  <CheckCircle size={64} className="text-green-600 mx-auto mb-4" />
                 ) : (
                   <AlertCircle size={64} className="text-red-500 mx-auto mb-4" />
                 )}
                 <h4 className={`text-2xl font-bold ${getStatusColor(status.status)}`}>
                   {status.status}
                 </h4>
-                <p className="text-sm text-white/40 mt-1">ID: {task_id}</p>
+                <p className="text-sm text-gray-500 mt-1">ID: {task_id}</p>
               </div>
 
               {status.result && (
-                <div className="bg-white/5 p-4 rounded-xl space-y-2">
+                <div className="bg-gray-50 p-4 rounded-xl space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-white/40">Insertadas:</span>
-                    <span className="font-bold text-emerald-500">{status.result.inserted}</span>
+                    <span className="text-gray-500">Insertadas:</span>
+                    <span className="font-bold text-green-600">{status.result.inserted}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-white/40">Actualizadas:</span>
+                    <span className="text-gray-500">Actualizadas:</span>
                     <span className="font-bold text-blue-500">{status.result.updated}</span>
                   </div>
                 </div>
@@ -169,7 +169,7 @@ const ScraperControl = () => {
           <History size={20} className="text-blue-500" />
           Log de Actividad Reciente
         </h3>
-        <div className="text-white/20 text-center py-10 italic">
+        <div className="text-gray-400 text-center py-10 italic">
           No hay actividad registrada en la sesión actual.
         </div>
       </div>

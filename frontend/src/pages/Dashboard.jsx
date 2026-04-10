@@ -74,7 +74,7 @@ const Dashboard = () => {
 
       <div className="glass-effect p-8">
         <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-          <TrendingUp size={20} className="text-emerald-500" />
+          <TrendingUp size={20} className="text-green-600" />
           Top 5 Proveedores con Mayor Monto
         </h3>
         <div className="data-table-container">
@@ -89,10 +89,10 @@ const Dashboard = () => {
             <tbody>
               {stats?.top_providers.map((provider, i) => (
                 <tr key={i}>
-                  <td className="font-medium text-blue-400">{provider.nombre_proveedor}</td>
+                  <td className="font-medium text-blue-600">{provider.nombre_proveedor}</td>
                   <td style={{ textAlign: 'right' }}>{provider.total.toLocaleString()}</td>
                   <td>
-                    <span className="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-500">
+                    <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-600">
                       Activo
                     </span>
                   </td>

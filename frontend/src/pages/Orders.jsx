@@ -58,7 +58,7 @@ const Orders = () => {
         </div>
         
         <div className="flex gap-4 mb-1">
-          <div className="flex items-center gap-2 text-sm text-white/40 mb-2">
+          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
             Mostrando {orders.length} resultados
           </div>
         </div>
@@ -67,7 +67,7 @@ const Orders = () => {
       {/* Filters Bar */}
       <div className="glass-effect p-4 flex flex-wrap gap-4 items-center">
         <form onSubmit={handleSearch} className="flex-1 relative min-w-[300px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20" size={18} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <input 
             type="text"
             className="input-custom pl-10"
@@ -79,7 +79,7 @@ const Orders = () => {
 
         <div className="flex gap-4">
           <select 
-            className="input-custom w-auto bg-[#111827]"
+            className="input-custom w-auto bg-white"
             value={catalogo}
             onChange={(e) => setCatalogo(e.target.value)}
           >
@@ -108,7 +108,7 @@ const Orders = () => {
         <button 
           onClick={() => setPage(Math.max(0, page - 1))}
           disabled={page === 0 || loading}
-          className={`p-2 rounded-full glass-effect ${page === 0 ? 'opacity-20' : 'hover:bg-white/10'}`}
+          className={`p-2 rounded-full glass-effect ${page === 0 ? 'opacity-20' : 'hover:bg-gray-100'}`}
         >
           <ChevronLeft size={24} />
         </button>
@@ -116,7 +116,7 @@ const Orders = () => {
         <button 
           onClick={() => setPage(page + 1)}
           disabled={orders.length < limit || loading}
-          className={`p-2 rounded-full glass-effect ${orders.length < limit ? 'opacity-20' : 'hover:bg-white/10'}`}
+          className={`p-2 rounded-full glass-effect ${orders.length < limit ? 'opacity-20' : 'hover:bg-gray-100'}`}
         >
           <ChevronRight size={24} />
         </button>
