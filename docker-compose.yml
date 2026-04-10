@@ -67,7 +67,13 @@ services:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
       - PROJECT_NAME=${PROJECT_NAME}
-    command: celery -A app.worker.celery_app.celery_app worker --loglevel=info --concurrency=2
+    command: >-
+      watchmedo auto-restart
+      --directory=/app
+      --pattern=*.py
+      --recursive
+      --
+      celery -A app.worker.celery_app.celery_app worker --loglevel=info --concurrency=2
     depends_on:
       db:
         condition: service_healthy
