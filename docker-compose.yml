@@ -88,7 +88,7 @@ services:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
       - PROJECT_NAME=${PROJECT_NAME}
-    command: celery -A app.worker.celery_app.celery_app flower --port=5555
+    command: celery -A app.worker.celery_app.celery_app flower --port=5555 --timeout=10 --address=0.0.0.0
     ports:
       - "5587:5555"
     depends_on:
