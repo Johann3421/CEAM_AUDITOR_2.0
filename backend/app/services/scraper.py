@@ -2,20 +2,20 @@
 Playwright-based RPA scraper for Perú Compras — Consulta de Órdenes Públicas.
 URL: https://www.catalogos.perucompras.gob.pe/ConsultaOrdenesPub#
 
-Strategy:
+Tested flow (verified manually on 2026-04-10):
   1. Navigate to the portal.
-  2. Select a valid "Acuerdo Marco" (filtering out "No Vigente").
-  3. Fill in date range fields.
-  4. Check "Exportar Detallado".
-  5. Click "INICIAR BÚSQUEDA" → this triggers an .xlsx download.
-  6. Process the downloaded Excel (skip first 5 metadata rows).
-  7. Merge duplicate "Nro Orden Física" rows into single clean records.
-  8. Upsert each record into the database.
+  2. Open Select2 dropdown for #cboAcuerdo.
+  3. Type keyword to filter, select a vigente option (skip "No Vigente").
+  4. Fill #fechaInicial and #fechaFinal.
+  5. Check #chkDetallado.
+  6. Click #btnBuscar → wait for results table.
+  7. Click #aExportarXLSX → download the .xlsx file.
+  8. Process the Excel: skip 5 header rows, merge by Nro Orden Física.
+  9. Upsert into PostgreSQL.
 """
 import logging
 import asyncio
 import os
-import glob
 import tempfile
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -39,48 +39,54 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
     """
     logger.info("Processing Excel file: %s", filepath)
 
-    df = pd.read_excel(filepath, skiprows=5, engine="openpyxl")
+    try:
+        df = pd.read_excel(filepath, skiprows=5, engine="openpyxl")
+    except Exception:
+        # If skiprows=5 fails, try without skipping (format may vary)
+        logger.warning("Failed with skiprows=5, trying raw read")
+        df = pd.read_excel(filepath, engine="openpyxl")
 
-    # Normalize column names (remove extra spaces, lowercase)
+    # Normalize column names
     df.columns = df.columns.str.strip()
-
     logger.info("Excel loaded: %d raw rows, columns: %s", len(df), list(df.columns))
 
-    # ── Column mapping (handle varying header names from the portal) ──────
+    if len(df) == 0:
+        logger.warning("Excel file is empty")
+        return []
+
+    # ── Column mapping (flexible matching) ────────────────────────────────
     col_map = {}
     for col in df.columns:
-        cl = col.lower()
-        if "código" in cl and "acuerdo" in cl:
+        cl = col.lower().strip()
+        if ("código" in cl or "codigo" in cl) and "acuerdo" in cl:
             col_map["codigo_acuerdo_marco"] = col
         elif "procedimiento" in cl:
             col_map["procedimiento"] = col
-        elif "nro" in cl and "orden" in cl and "físi" in cl:
+        elif ("nro" in cl or "número" in cl or "numero" in cl) and "orden" in cl:
             col_map["nro_orden_fisica"] = col
-        elif "ruc" in cl and "entidad" in cl:
+        elif "ruc" in cl and ("entidad" in cl or "comprador" in cl):
             col_map["ruc_entidad"] = col
-        elif "nombre" in cl and "entidad" in cl:
+        elif ("nombre" in cl or "razón" in cl or "razon" in cl) and "entidad" in cl:
             col_map["nombre_entidad"] = col
-        elif "razón" in cl and "entidad" in cl:
+        elif "entidad" in cl and "ruc" not in cl and "nombre_entidad" not in col_map:
             col_map["nombre_entidad"] = col
         elif "ruc" in cl and "proveedor" in cl:
             col_map["ruc_proveedor"] = col
-        elif "nombre" in cl and "proveedor" in cl:
+        elif ("nombre" in cl or "razón" in cl or "razon" in cl) and "proveedor" in cl:
             col_map["nombre_proveedor"] = col
-        elif "razón" in cl and "proveedor" in cl:
+        elif "proveedor" in cl and "ruc" not in cl and "nombre_proveedor" not in col_map:
             col_map["nombre_proveedor"] = col
-        elif "fecha" in cl and "publicación" in cl:
+        elif "fecha" in cl and ("publicación" in cl or "publicacion" in cl):
             col_map["fecha_publicacion"] = col
-        elif "fecha" in cl and "aceptación" in cl:
+        elif "fecha" in cl and ("aceptación" in cl or "aceptacion" in cl):
             col_map["fecha_aceptacion"] = col
-        elif "catálogo" in cl or "catalogo" in cl:
+        elif ("catálogo" in cl or "catalogo" in cl) and "categoría" not in cl:
             col_map["catalogo"] = col
         elif "categoría" in cl or "categoria" in cl:
             col_map["categoria"] = col
-        elif "detalle" in cl and "producto" in cl:
+        elif "detalle" in cl or ("descripción" in cl and "producto" in cl):
             col_map["detalle_producto"] = col
-        elif "descripción" in cl and ("bien" in cl or "serv" in cl or "item" in cl):
-            col_map["detalle_producto"] = col
-        elif "logíst" in cl or "entrega" in cl and "direc" not in cl:
+        elif "lugar" in cl and "entrega" in cl:
             col_map["logistica_entrega"] = col
         elif "moneda" in cl:
             col_map["moneda"] = col
@@ -90,92 +96,83 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
             col_map["igv"] = col
         elif "monto" in cl and "total" in cl:
             col_map["monto_total"] = col
-        elif "total" in cl and "igv" not in cl and "sub" not in cl:
-            col_map["monto_total"] = col
-        elif "estado" in cl and "orden" in cl:
+        elif "estado" in cl and ("orden" in cl or "entrega" in cl):
             col_map["estado_orden"] = col
-        elif "plazo" in cl:
+        elif "plazo" in cl or ("días" in cl and "entrega" in cl):
             col_map["plazo_entrega_dias"] = col
+        elif "orden" in cl and "compra" in cl and "nro_orden_fisica" not in col_map:
+            col_map["nro_orden_fisica"] = col
 
-    logger.info("Column mapping resolved: %s", col_map)
+    logger.info("Column mapping: %s", col_map)
 
-    # ── Identify the key column for merging ───────────────────────────────
+    # Find the order number column
     nro_col = col_map.get("nro_orden_fisica")
     if not nro_col:
-        # Fallback: try to find any column containing order numbers
+        # Last resort: pick any column with "orden" in the name
         for col in df.columns:
-            if "orden" in col.lower():
+            if "orden" in col.lower() and "estado" not in col.lower():
                 nro_col = col
                 col_map["nro_orden_fisica"] = col
                 break
 
     if not nro_col:
-        logger.error("Cannot find 'Nro Orden Física' column. Available: %s", list(df.columns))
+        logger.error("No 'Nro Orden Física' column found. Columns: %s", list(df.columns))
         return []
 
-    # Drop rows where the key is empty
+    # Drop rows with empty order numbers
     df = df.dropna(subset=[nro_col])
+    df[nro_col] = df[nro_col].astype(str).str.strip()
+    df = df[df[nro_col] != ""]
+
+    if len(df) == 0:
+        logger.warning("No valid rows after cleanup")
+        return []
 
     # ── Merge duplicate rows by Nro Orden Física ──────────────────────────
-    # The Excel often has the same order split across multiple rows
-    # (each row adds complementary info like different items).
-    # We concat text fields and keep max of numeric fields.
     def _merge_group(group):
-        """Merge rows sharing the same Nro Orden Física."""
         if len(group) == 1:
             return group.iloc[0]
-
         row = group.iloc[0].copy()
-
-        # For text columns: concatenate unique, non-empty values
-        text_fields = ["detalle_producto", "logistica_entrega"]
-        for field_key in text_fields:
+        for field_key in ["detalle_producto", "logistica_entrega"]:
             if field_key in col_map:
-                original_col = col_map[field_key]
-                unique_vals = group[original_col].dropna().astype(str).unique()
-                row[original_col] = " | ".join(v for v in unique_vals if v.strip())
-
-        # For numeric columns: take the max (usually the total)
-        numeric_fields = ["sub_total", "igv", "monto_total"]
-        for field_key in numeric_fields:
+                c = col_map[field_key]
+                vals = group[c].dropna().astype(str).unique()
+                row[c] = " | ".join(v for v in vals if v.strip() and v.strip() != "nan")
+        for field_key in ["sub_total", "igv", "monto_total"]:
             if field_key in col_map:
-                original_col = col_map[field_key]
-                row[original_col] = pd.to_numeric(group[original_col], errors="coerce").max()
-
+                c = col_map[field_key]
+                row[c] = pd.to_numeric(group[c], errors="coerce").max()
         return row
 
     merged = df.groupby(nro_col, sort=False).apply(_merge_group).reset_index(drop=True)
     logger.info("Merged %d raw rows → %d unique orders", len(df), len(merged))
 
-    # ── Convert to PurchaseOrderCreate objects ────────────────────────────
+    # ── Convert to PurchaseOrderCreate ────────────────────────────────────
     orders = []
     for _, row in merged.iterrows():
-        def _get(key: str, default=""):
-            original_col = col_map.get(key)
-            if original_col is None:
+        def _get(key, default=""):
+            c = col_map.get(key)
+            if c is None:
                 return default
-            val = row.get(original_col)
+            val = row.get(c)
             if pd.isna(val):
                 return default
             return val
 
-        def _get_date(key: str):
+        def _get_date(key):
             val = _get(key)
             if not val:
                 return None
-            if isinstance(val, datetime):
+            if isinstance(val, (datetime, pd.Timestamp)):
                 return val.date().isoformat()
-            if isinstance(val, pd.Timestamp):
-                return val.date().isoformat()
-            # Try parsing string dates
-            for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+            for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y %H:%M:%S"):
                 try:
                     return datetime.strptime(str(val).strip(), fmt).date().isoformat()
                 except ValueError:
                     continue
             return None
 
-        def _get_decimal(key: str):
+        def _get_decimal(key):
             val = _get(key)
             if not val:
                 return None
@@ -184,7 +181,7 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
             except (ValueError, TypeError):
                 return None
 
-        def _get_int(key: str):
+        def _get_int(key):
             val = _get(key)
             if not val:
                 return None
@@ -194,13 +191,13 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
                 return None
 
         nro = str(_get("nro_orden_fisica")).strip()
-        if not nro:
+        if not nro or nro == "nan":
             continue
 
         try:
             order = PurchaseOrderCreate(
-                codigo_acuerdo_marco=str(_get("codigo_acuerdo_marco")).strip(),
-                procedimiento=str(_get("procedimiento")).strip(),
+                codigo_acuerdo_marco=str(_get("codigo_acuerdo_marco")).strip() or "N/A",
+                procedimiento=str(_get("procedimiento")).strip() or "N/A",
                 nro_orden_fisica=nro,
                 ruc_entidad=str(_get("ruc_entidad")).strip() or None,
                 nombre_entidad=str(_get("nombre_entidad")).strip() or None,
@@ -222,14 +219,14 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
             )
             orders.append(order)
         except Exception as exc:
-            logger.warning("Skipping row with nro=%s: %s", nro, exc)
+            logger.warning("Skip row nro=%s: %s", nro, exc)
             continue
 
     logger.info("Parsed %d valid orders from Excel", len(orders))
     return orders
 
 
-# ─── Playwright RPA (Browser Automation) ──────────────────────────────────────
+# ─── Playwright RPA ───────────────────────────────────────────────────────────
 
 async def _download_excel(
     catalogo_keyword: Optional[str] = None,
@@ -237,9 +234,17 @@ async def _download_excel(
     fecha_fin: Optional[str] = None,
 ) -> Optional[str]:
     """
-    Automate the Peru Compras portal to download the detailed Excel export.
+    Automate the Peru Compras portal to download the detailed .xlsx export.
 
-    Returns the path to the downloaded .xlsx file, or None on failure.
+    Select2 dropdown IDs (verified 2026-04-10):
+      - Acuerdo Marco:    select#cboAcuerdo  (rendered via Select2)
+      - Entidad:          select#cboEntidad  (rendered via Select2)
+      - Proveedor:        select#cboProveedor
+      - Fecha inicial:    input#fechaInicial
+      - Fecha final:      input#fechaFinal
+      - Exportar check:   input#chkDetallado
+      - Search button:    button#btnBuscar
+      - XLSX download:    a#aExportarXLSX  (appears AFTER search returns results)
     """
     download_dir = tempfile.mkdtemp(prefix="ceam_scraper_")
 
@@ -251,45 +256,52 @@ async def _download_excel(
         logger.info("Navigating to %s", BASE_URL)
         try:
             await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30000)
-            await page.wait_for_timeout(3000)  # Let JS render
+            await page.wait_for_timeout(3000)
         except PWTimeout:
             logger.error("Timeout loading portal")
             await browser.close()
             return None
 
-        # ── 1. Select Acuerdo Marco ───────────────────────────────────────
+        # ── 1. Select Acuerdo Marco via Select2 ──────────────────────────
         try:
-            # Click the dropdown to open it
-            select_am = page.locator("select").first
-            options = await select_am.locator("option").all()
+            # Click the Select2 container to open the dropdown
+            select2_container = page.locator("#select2-cboAcuerdo-container")
+            await select2_container.click()
+            await page.wait_for_timeout(1000)
+
+            # Type keyword to filter options
+            search_input = page.locator("input.select2-search__field")
+            keyword = catalogo_keyword or "COMPUTADORAS DE ESCRITORIO"
+            await search_input.fill(keyword)
+            await page.wait_for_timeout(2000)
+
+            # Get all filtered results
+            results = page.locator(".select2-results__option")
+            count = await results.count()
+            logger.info("Found %d Select2 options for '%s'", count, keyword)
 
             selected = False
-            for option in options:
+            for i in range(count):
+                option = results.nth(i)
                 text = (await option.inner_text()).strip()
+                logger.info("  Option %d: %s", i, text)
 
-                # Skip placeholder
-                if "seleccione" in text.lower():
-                    continue
-
-                # Skip "No Vigente" agreements (user requirement)
+                # Skip "No Vigente" options
                 if "no vigente" in text.lower():
                     continue
 
-                # If a keyword filter was given, match it
-                if catalogo_keyword:
-                    if catalogo_keyword.lower() not in text.lower():
-                        continue
+                # Skip placeholders
+                if "seleccione" in text.lower():
+                    continue
 
-                # Select this option
-                value = await option.get_attribute("value")
-                if value:
-                    await select_am.select_option(value=value)
-                    logger.info("Selected Acuerdo Marco: %s", text)
-                    selected = True
-                    break
+                # This is a vigente option — select it
+                await option.click()
+                logger.info("Selected: %s", text)
+                selected = True
+                break
 
             if not selected:
-                logger.warning("No matching Acuerdo Marco found for keyword: %s", catalogo_keyword)
+                logger.error("No vigente option found for: %s", keyword)
                 await browser.close()
                 return None
 
@@ -302,82 +314,79 @@ async def _download_excel(
 
         # ── 2. Fill date range ────────────────────────────────────────────
         if not fecha_inicio:
-            # Default: last 12 months
             fecha_inicio = (datetime.now() - timedelta(days=365)).strftime("%d/%m/%Y")
         if not fecha_fin:
             fecha_fin = datetime.now().strftime("%d/%m/%Y")
 
         try:
-            date_inputs = page.locator("input[type='date'], input[placeholder*='Fecha']")
-            count = await date_inputs.count()
+            fi = page.locator("#fechaInicial")
+            await fi.click()
+            await fi.fill(fecha_inicio)
+            logger.info("Fecha inicial: %s", fecha_inicio)
 
-            if count >= 2:
-                # Clear and fill fecha_inicio
-                await date_inputs.nth(0).click()
-                await date_inputs.nth(0).fill("")
-                await date_inputs.nth(0).type(fecha_inicio, delay=50)
-
-                # Clear and fill fecha_fin
-                await date_inputs.nth(1).click()
-                await date_inputs.nth(1).fill("")
-                await date_inputs.nth(1).type(fecha_fin, delay=50)
-
-                logger.info("Date range: %s to %s", fecha_inicio, fecha_fin)
-            else:
-                logger.warning("Could not find date inputs (%d found)", count)
-
+            ff = page.locator("#fechaFinal")
+            await ff.click()
+            await ff.fill(fecha_fin)
+            logger.info("Fecha final: %s", fecha_fin)
         except Exception as exc:
             logger.warning("Error filling dates: %s", exc)
 
         # ── 3. Check "Exportar Detallado" ─────────────────────────────────
         try:
-            checkbox = page.locator("input[type='checkbox']").first
-            if not await checkbox.is_checked():
-                await checkbox.check()
+            chk = page.locator("#chkDetallado")
+            if not await chk.is_checked():
+                await chk.check()
                 logger.info("Checked 'Exportar Detallado'")
         except Exception as exc:
             logger.warning("Could not check 'Exportar Detallado': %s", exc)
 
-        # ── 4. Click "INICIAR BÚSQUEDA" and wait for download ─────────────
+        # ── 4. Click "INICIAR BÚSQUEDA" ──────────────────────────────────
         try:
-            search_btn = page.locator("button:has-text('INICIAR'), a:has-text('INICIAR'), input[value*='INICIAR']")
+            btn = page.locator("#btnBuscar")
+            await btn.click()
+            logger.info("Clicked INICIAR BÚSQUEDA")
 
-            if await search_btn.count() == 0:
-                # Try finding any button with search-like text
-                search_btn = page.locator("button:has-text('Buscar'), button:has-text('búsqueda')")
+            # Wait for results table to appear (up to 60s for large queries)
+            await page.wait_for_selector("table tbody tr", timeout=60000)
+            logger.info("Results table loaded")
 
-            # Start waiting for download BEFORE clicking
+            # Give some extra time for the export links to activate
+            await page.wait_for_timeout(3000)
+
+        except PWTimeout:
+            logger.error("Timeout waiting for search results")
+            await browser.close()
+            return None
+        except Exception as exc:
+            logger.error("Error during search: %s", exc)
+            await browser.close()
+            return None
+
+        # ── 5. Click .xlsx export link to download ────────────────────────
+        try:
+            xlsx_link = page.locator("#aExportarXLSX")
+            if await xlsx_link.count() == 0:
+                # Fallback: try text-based selector
+                xlsx_link = page.locator("a:has-text('.xlsx')")
+
+            logger.info("Clicking .xlsx export link...")
+
             async with page.expect_download(timeout=120000) as download_info:
-                await search_btn.first.click()
-                logger.info("Clicked search button, waiting for download...")
+                await xlsx_link.first.click()
 
             download = await download_info.value
-            dest_path = os.path.join(download_dir, download.suggested_filename or "export.xlsx")
+            filename = download.suggested_filename or "ordenes_export.xlsx"
+            dest_path = os.path.join(download_dir, filename)
             await download.save_as(dest_path)
-            logger.info("Downloaded file: %s", dest_path)
+            logger.info("Downloaded: %s (%s)", dest_path, filename)
 
             await browser.close()
             return dest_path
 
         except PWTimeout:
-            logger.warning("Download timeout — trying .xlsx link fallback")
-
-        # ── 5. Fallback: try clicking the .xlsx export link directly ──────
-        try:
-            xlsx_link = page.locator("a:has-text('.xlsx')")
-            if await xlsx_link.count() > 0:
-                async with page.expect_download(timeout=120000) as download_info:
-                    await xlsx_link.first.click()
-
-                download = await download_info.value
-                dest_path = os.path.join(download_dir, download.suggested_filename or "export.xlsx")
-                await download.save_as(dest_path)
-                logger.info("Downloaded via .xlsx link: %s", dest_path)
-
-                await browser.close()
-                return dest_path
+            logger.error("Timeout waiting for .xlsx download")
         except Exception as exc:
-            logger.error("Fallback download also failed: %s", exc)
+            logger.error("Error downloading .xlsx: %s", exc)
 
         await browser.close()
         return None
@@ -392,10 +401,7 @@ def run_scrape_sync(
 ) -> dict:
     """
     Synchronous entry-point called by Celery tasks.
-
-    1. Downloads the Excel via browser automation.
-    2. Processes and merges the data.
-    3. Upserts each record into the database.
+    max_pages is kept for API compatibility but not used (we download full Excel).
     """
     from app.services import crud
 
@@ -405,17 +411,14 @@ def run_scrape_sync(
     async def _run():
         nonlocal inserted, updated
 
-        # Download the Excel file
         filepath = await _download_excel(catalogo_keyword=catalogo)
 
         if not filepath or not os.path.exists(filepath):
-            logger.error("No Excel file was downloaded")
+            logger.error("No Excel file downloaded")
             return
 
-        # Process the Excel into clean records
         orders = _process_excel(filepath)
 
-        # Upsert each record
         for order in orders:
             existing = crud.get_order_by_nro(db_session, order.nro_orden_fisica)
             crud.upsert_order(db_session, order)
@@ -424,7 +427,6 @@ def run_scrape_sync(
             else:
                 inserted += 1
 
-        # Cleanup temp file
         try:
             os.remove(filepath)
         except OSError:
