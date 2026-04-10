@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { purchaseOrdersApi } from '../services/api';
 import StatCard from '../components/dashboard/StatCard';
 import { CatalogBarChart, CategoryPieChart } from '../components/dashboard/Charts';
-import { RefreshCw, TrendingUp } from 'lucide-react';
+import { RefreshCw, TrendingUp, Building2 } from 'lucide-react';
 
 const Dashboard = () => {
   const [stats, setStats] = useState(null);
@@ -18,86 +18,119 @@ const Dashboard = () => {
       const response = await purchaseOrdersApi.getStats();
       setStats(response.data);
     } catch (error) {
-      console.error("Error fetching stats:", error);
+      console.error('Error fetching stats:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading && !stats) return <div className="p-10 text-center">Cargando análisis...</div>;
+  if (loading && !stats) {
+    return (
+      <div>
+        <div className="page-header">
+          <h1>Dashboard</h1>
+          <p>Cargando análisis de mercado...</p>
+        </div>
+        <div className="stats-grid">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="stat-card">
+              <div className="skeleton" style={{ height: 14, width: 100, marginBottom: 12 }} />
+              <div className="skeleton" style={{ height: 32, width: 80 }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="animate-fade">
-      <div className="flex justify-between items-center mb-8">
+    <div>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1>Auditoría de Mercado</h1>
-          <p className="subtitle">Análisis inteligente de Perú Compras</p>
+          <h1>Dashboard</h1>
+          <p>Análisis inteligente de órdenes — Perú Compras</p>
         </div>
-        <button onClick={fetchStats} className="nav-link" style={{ border: '1px solid var(--border-color)' }}>
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          <span>Actualizar</span>
+        <button onClick={fetchStats} className="btn" disabled={loading}>
+          <RefreshCw size={14} className={loading ? 'spin' : ''} />
+          Actualizar
         </button>
       </div>
 
-      <div className="dashboard-grid">
-        <StatCard 
-          label="Total Órdenes" 
-          value={stats?.total_orders.toLocaleString() || '0'} 
-          trend="+12% este mes" 
-          isPositive={true} 
+      <div className="stats-grid">
+        <StatCard
+          label="Total Órdenes"
+          value={stats?.total_orders?.toLocaleString() || '0'}
+          trend="+12% este mes"
+          isPositive={true}
         />
-        <StatCard 
-          label="Monto Total" 
-          value={(stats?.total_amount / 1000000).toFixed(2) + 'M'} 
-          prefix="S/ " 
-          trend="+5.4% vs prev" 
-          isPositive={true} 
+        <StatCard
+          label="Monto Total Adjudicado"
+          value={stats?.total_amount ? (stats.total_amount / 1000000).toFixed(2) + 'M' : '0'}
+          prefix="S/ "
+          trend="+5.4% vs anterior"
+          isPositive={true}
         />
-        <StatCard 
-          label="Proveedores Activos" 
-          value="42" 
-          trend="Estable" 
-          isPositive={true} 
+        <StatCard
+          label="Proveedores Activos"
+          value="42"
+          trend="Estable"
+          isPositive={true}
         />
-        <StatCard 
-          label="Tasa de Éxito Scraper" 
-          value="98.5%" 
-          trend="+2.1%" 
-          isPositive={true} 
+        <StatCard
+          label="Tasa de Éxito"
+          value="98.5%"
+          trend="+2.1%"
+          isPositive={true}
         />
       </div>
 
-      <div className="chart-grid">
+      <div className="charts-row">
         <CatalogBarChart data={stats?.by_catalogo || []} />
         <CategoryPieChart data={stats?.by_categoria || []} />
       </div>
 
-      <div className="glass-effect p-8">
-        <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-          <TrendingUp size={20} className="text-green-600" />
-          Top 5 Proveedores con Mayor Monto
-        </h3>
-        <div className="data-table-container">
-          <table>
+      {/* Top Providers Table */}
+      <div className="card fade-up">
+        <div className="card-header">
+          <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <TrendingUp size={16} style={{ color: 'var(--c-success)' }} />
+            Top 5 Proveedores con Mayor Monto
+          </span>
+        </div>
+        <div className="table-wrap">
+          <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: 40 }}>#</th>
                 <th>Proveedor</th>
                 <th style={{ textAlign: 'right' }}>Monto Adjudicado (PEN)</th>
                 <th>Estado</th>
               </tr>
             </thead>
             <tbody>
-              {stats?.top_providers.map((provider, i) => (
+              {stats?.top_providers?.map((provider, i) => (
                 <tr key={i}>
-                  <td className="font-medium text-blue-600">{provider.nombre_proveedor}</td>
-                  <td style={{ textAlign: 'right' }}>{provider.total.toLocaleString()}</td>
+                  <td style={{ color: 'var(--c-text-tertiary)', fontWeight: 500 }}>{i + 1}</td>
                   <td>
-                    <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-600">
-                      Activo
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Building2 size={14} style={{ color: 'var(--c-brand)', flexShrink: 0 }} />
+                      <span style={{ fontWeight: 500 }}>{provider.nombre_proveedor}</span>
+                    </div>
+                  </td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                    S/ {provider.total?.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
+                  </td>
+                  <td>
+                    <span className="badge badge-success">Activo</span>
                   </td>
                 </tr>
-              ))}
+              )) || (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'center', color: 'var(--c-text-tertiary)', padding: 32 }}>
+                    Sin datos disponibles
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

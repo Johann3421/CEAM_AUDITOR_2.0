@@ -1,35 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { scraperApi } from '../services/api';
-import { Play, Square, Loader2, CheckCircle, AlertCircle, Clock, History } from 'lucide-react';
+import { Play, Square, Loader2, CheckCircle, AlertCircle, Clock, Activity } from 'lucide-react';
 
 const ScraperControl = () => {
-  const [task_id, setTaskId] = useState(null);
+  const [taskId, setTaskId] = useState(null);
   const [status, setStatus] = useState(null);
   const [catalogo, setCatalogo] = useState('Útiles de Escritorio');
   const [maxPages, setMaxPages] = useState(5);
   const [polling, setPolling] = useState(false);
 
   const checkStatus = async () => {
-    if (!task_id) return;
+    if (!taskId) return;
     try {
-      const response = await scraperApi.getStatus(task_id);
+      const response = await scraperApi.getStatus(taskId);
       setStatus(response.data);
       if (['SUCCESS', 'FAILURE', 'REVOKED'].includes(response.data.status)) {
         setPolling(false);
       }
     } catch (error) {
-      console.error("Error checking status:", error);
+      console.error('Error checking status:', error);
       setPolling(false);
     }
   };
 
   useEffect(() => {
     let interval;
-    if (polling && task_id) {
+    if (polling && taskId) {
       interval = setInterval(checkStatus, 3000);
     }
     return () => clearInterval(interval);
-  }, [polling, task_id]);
+  }, [polling, taskId]);
 
   const startScrape = async () => {
     try {
@@ -38,139 +38,157 @@ const ScraperControl = () => {
       setStatus({ status: 'PENDING' });
       setPolling(true);
     } catch (error) {
-      console.error("Error starting scrape:", error);
+      console.error('Error starting scrape:', error);
     }
   };
 
   const stopScrape = async () => {
-    if (!task_id) return;
+    if (!taskId) return;
     try {
-      await scraperApi.revoke(task_id, true);
+      await scraperApi.revoke(taskId, true);
       setPolling(false);
       checkStatus();
     } catch (error) {
-      console.error("Error stopping scrape:", error);
+      console.error('Error stopping scrape:', error);
     }
   };
 
-  const getStatusColor = (s) => {
+  const getStatusBadge = (s) => {
     switch (s) {
-      case 'SUCCESS': return 'text-green-600';
-      case 'FAILURE': return 'text-red-500';
-      case 'PENDING': return 'text-amber-500';
-      case 'STARTED': return 'text-blue-500';
-      default: return 'text-gray-500';
+      case 'SUCCESS': return 'badge-success';
+      case 'FAILURE': return 'badge-danger';
+      case 'PENDING': return 'badge-warning';
+      case 'STARTED': return 'badge-info';
+      default: return 'badge-info';
     }
   };
 
   return (
-    <div className="animate-fade">
-      <h1>Scraper & Automatización</h1>
-      <p className="subtitle">Configura y lanza motores de extracción de datos</p>
+    <div>
+      <div className="page-header">
+        <h1>Scraper</h1>
+        <p>Motor de extracción de datos — Perú Compras</p>
+      </div>
 
-      <div className="chart-grid">
-        {/* Configuration Card */}
-        <div className="glass-effect p-8">
-          <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
-            <Play size={20} className="text-green-600" />
-            Configurar Extracción
-          </h3>
-          
-          <div className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-2">Palabra Clave / Catálogo</label>
-              <input 
-                type="text" 
-                className="input-custom" 
+      <div className="scraper-grid">
+        {/* Config Card */}
+        <div className="card fade-up">
+          <div className="card-header">
+            <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Play size={15} style={{ color: 'var(--c-brand)' }} />
+              Configurar Extracción
+            </span>
+          </div>
+          <div className="card-body">
+            <div style={{ marginBottom: 20 }}>
+              <label className="form-label">Palabra Clave / Catálogo</label>
+              <input
+                type="text"
+                className="form-input"
                 value={catalogo}
                 onChange={(e) => setCatalogo(e.target.value)}
                 placeholder="Ej: Material de Oficina"
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-2">Páginas Máximas: {maxPages}</label>
-              <input 
-                type="range" 
-                min="1" 
-                max="50" 
+            <div style={{ marginBottom: 24 }}>
+              <label className="form-label">
+                Páginas máximas: <strong>{maxPages}</strong>
+              </label>
+              <input
+                type="range"
+                min="1"
+                max="50"
                 step="1"
-                className="w-full accent-emerald-500"
                 value={maxPages}
                 onChange={(e) => setMaxPages(parseInt(e.target.value))}
               />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--c-text-tertiary)', marginTop: 4 }}>
+                <span>1</span>
+                <span>25</span>
+                <span>50</span>
+              </div>
             </div>
 
-            <div className="flex gap-4 pt-4">
-              {!polling ? (
-                <button 
-                  onClick={startScrape}
-                  className="btn-primary flex-1 flex items-center justify-center gap-2 py-4"
-                >
-                  <Play size={20} />
-                  Lanzar Scraper
-                </button>
-              ) : (
-                <button 
-                  onClick={stopScrape}
-                  className="bg-red-500 text-white flex-1 flex items-center justify-center gap-2 py-4 rounded-lg font-bold"
-                >
-                  <Square size={20} />
-                  Detener Proceso
-                </button>
-              )}
-            </div>
+            {!polling ? (
+              <button onClick={startScrape} className="btn btn-primary btn-lg" style={{ width: '100%' }}>
+                <Play size={16} />
+                Lanzar Scraper
+              </button>
+            ) : (
+              <button onClick={stopScrape} className="btn btn-danger btn-lg" style={{ width: '100%' }}>
+                <Square size={16} />
+                Detener Proceso
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Live Status Card */}
-        <div className="glass-effect p-8 flex flex-col justify-center items-center text-center">
-          {!status ? (
-            <>
-              <Clock size={64} className="text-gray-200 mb-4" />
-              <h4 className="text-lg font-semibold text-gray-500">Esperando ejecución...</h4>
-              <p className="text-sm text-gray-400 mt-2">Configura los parámetros y presiona lanzar</p>
-            </>
-          ) : (
-            <div className="w-full">
-              <div className="mb-8">
-                {polling ? (
-                  <Loader2 size={64} className="text-blue-500 animate-spin mx-auto mb-4" />
-                ) : status.status === 'SUCCESS' ? (
-                  <CheckCircle size={64} className="text-green-600 mx-auto mb-4" />
-                ) : (
-                  <AlertCircle size={64} className="text-red-500 mx-auto mb-4" />
-                )}
-                <h4 className={`text-2xl font-bold ${getStatusColor(status.status)}`}>
-                  {status.status}
-                </h4>
-                <p className="text-sm text-gray-500 mt-1">ID: {task_id}</p>
+        {/* Status Card */}
+        <div className="card fade-up">
+          <div className="card-header">
+            <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Activity size={15} style={{ color: 'var(--c-info)' }} />
+              Estado en Tiempo Real
+            </span>
+          </div>
+          <div className="card-body">
+            {!status ? (
+              <div className="scraper-status-center">
+                <Clock size={48} style={{ color: 'var(--c-border)', marginBottom: 12 }} />
+                <p style={{ fontWeight: 500, color: 'var(--c-text-secondary)' }}>
+                  Esperando ejecución...
+                </p>
+                <p style={{ fontSize: 12, color: 'var(--c-text-tertiary)', marginTop: 4 }}>
+                  Configura los parámetros y presiona Lanzar
+                </p>
               </div>
+            ) : (
+              <div className="scraper-status-center">
+                {polling ? (
+                  <Loader2 size={48} className="spin" style={{ color: 'var(--c-brand)', marginBottom: 16 }} />
+                ) : status.status === 'SUCCESS' ? (
+                  <CheckCircle size={48} style={{ color: 'var(--c-success)', marginBottom: 16 }} />
+                ) : (
+                  <AlertCircle size={48} style={{ color: 'var(--c-danger)', marginBottom: 16 }} />
+                )}
 
-              {status.result && (
-                <div className="bg-gray-50 p-4 rounded-xl space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Insertadas:</span>
-                    <span className="font-bold text-green-600">{status.result.inserted}</span>
+                <span className={`badge ${getStatusBadge(status.status)}`} style={{ fontSize: 13, padding: '4px 16px', marginBottom: 8 }}>
+                  {status.status}
+                </span>
+
+                {taskId && (
+                  <p style={{ fontSize: 11, color: 'var(--c-text-tertiary)', fontFamily: 'monospace', marginTop: 4 }}>
+                    ID: {taskId}
+                  </p>
+                )}
+
+                {status.result && (
+                  <div style={{ width: '100%', marginTop: 20, padding: '16px', background: 'var(--c-bg)', borderRadius: 8 }}>
+                    <div className="scraper-result-row">
+                      <span style={{ color: 'var(--c-text-secondary)' }}>Registros insertados</span>
+                      <strong style={{ color: 'var(--c-success)' }}>{status.result.inserted}</strong>
+                    </div>
+                    <div className="scraper-result-row">
+                      <span style={{ color: 'var(--c-text-secondary)' }}>Registros actualizados</span>
+                      <strong style={{ color: 'var(--c-brand)' }}>{status.result.updated}</strong>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Actualizadas:</span>
-                    <span className="font-bold text-blue-500">{status.result.updated}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="mt-8 glass-effect p-8">
-        <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-          <History size={20} className="text-blue-500" />
-          Log de Actividad Reciente
-        </h3>
-        <div className="text-gray-400 text-center py-10 italic">
-          No hay actividad registrada en la sesión actual.
+      {/* Activity log */}
+      <div className="card fade-up">
+        <div className="card-header">
+          <span className="card-title">Actividad Reciente</span>
+        </div>
+        <div className="empty-state">
+          <Activity size={36} />
+          <p>No hay actividad registrada en la sesión actual.</p>
         </div>
       </div>
     </div>

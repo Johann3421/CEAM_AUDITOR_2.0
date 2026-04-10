@@ -1,35 +1,45 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Table, Database, Settings, Shield } from 'lucide-react';
+import { LayoutDashboard, Table, Cpu, Settings } from 'lucide-react';
+
+const links = [
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/orders', icon: Table, label: 'Órdenes de Compra' },
+  { to: '/scraper', icon: Cpu, label: 'Scraper' },
+];
 
 const Sidebar = () => {
   return (
     <aside className="sidebar">
-      <div className="sidebar-logo">
-        <Shield size={32} />
-        <span>CEAM 2.0</span>
+      <div className="sidebar-header">
+        <div className="sidebar-brand">
+          <div className="sidebar-brand-icon">CA</div>
+          <div>
+            <div className="sidebar-brand-text">CEAM Auditor</div>
+            <div className="sidebar-brand-sub">Perú Compras · v2.0</div>
+          </div>
+        </div>
       </div>
-      
-      <nav style={{ flex: 1 }}>
-        <NavLink to="/" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-          <LayoutDashboard size={20} />
-          <span>Dashboard</span>
-        </NavLink>
-        <NavLink to="/orders" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-          <Table size={20} />
-          <span>Órdenes de Compra</span>
-        </NavLink>
-        <NavLink to="/scraper" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-          <Database size={20} />
-          <span>Scraper & Jobs</span>
-        </NavLink>
+
+      <nav className="sidebar-nav">
+        {links.map(({ to, icon: Icon, label }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === '/'}
+            className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
+          >
+            <Icon size={18} />
+            <span>{label}</span>
+          </NavLink>
+        ))}
       </nav>
 
       <div className="sidebar-footer">
-        <NavLink to="/settings" className="nav-link">
-          <Settings size={20} />
+        <a href="#" className="sidebar-link" onClick={(e) => e.preventDefault()}>
+          <Settings size={18} />
           <span>Configuración</span>
-        </NavLink>
+        </a>
       </div>
     </aside>
   );

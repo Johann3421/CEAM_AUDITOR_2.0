@@ -1,89 +1,111 @@
 import React from 'react';
-import { ExternalLink, FileText, Calendar, Building2, User } from 'lucide-react';
+import { ExternalLink, FileText, Building2, User, Calendar } from 'lucide-react';
 
 const OrderTable = ({ orders, loading }) => {
   if (loading) {
     return (
-      <div className="p-20 text-center animate-pulse">
-        <div className="h-8 bg-white/5 rounded w-full mb-4"></div>
-        <div className="h-8 bg-white/5 rounded w-full mb-4"></div>
-        <div className="h-8 bg-white/5 rounded w-full mb-4"></div>
+      <div className="card" style={{ marginTop: 16 }}>
+        <div style={{ padding: 20 }}>
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="skeleton" style={{ height: 40, marginBottom: 8 }} />
+          ))}
+        </div>
       </div>
     );
   }
 
-  if (orders.length === 0) {
+  if (!orders || orders.length === 0) {
     return (
-      <div className="p-20 text-center glass-effect mt-8">
-        <FileText size={48} className="mx-auto text-white/10 mb-4" />
-        <p className="text-white/40">No se encontraron órdenes con los filtros actuales.</p>
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="empty-state">
+          <FileText size={40} />
+          <p>No se encontraron órdenes con los filtros actuales.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="data-table-container glass-effect mt-8 p-1">
-      <table>
-        <thead>
-          <tr>
-            <th>Nro. Orden Física</th>
-            <th>Entidad / Proveedor</th>
-            <th>Publicación</th>
-            <th>Monto (PEN)</th>
-            <th>Estado</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          {orders.map((order) => (
-            <tr key={order.id} className="animate-fade">
-              <td>
-                <div className="font-semibold text-blue-400">{order.nro_orden_fisica}</div>
-                <div className="text-[10px] text-white/40 truncate w-32">{order.codigo_acuerdo_marco}</div>
-              </td>
-              <td>
-                <div className="flex items-center gap-2 mb-1">
-                  <Building2 size={12} className="text-emerald-500" />
-                  <span className="font-medium truncate max-w-[200px]">{order.nombre_entidad}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <User size={12} className="text-blue-500" />
-                  <span className="text-xs text-white/60 truncate max-w-[200px]">{order.nombre_proveedor}</span>
-                </div>
-              </td>
-              <td>
-                <div className="flex items-center gap-2 text-xs text-white/60">
-                  <Calendar size={12} />
-                  {new Date(order.fecha_publicacion).toLocaleDateString()}
-                </div>
-              </td>
-              <td className="font-bold">
-                {order.monto_total.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
-              </td>
-              <td>
-                <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                  order.estado_orden?.toLowerCase().includes('aceptada') 
-                    ? 'bg-emerald-500/10 text-emerald-500' 
-                    : 'bg-amber-500/10 text-amber-500'
-                }`}>
-                  {order.estado_orden || 'S/E'}
-                </span>
-              </td>
-              <td>
-                <a 
-                  href={order.pdf_url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="p-2 hover:bg-white/5 rounded-lg transition-colors inline-block text-blue-400"
-                  title="Ver detalle / PDF"
-                >
-                  <ExternalLink size={18} />
-                </a>
-              </td>
+    <div className="card" style={{ marginTop: 16 }}>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Nro. Orden</th>
+              <th>Entidad</th>
+              <th>Proveedor</th>
+              <th>Publicación</th>
+              <th style={{ textAlign: 'right' }}>Monto (PEN)</th>
+              <th>Estado</th>
+              <th style={{ width: 60 }}>PDF</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {orders.map((order) => (
+              <tr key={order.id} className="fade-up">
+                <td>
+                  <span style={{ fontWeight: 600, color: 'var(--c-brand)' }}>
+                    {order.nro_orden_fisica}
+                  </span>
+                </td>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Building2 size={13} style={{ color: 'var(--c-text-tertiary)', flexShrink: 0 }} />
+                    <span style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {order.nombre_entidad}
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <User size={13} style={{ color: 'var(--c-text-tertiary)', flexShrink: 0 }} />
+                    <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--c-text-secondary)' }}>
+                      {order.nombre_proveedor}
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--c-text-secondary)', fontSize: 12 }}>
+                    <Calendar size={12} />
+                    {order.fecha_publicacion
+                      ? new Date(order.fecha_publicacion).toLocaleDateString('es-PE')
+                      : '—'}
+                  </div>
+                </td>
+                <td style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                  {order.monto_total?.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
+                </td>
+                <td>
+                  <span className={`badge ${
+                    order.estado_orden?.toLowerCase().includes('aceptada')
+                      ? 'badge-success'
+                      : order.estado_orden?.toLowerCase().includes('pend')
+                        ? 'badge-warning'
+                        : 'badge-info'
+                  }`}>
+                    {order.estado_orden || 'S/E'}
+                  </span>
+                </td>
+                <td>
+                  {order.pdf_url ? (
+                    <a
+                      href={order.pdf_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-sm"
+                      title="Ver PDF"
+                    >
+                      <ExternalLink size={14} />
+                    </a>
+                  ) : (
+                    <span style={{ color: 'var(--c-text-tertiary)', fontSize: 12 }}>—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

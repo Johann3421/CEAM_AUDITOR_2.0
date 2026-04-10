@@ -5,20 +5,16 @@ import Dashboard from './pages/Dashboard';
 import Orders from './pages/Orders';
 import ScraperControl from './pages/ScraperControl';
 
-// Placeholder for missing modules
-const SettingsPage = () => <div className="p-10"><h1>Configuración</h1><p className="subtitle">Módulo en desarrollo...</p></div>;
-
 function App() {
   return (
     <Router>
-      <div className="app-container">
+      <div className="app-shell">
         <Sidebar />
-        <main className="main-content">
+        <main className="page-container">
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/scraper" element={<ScraperControl />} />
-            <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>
       </div>

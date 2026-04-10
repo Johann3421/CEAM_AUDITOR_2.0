@@ -1,14 +1,14 @@
 import React from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 
-const StatCard = ({ label, value, trend, isPositive, prefix = "" }) => {
+const StatCard = ({ label, value, trend, isPositive, prefix = '' }) => {
   return (
-    <div className="glass-effect stat-card animate-fade">
-      <span className="stat-label">{label}</span>
-      <div className="stat-value">{prefix}{value}</div>
+    <div className="stat-card fade-up">
+      <div className="stat-card-label">{label}</div>
+      <div className="stat-card-value">{prefix}{value}</div>
       {trend && (
-        <span className={`stat-trend ${isPositive ? 'trend-up' : 'text-red-500'}`}>
-          {isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+        <span className={`stat-card-trend ${isPositive ? 'positive' : 'negative'}`}>
+          {isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
           {trend}
         </span>
       )}
