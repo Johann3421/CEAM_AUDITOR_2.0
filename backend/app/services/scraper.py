@@ -388,7 +388,10 @@ async def _download_excel(
             logger.info("Clicking .xlsx export link...")
 
             async with page.expect_download(timeout=120000) as download_info:
-                await xlsx_link.first.click()
+                # Utilizamos evaluate para saltar las validaciones estrictas de Playwright.
+                # A veces el framework ASP.NET le deja un atributo 'disabled' falso al botón
+                # aunque funcionalmente ya permite la descarga.
+                await xlsx_link.first.evaluate("node => node.click()")
 
             download = await download_info.value
             filename = download.suggested_filename or "ordenes_export.xlsx"
