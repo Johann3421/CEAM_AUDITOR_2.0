@@ -1,4 +1,5 @@
 """Scraper management endpoints — trigger jobs and query status."""
+import traceback
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from celery.result import AsyncResult
@@ -62,24 +63,61 @@ def revoke_task(task_id: str, terminate: bool = Query(False)):
 
 
 @router.get("/test-download")
-def test_download(
+async def test_download(
     catalogo: str = Query("COMPUTADORAS DE ESCRITORIO", description="Keyword to search"),
 ):
     """
-    Run the Playwright download SYNCHRONOUSLY in the API process (no Celery).
-    Use this endpoint from Swagger /docs to diagnose scraper failures directly —
-    it returns the error message (or success count) in the HTTP response.
-    WARNING: blocks the API worker for the duration of the download (~2–5 min).
+    Run the Playwright download directly in the API process (no Celery).
+    Returns full error details as JSON so failures are visible in Swagger /docs.
+    WARNING: blocks for the duration of the download (~2–5 min).
     """
     from app.db.database import SessionLocal
-    from app.services.scraper import run_scrape_sync
+    from app.services.scraper import _download_excel, _process_excel
+    from app.services import crud
 
+    try:
+        filepath = await _download_excel(catalogo_keyword=catalogo)
+    except BaseException as exc:
+        return {
+            "status": "error",
+            "phase": "playwright_download",
+            "error": str(exc),
+            "trace": traceback.format_exc(),
+        }
+
+    if not filepath:
+        return {"status": "error", "phase": "playwright_download", "error": "No se descargó ningún archivo (filepath es None)"}
+
+    try:
+        orders = _process_excel(filepath)
+    except BaseException as exc:
+        return {
+            "status": "error",
+            "phase": "excel_processing",
+            "error": str(exc),
+            "trace": traceback.format_exc(),
+        }
+
+    inserted = 0
+    updated = 0
     db = SessionLocal()
     try:
-        result = run_scrape_sync(db, catalogo=catalogo)
-        return {"status": "ok", **result}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        for order in orders:
+            existing = crud.get_order_by_nro(db, order.nro_orden_fisica)
+            crud.upsert_order(db, order)
+            if existing:
+                updated += 1
+            else:
+                inserted += 1
+    except BaseException as exc:
+        db.close()
+        return {
+            "status": "error",
+            "phase": "db_upsert",
+            "error": str(exc),
+            "trace": traceback.format_exc(),
+        }
     finally:
         db.close()
-    return {"task_id": task_id, "revoked": True}
+
+    return {"status": "ok", "orders_parsed": len(orders), "inserted": inserted, "updated": updated}
