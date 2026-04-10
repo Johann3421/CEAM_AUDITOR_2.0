@@ -324,9 +324,10 @@ async def _download_excel(
 
         # ── 2. Fill date range ────────────────────────────────────────────
         if not fecha_inicio:
-            fecha_inicio = (datetime.now() - timedelta(days=365)).strftime("%d/%m/%Y")
+            # Por petición del usuario, fijamos el default en un rango de 2025 que tenga datos
+            fecha_inicio = "01/01/2025"
         if not fecha_fin:
-            fecha_fin = datetime.now().strftime("%d/%m/%Y")
+            fecha_fin = "31/03/2025"
 
         try:
             fi = page.locator("#fechaInicial")
@@ -355,6 +356,10 @@ async def _download_excel(
             btn = page.locator("#btnBuscar")
             await btn.click()
             logger.info("Clicked INICIAR BÚSQUEDA")
+
+            # Wait a moment for the AJAX request to start and the old table to clear
+            # This prevents a race condition where it detects the previous empty state.
+            await page.wait_for_timeout(2000)
 
             # Wait for results. We wait for 'attached' rather than 'visible' to bypass
             # cases where the table is loaded but technically hidden by CSS or a loader overlay.
