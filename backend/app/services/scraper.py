@@ -375,9 +375,12 @@ async def _download_excel(
             except Exception:
                 logger.warning("networkidle sync took >15s (ignored)")
 
-            # Count rows to debug
-            rows_on_screen = await page.locator("tr.FilaDatos").count()
-            logger.info(f"ROWS ON SCREEN BEFORE EXPORT: {rows_on_screen}")
+            # Collect diagnostics
+            first_row_text = ""
+            if rows_on_screen > 0:
+                first_row_text = await page.locator("tr.FilaDatos").first.inner_text()
+            
+            logger.info("ROWS ON SCREEN: %s, FIRST ROW: %s", rows_on_screen, first_row_text)
 
             # Esperar unos segundos finales para asegurar que el server activó la sesión del Excel en este estado
             await page.wait_for_timeout(5000)
@@ -398,6 +401,12 @@ async def _download_excel(
                 # Fallback: try text-based selector
                 xlsx_link = page.locator("a:has-text('.xlsx')")
 
+            link_href = await xlsx_link.first.get_attribute("href")
+            link_class = await xlsx_link.first.get_attribute("class")
+            link_disabled = await xlsx_link.first.get_attribute("disabled")
+            
+            logger.info("Export link Diagnostics: href=%s class=%s disabled=%s", link_href, link_class, link_disabled)
+
             logger.info("Clicking .xlsx export link...")
 
             async with page.expect_download(timeout=120000) as download_info:
@@ -413,7 +422,7 @@ async def _download_excel(
             logger.info("Downloaded: %s (%s)", dest_path, filename)
 
             await browser.close()
-            return dest_path, rows_on_screen
+            return dest_path, rows_on_screen, first_row_text, f"href: {link_href}, class: {link_class}, disabled: {link_disabled}"
 
         except PWTimeout:
             await browser.close()
@@ -444,7 +453,7 @@ def run_scrape_sync(
     async def _run():
         nonlocal inserted, updated
 
-        filepath, _ = await _download_excel(catalogo_keyword=catalogo)
+        filepath, rows_on_screen, fr_text, link_diag = await _download_excel(catalogo_keyword=catalogo)
 
         if not filepath or not os.path.exists(filepath):
             logger.error("No Excel file downloaded")
