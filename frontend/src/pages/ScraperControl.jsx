@@ -175,6 +175,14 @@ const ScraperControl = () => {
                     </div>
                   </div>
                 )}
+
+                {status.error && (
+                  <div style={{ width: '100%', marginTop: 20, padding: '14px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 8 }}>
+                    <p style={{ color: 'var(--c-danger)', fontSize: 13, margin: 0, lineHeight: 1.5, wordBreak: 'break-word' }}>
+                      <strong>Error:</strong> {status.error}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

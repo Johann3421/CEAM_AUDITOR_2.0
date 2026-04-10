@@ -249,7 +249,15 @@ async def _download_excel(
     download_dir = tempfile.mkdtemp(prefix="ceam_scraper_")
 
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ],
+        )
         context = await browser.new_context(accept_downloads=True)
         page = await context.new_page()
 
@@ -258,9 +266,8 @@ async def _download_excel(
             await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30000)
             await page.wait_for_timeout(3000)
         except PWTimeout:
-            logger.error("Timeout loading portal")
             await browser.close()
-            return None
+            raise RuntimeError("Timeout al cargar el portal de Perú Compras (30 s). Verifica la conexión de red.")
 
         # ── 1. Select Acuerdo Marco via Select2 ──────────────────────────
         try:
@@ -301,16 +308,19 @@ async def _download_excel(
                 break
 
             if not selected:
-                logger.error("No vigente option found for: %s", keyword)
                 await browser.close()
-                return None
+                raise RuntimeError(
+                    f"No se encontró ningún Acuerdo Marco vigente para la búsqueda: '{keyword}'. "
+                    "Verifica que la palabra clave coincida con un convenio activo en el portal."
+                )
 
             await page.wait_for_timeout(1500)
 
+        except RuntimeError:
+            raise
         except Exception as exc:
-            logger.error("Error selecting Acuerdo Marco: %s", exc)
             await browser.close()
-            return None
+            raise RuntimeError(f"Error al seleccionar Acuerdo Marco en el portal: {exc}") from exc
 
         # ── 2. Fill date range ────────────────────────────────────────────
         if not fecha_inicio:
@@ -354,13 +364,13 @@ async def _download_excel(
             await page.wait_for_timeout(3000)
 
         except PWTimeout:
-            logger.error("Timeout waiting for search results")
             await browser.close()
-            return None
+            raise RuntimeError("Timeout esperando los resultados de búsqueda (60 s). El portal tardó demasiado.")
+        except RuntimeError:
+            raise
         except Exception as exc:
-            logger.error("Error during search: %s", exc)
             await browser.close()
-            return None
+            raise RuntimeError(f"Error al ejecutar la búsqueda en el portal: {exc}") from exc
 
         # ── 5. Click .xlsx export link to download ────────────────────────
         try:
@@ -384,12 +394,13 @@ async def _download_excel(
             return dest_path
 
         except PWTimeout:
-            logger.error("Timeout waiting for .xlsx download")
+            await browser.close()
+            raise RuntimeError("Timeout al descargar el archivo .xlsx (120 s). El portal no entregó el archivo a tiempo.")
+        except RuntimeError:
+            raise
         except Exception as exc:
-            logger.error("Error downloading .xlsx: %s", exc)
-
-        await browser.close()
-        return None
+            await browser.close()
+            raise RuntimeError(f"Error al descargar el archivo .xlsx: {exc}") from exc
 
 
 # ─── Sync Wrapper for Celery ──────────────────────────────────────────────────
