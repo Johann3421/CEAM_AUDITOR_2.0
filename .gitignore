@@ -1,0 +1,49 @@
+# =============================================================================
+# CEAM AUDITOR 2.0 — Root Git Ignore
+# =============================================================================
+
+# --- OS & IDEs ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.gemini/
+
+# --- Backend (Python) ---
+backend/__pycache__/
+backend/*.pyc
+backend/*.pyo
+backend/*.pyd
+backend/.venv/
+backend/env/
+backend/venv/
+backend/.env
+backend/.pytest_cache/
+backend/alembic/env.py.bak
+backend/*.db
+backend/*.log
+
+# --- Frontend (Node) ---
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+frontend/.env
+frontend/.env.development
+frontend/.env.production
+frontend/.eslintcache
+
+# --- Docker & DB ---
+postgres_data/
+redis_data/
+*.sql
+*.tar
+docker-compose.override.yml
+
+# --- Playwright ---
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
