@@ -376,6 +376,7 @@ async def _download_excel(
                 logger.warning("networkidle sync took >15s (ignored)")
 
             # Collect diagnostics
+            rows_on_screen = await page.locator("tr.FilaDatos").count()
             first_row_text = ""
             if rows_on_screen > 0:
                 first_row_text = await page.locator("tr.FilaDatos").first.inner_text()
