@@ -30,39 +30,52 @@ Dashboard inteligente y extractor de datos avanzado para auditar órdenes de com
    ```bash
    docker-compose up --build
    ```
-   - **Frontend**: http://localhost:3000
-   - **API/Docs**: http://localhost:8000/docs
-   - **Flower (Monitor Celery)**: http://localhost:5555
+   - **Frontend**: http://localhost:3087
+   - **API/Docs**: http://localhost:8087/docs
+   - **Flower (Monitor Celery)**: http://localhost:5587
 
 ---
 
 ## 🚢 Despliegue en Dokploy (Paso a Paso)
 
-Sigue estas instrucciones para desplegar todo el sistema en tu servidor:
+Para evitar colisiones de puertos con otros proyectos en tu servidor, **hemos modificado los puertos base expuestos hacia el host (ej. 8087, 3087, 5487, etc.).** 
 
-### 1. Crear el Proyecto
-- Entra a tu panel de Dokploy.
-- Haz clic en **"Create Project"** y nómbralo `CEAM-AUDITOR`.
+Sigue estas instrucciones detalladas para desplegar y enlazar tus dominios:
 
-### 2. Configurar el Servicio (Docker Compose)
-- Dentro del proyecto, haz clic en **"Create Service"** -> **"Compose"**.
-- En **"Source"**, selecciona **GitHub** y conecta este repositorio: `Johann3421/CEAM_AUDITOR_2.0`.
-- En **"Branch"**, escribe `main`.
+### 1. Crear el Proyecto y el Servicio Compose
+1. En el panel de Dokploy, ve a **Projects** -> **Create Project** (nómbralo `CEAM-AUDITOR`).
+2. Entra al proyecto y da clic en **Create Service** -> selecciona **Compose**.
+3. En **Source**, selecciona **GitHub** y busca `Johann3421/CEAM_AUDITOR_2.0`. 
+4. Rama: `main`.
 
-### 3. Configurar Variables de Entorno (IMPORTANTE)
-Ve a la pestaña **"Environment"** del servicio en Dokploy y añade estas variables:
+### 2. Configurar Variables de Entorno
+Ve a la pestaña **Environment** de tu servicio Compose recién creado y añade:
 
 | Key | Value |
 | --- | --- |
-| `DATABASE_URL` | `postgresql://postgres:postgres@db:5432/ceam_auditor` |
+| `DATABASE_URL` | `postgresql://postgres:postgres@db:5432/ceam_auditor` *(Usa puerto interno 5432, Docker maneja la resolución por nombre `db`)* |
 | `CELERY_BROKER_URL` | `redis://redis:6379/0` |
 | `CELERY_RESULT_BACKEND` | `redis://redis:6379/0` |
 | `PROJECT_NAME` | `CEAM AUDITOR PRO` |
-| `VITE_API_URL` | `https://tu-api.dominio.com/api/v1` (O la IP de tu servidor) |
+| `VITE_API_URL` | **`https://api.tudominio.com/api/v1`** *(Esto es vital para que tu frontend envíe peticiones al backend a través de la web)* |
 
-### 4. Lanzar Despliegue
-- Haz clic en **"Deploy"**.
-- Dokploy leerá el archivo `docker-compose.yml`, construirá las imágenes del Backend y Frontend, y levantará Postgres y Redis automáticamente.
+### 3. Lanzar Despliegue
+Haz clic en **Deploy**. Dokploy empezará a compilar e iniciar todos los servicios y los amarrará a los puertos expuestos de forma interna: `8087` (Backend), `3087` (Frontend) y `5587` (Flower).
+
+### 4. Configurar los Dominios (Redirección de Tráfico)
+Dokploy necesita saber qué dominio apunta a qué puerto local. Como este es un entorno `docker-compose`, la forma más sencilla es crear "Dominios" o "Redirecciones" ("Traefik" / "Domains") en Dokploy:
+
+1. **Ruta del Frontend (React)**:
+   - Configura un dominio (ej. `auditor.tudominio.com`).
+   - Apúntalo internamente al **Puerto Local del Servidor: `3087`**.
+   - Habilita SSL (Let's Encrypt).
+2. **Ruta de la API (Backend)**:
+   - Configura otro dominio o subdominio (ej. `api.tudominio.com`).
+   - Apúntalo internamente al **Puerto Local del Servidor: `8087`**.
+   - Habilita SSL. *(Este es el mismo dominio que debes poner en la variable `VITE_API_URL`)*.
+3. *(Opcional)* **Ruta de Monitor de Tareas (Flower)**:
+   - Configura (ej. `celery.tudominio.com`).
+   - Apúntalo al **Puerto Local: `5587`**.
 
 ---
 
