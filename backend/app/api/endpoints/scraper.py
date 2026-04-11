@@ -5,21 +5,54 @@ from fastapi import APIRouter, HTTPException, Query
 from celery.result import AsyncResult
 
 from app.worker.celery_app import celery_app
-from app.worker.tasks import scrape_catalog_task
+from app.worker.tasks import scrape_catalog_task, scrape_fichas_task
 
 router = APIRouter(prefix="/scraper", tags=["Scraper"])
+
+# ── Catálogos disponibles Módulo 1 ────────────────────────────────────────────
+CATALOGOS_DISPONIBLES = [
+    "COMPUTADORAS DE ESCRITORIO",
+    "COMPUTADORAS PORTATILES Y ESCANERES",
+    "UTILES DE ESCRITORIO",
+    "MATERIAL DE LIMPIEZA",
+    "IMPRESORAS Y EQUIPOS MULTIFUNCIONALES",
+    "AIRE ACONDICIONADO",
+    "MOBILIARIO DE OFICINA",
+    "EQUIPOS DE COMUNICACION",
+    "MATERIAL DE FERRETERIA",
+    "COMBUSTIBLES Y LUBRICANTES",
+]
+
+# ── Acuerdos Marco disponibles Módulo 2 ───────────────────────────────────────
+ACUERDOS_MARCO = [
+    {
+        "code": "EXT-CE-2022-5",
+        "label": "EXT-CE-2022-5 — Computadoras de Escritorio, Portátiles y Escáneres",
+        "selector": (
+            'div[data-agreement="VIGENTE\u2022EXT-CE-2022-5 COMPUTADORAS DE ESCRITORIO, '
+            'COMPUTADORAS PORTATILES Y ESCANERES"]'
+        ),
+    },
+]
 
 
 @router.post("/start")
 def start_scrape(
     catalogo: Optional[str] = Query(None, description="Catalog name filter"),
     max_pages: int = Query(10, ge=1, le=100, description="Max result pages to scrape"),
+    fecha_inicio: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    fecha_fin: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
 ):
     """
     Dispatch a background scrape job.
     Returns a ``task_id`` you can poll with GET /scraper/status/{task_id}.
     """
-    task = scrape_catalog_task.delay(catalogo=catalogo, max_pages=max_pages)
+    task = scrape_catalog_task.delay(
+        catalogo=catalogo,
+        max_pages=max_pages,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+    )
     return {"task_id": task.id, "status": "queued", "catalogo": catalogo}
 
 
@@ -147,3 +180,39 @@ async def test_download(
         "updated": updated,
         "debug_info": debug_info
     }
+
+
+# ─── Metadata endpoints ───────────────────────────────────────────────────────
+
+@router.get("/catalogos")
+def list_catalogos():
+    """Return the list of available Module 1 catalog options for the frontend dropdown."""
+    return {"catalogos": CATALOGOS_DISPONIBLES}
+
+
+@router.get("/acuerdos")
+def list_acuerdos():
+    """Return the list of available Module 2 acuerdos marco for the frontend dropdown."""
+    return {"acuerdos": [{"code": a["code"], "label": a["label"]} for a in ACUERDOS_MARCO]}
+
+
+# ─── Módulo 2 — Fichas Producto endpoints ────────────────────────────────────
+
+@router.post("/fichas/start")
+def start_fichas_scrape(
+    agreement_code: str = Query("EXT-CE-2022-5", description="Acuerdo marco code"),
+):
+    """
+    Dispatch a background fichas-producto scrape job (Módulo 2).
+    Returns a ``task_id`` you can poll with GET /scraper/status/{task_id}.
+    """
+    # Look up the CSS selector for the given agreement code
+    acuerdo = next((a for a in ACUERDOS_MARCO if a["code"] == agreement_code), None)
+    if acuerdo is None:
+        return {"error": f"Acuerdo marco '{agreement_code}' no encontrado", "available": [a["code"] for a in ACUERDOS_MARCO]}
+
+    task = scrape_fichas_task.delay(
+        agreement_code=acuerdo["code"],
+        agreement_selector=acuerdo["selector"],
+    )
+    return {"task_id": task.id, "status": "queued", "agreement_code": agreement_code}

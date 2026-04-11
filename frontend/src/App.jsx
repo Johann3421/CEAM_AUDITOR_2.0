@@ -4,6 +4,7 @@ import Sidebar from './components/layout/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Orders from './pages/Orders';
 import ScraperControl from './pages/ScraperControl';
+import FichasControl from './pages/FichasControl';
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/scraper" element={<ScraperControl />} />
+            <Route path="/fichas" element={<FichasControl />} />
           </Routes>
         </main>
       </div>

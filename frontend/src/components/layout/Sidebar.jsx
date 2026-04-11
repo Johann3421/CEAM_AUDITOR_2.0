@@ -1,11 +1,12 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Table, Cpu, Settings } from 'lucide-react';
+import { LayoutDashboard, Table, Cpu, FileSearch, Settings } from 'lucide-react';
 
 const links = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/orders', icon: Table, label: 'Órdenes de Compra' },
-  { to: '/scraper', icon: Cpu, label: 'Scraper' },
+  { to: '/scraper', icon: Cpu, label: 'Scraper — Órdenes' },
+  { to: '/fichas', icon: FileSearch, label: 'Fichas Producto' },
 ];
 
 const Sidebar = () => {

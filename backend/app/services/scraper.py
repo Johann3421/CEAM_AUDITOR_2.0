@@ -477,6 +477,8 @@ def run_scrape_sync(
     db_session,
     catalogo: Optional[str] = None,
     max_pages: int = 10,
+    fecha_inicio: Optional[str] = None,
+    fecha_fin: Optional[str] = None,
 ) -> dict:
     """
     Synchronous entry-point called by Celery tasks.
@@ -490,7 +492,11 @@ def run_scrape_sync(
     async def _run():
         nonlocal inserted, updated
 
-        filepath, rows_on_screen, fr_text, link_diag = await _download_excel(catalogo_keyword=catalogo)
+        filepath, rows_on_screen, fr_text, link_diag = await _download_excel(
+            catalogo_keyword=catalogo,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+        )
 
         if not filepath or not os.path.exists(filepath):
             logger.error("No Excel file downloaded")

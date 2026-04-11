@@ -14,7 +14,15 @@ export const purchaseOrdersApi = {
 };
 
 export const scraperApi = {
+  getCatalogos: () => api.get('/scraper/catalogos'),
   start: (params) => api.post('/scraper/start', null, { params }),
+  getStatus: (taskId) => api.get(`/scraper/status/${taskId}`),
+  revoke: (taskId) => api.delete(`/scraper/revoke/${taskId}`),
+};
+
+export const fichasApi = {
+  getAcuerdos: () => api.get('/scraper/acuerdos'),
+  start: (params) => api.post('/scraper/fichas/start', null, { params }),
   getStatus: (taskId) => api.get(`/scraper/status/${taskId}`),
   revoke: (taskId) => api.delete(`/scraper/revoke/${taskId}`),
 };
