@@ -83,8 +83,12 @@ def scrape_fichas_task(
     )
     self.update_state(state="STARTED", meta={"progress": 0, "agreement_code": agreement_code})
 
+    # Explicit event loop management — see comment in run_scrape_sync for why
+    # asyncio.run() must NOT be used inside Celery tasks.
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        result = asyncio.run(
+        result = loop.run_until_complete(
             run_module_2(
                 engine=app_engine,
                 agreement_selector=selector,
@@ -98,3 +102,6 @@ def scrape_fichas_task(
         logger.exception("Fichas scrape task failed")
         self.update_state(state="FAILURE", meta={"error": str(exc)})
         raise
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)

@@ -517,5 +517,15 @@ def run_scrape_sync(
         except OSError:
             pass
 
-    asyncio.run(_run())
+    # asyncio.run() swallows the exception context (sys.exc_info) when the
+    # event loop closes, causing billiard to store an empty ExceptionInfo in
+    # Redis. Reading result.state then raises "Exception information must
+    # include the exception type". Use explicit loop management instead.
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_run())
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
     return {"inserted": inserted, "updated": updated}

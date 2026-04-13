@@ -63,11 +63,21 @@ def get_task_status(task_id: str):
         result: AsyncResult = celery_app.AsyncResult(task_id)
         state = result.state  # may raise if Redis is unreachable
     except Exception as exc:
-        # Redis or broker unreachable — return a safe response with CORS intact
+        err_str = str(exc)
+        # Billiard "Exception information must include the exception type" means
+        # the task failed inside a Celery worker but the asyncio event loop
+        # cleared sys.exc_info() before billiard could capture it. The task DID
+        # fail — report it as FAILURE so the frontend stops polling.
+        if "exception type" in err_str.lower() or "exc_info" in err_str.lower():
+            return {
+                "task_id": task_id,
+                "status": "FAILURE",
+                "error": "La tarea falló en el worker. Revisa los logs del contenedor ceam_worker para el detalle del error.",
+            }
         return {
             "task_id": task_id,
             "status": "UNKNOWN",
-            "error": f"No se pudo consultar el estado de la tarea: {exc}",
+            "error": f"No se pudo consultar el estado de la tarea: {err_str}",
         }
 
     response: dict = {"task_id": task_id, "status": state}
