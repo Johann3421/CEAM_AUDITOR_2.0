@@ -38,6 +38,20 @@ def get_stats(db: Session = Depends(get_db)):
     return crud.get_stats(db)
 
 
+@router.get("/catalogos-filter")
+def get_catalogos_filter(db: Session = Depends(get_db)):
+    """Return distinct catalogo values present in the DB for the filter dropdown."""
+    from app.models.purchase_order import PurchaseOrder
+    rows = (
+        db.query(PurchaseOrder.catalogo)
+        .filter(PurchaseOrder.catalogo.isnot(None))
+        .distinct()
+        .order_by(PurchaseOrder.catalogo)
+        .all()
+    )
+    return {"catalogos": [r[0] for r in rows if r[0]]}
+
+
 @router.get("/{order_id}", response_model=PurchaseOrderResponse)
 def get_order(order_id: int, db: Session = Depends(get_db)):
     order = crud.get_order(db, order_id)

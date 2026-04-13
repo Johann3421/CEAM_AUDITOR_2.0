@@ -24,6 +24,9 @@ class PurchaseOrderBase(BaseModel):
     estado_orden: Optional[str] = None
     plazo_entrega_dias: Optional[int] = None
     pdf_url: Optional[str] = None
+    orden_digitalizada: Optional[str] = None
+    nro_parte: Optional[str] = None
+    precio_unitario: Optional[Decimal] = None
 
 class PurchaseOrderCreate(PurchaseOrderBase):
     pass

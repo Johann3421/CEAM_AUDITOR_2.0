@@ -136,6 +136,12 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
             col_map["plazo_entrega_dias"] = col
         elif "orden" in cl and "compra" in cl and "nro_orden_fisica" not in col_map:
             col_map["nro_orden_fisica"] = col
+        elif "orden" in cl and ("digitalizada" in cl or "digital" in cl):
+            col_map["orden_digitalizada"] = col
+        elif ("nro" in cl or "número" in cl or "numero" in cl) and ("parte" in cl or "part" in cl):
+            col_map["nro_parte"] = col
+        elif "precio" in cl and ("unitario" in cl or "unit" in cl):
+            col_map["precio_unitario"] = col
 
     logger.info("Column mapping: %s", col_map)
 
@@ -254,6 +260,9 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
                 estado_orden=str(_get("estado_orden")).strip() or None,
                 plazo_entrega_dias=_get_int("plazo_entrega_dias"),
                 pdf_url=None,
+                orden_digitalizada=str(_get("orden_digitalizada")).strip() or None,
+                nro_parte=str(_get("nro_parte")).strip() or None,
+                precio_unitario=_get_decimal("precio_unitario"),
             )
             orders.append(order)
         except Exception as exc:

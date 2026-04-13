@@ -31,3 +31,6 @@ class PurchaseOrder(Base):
     estado_orden = Column(String)
     plazo_entrega_dias = Column(Integer)
     pdf_url = Column(String, nullable=True)
+    orden_digitalizada = Column(String, nullable=True)
+    nro_parte = Column(String, nullable=True)
+    precio_unitario = Column(Numeric(14, 4), nullable=True)

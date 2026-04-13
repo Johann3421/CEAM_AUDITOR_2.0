@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { purchaseOrdersApi } from '../services/api';
 import OrderTable from '../components/orders/OrderTable';
-import { Search, ChevronLeft, ChevronRight, X, Download } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 const Orders = () => {
   const [orders, setOrders] = useState([]);
@@ -11,6 +11,14 @@ const Orders = () => {
 
   const [search, setSearch] = useState('');
   const [catalogo, setCatalogo] = useState('');
+  const [catalogoOptions, setCatalogoOptions] = useState([]);
+
+  // Load distinct catalogo values from the DB
+  useEffect(() => {
+    purchaseOrdersApi.getCatalogosFilter()
+      .then((res) => setCatalogoOptions(res.data.catalogos || []))
+      .catch(() => {});
+  }, []);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -75,9 +83,9 @@ const Orders = () => {
           onChange={(e) => { setCatalogo(e.target.value); setPage(0); }}
         >
           <option value="">Todos los catálogos</option>
-          <option value="Útiles de Escritorio">Útiles de Escritorio</option>
-          <option value="Computadoras Desktop">Computadoras Desktop</option>
-          <option value="Servicio de Impresión">Servicio de Impresión</option>
+          {catalogoOptions.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
         </select>
 
         {hasFilters && (

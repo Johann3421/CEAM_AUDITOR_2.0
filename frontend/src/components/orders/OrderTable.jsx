@@ -1,5 +1,5 @@
 import React from 'react';
-import { ExternalLink, FileText, Building2, User, Calendar } from 'lucide-react';
+import { ExternalLink, FileText, Building2, User, Calendar, Download } from 'lucide-react';
 
 const OrderTable = ({ orders, loading }) => {
   if (loading) {
@@ -35,9 +35,11 @@ const OrderTable = ({ orders, loading }) => {
               <th>Entidad</th>
               <th>Proveedor</th>
               <th>Publicación</th>
+              <th>Nro. Parte</th>
+              <th style={{ textAlign: 'right' }}>P. Unitario</th>
               <th style={{ textAlign: 'right' }}>Monto (PEN)</th>
               <th>Estado</th>
-              <th style={{ width: 60 }}>PDF</th>
+              <th style={{ width: 60 }}>Doc</th>
             </tr>
           </thead>
           <tbody>
@@ -72,8 +74,20 @@ const OrderTable = ({ orders, loading }) => {
                       : '—'}
                   </div>
                 </td>
+                <td>
+                  <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--c-text-secondary)' }}>
+                    {order.nro_parte || '—'}
+                  </span>
+                </td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>
+                  {order.precio_unitario != null
+                    ? Number(order.precio_unitario).toLocaleString('es-PE', { minimumFractionDigits: 2 })
+                    : '—'}
+                </td>
                 <td style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                  {order.monto_total?.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
+                  {order.monto_total != null
+                    ? Number(order.monto_total).toLocaleString('es-PE', { minimumFractionDigits: 2 })
+                    : '—'}
                 </td>
                 <td>
                   <span className={`badge ${
@@ -87,7 +101,18 @@ const OrderTable = ({ orders, loading }) => {
                   </span>
                 </td>
                 <td>
-                  {order.pdf_url ? (
+                  {order.orden_digitalizada ? (
+                    <a
+                      href={order.orden_digitalizada}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-sm"
+                      title="Descargar orden digitalizada (PDF)"
+                      download
+                    >
+                      <Download size={14} />
+                    </a>
+                  ) : order.pdf_url ? (
                     <a
                       href={order.pdf_url}
                       target="_blank"
