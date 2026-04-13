@@ -405,8 +405,10 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
         `fecha_primera_carga` (preserves the original insertion date).
       - If the row does NOT exist: insert with `fecha_primera_carga` = now().
 
-    Commits are done in batches of BATCH_SIZE records to avoid saturating
-    the database connection on large catalogs.
+    Transaction safety:
+      Each BATCH_SIZE block is wrapped in its own connection + transaction.
+      Within each batch, individual rows use SAVEPOINTs (nested transactions)
+      so a single bad row doesn't abort the whole batch.
 
     Args:
         df: Cleaned DataFrame from process_catalog_excel().
@@ -414,23 +416,43 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
 
     Returns:
         Dict with keys 'inserted' (int), 'updated' (int), 'errors' (int).
-
-    Raises:
-        sqlalchemy.exc.SQLAlchemyError: On unrecoverable database connection errors.
     """
     meta = MetaData()
 
     # ── Auto-detect primary key column ────────────────────────────────────
+    # Ordered priority list — first match wins.
+    # Deliberately excludes description/title columns that also happen to
+    # contain the word "ficha" (e.g. descripcion_fichaproducto).
+    KEY_PRIORITY = [
+        r"^nro_parte",          # nro_parte_o_codigo_unico...
+        r"^codigo_ficha$",
+        r"^cod_ficha$",
+        r"^codigo_producto$",
+        r"^cod_producto$",
+        r"^codigo_",
+        r"^cod_",
+        r"nro_parte",
+        r"codigo",
+    ]
     key_col = None
-    for col in df.columns:
-        if re.search(r"(codigo_ficha|cod_ficha|ficha|cod_producto)", col, re.I):
-            key_col = col
+    for pattern in KEY_PRIORITY:
+        for col in df.columns:
+            if re.search(pattern, col, re.I):
+                key_col = col
+                break
+        if key_col:
             break
+
     if key_col is None:
+        # Last resort: first column
         key_col = df.columns[0]
         logger.warning("No ficha code column detected — using '%s' as key", key_col)
     else:
         logger.info("Upsert key column: '%s'", key_col)
+
+    # Log a sample of key values to verify the right column was picked
+    sample_keys = df[key_col].dropna().head(3).tolist()
+    logger.info("Sample key values: %s", sample_keys)
 
     # ── Build SQLAlchemy table definition from DataFrame dtypes ──────────
     def _sa_col(name: str, dtype) -> Column:
@@ -442,7 +464,8 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
             return Column(name, Integer, nullable=True)
         return Column(name, Text, nullable=True)
 
-    sa_cols = [Column(key_col, String(128), primary_key=True)]
+    # Use Text (unlimited) for PK — nro_parte values can be long strings.
+    sa_cols = [Column(key_col, Text, primary_key=True)]
     for col in df.columns:
         if col == key_col:
             continue
@@ -457,14 +480,7 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
     fichas_table = Table("fichas_producto", meta, *sa_cols, extend_existing=True)
     meta.create_all(engine)
 
-    # ── Upsert loop ───────────────────────────────────────────────────────
-    inserted = 0
-    updated = 0
-    errors = 0
-    now_utc = datetime.now(tz=timezone.utc)
-    rows = df.to_dict(orient="records")
-    batch: list = []
-
+    # ── Helpers ───────────────────────────────────────────────────────────
     def _clean(row: dict) -> dict:
         """Replace NaN/NaT/inf with None for SQLAlchemy compatibility."""
         out = {}
@@ -476,55 +492,77 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
             out[k] = None if null else v
         return out
 
-    with engine.begin() as conn:
-        for idx, raw_row in enumerate(rows):
-            clean_row = _clean(raw_row)
-            key_val = clean_row.get(key_col)
-            if not key_val or str(key_val).strip() in ("", "nan", "None"):
-                logger.warning("Row %d skipped — empty key value", idx)
-                errors += 1
-                continue
+    # ── Upsert loop — one transaction per batch, savepoint per row ────────
+    inserted = 0
+    updated = 0
+    errors = 0
+    now_utc = datetime.now(tz=timezone.utc)
+    rows = df.to_dict(orient="records")
 
-            batch.append((key_val, clean_row))
+    # Split into batches
+    for batch_start in range(0, len(rows), BATCH_SIZE):
+        batch_rows = rows[batch_start:batch_start + BATCH_SIZE]
 
-            if len(batch) >= BATCH_SIZE or idx == len(rows) - 1:
-                for kv, row in batch:
-                    try:
-                        existing = conn.execute(
-                            select(fichas_table).where(fichas_table.c[key_col] == kv)
-                        ).fetchone()
+        try:
+            with engine.connect() as conn:
+                with conn.begin():
+                    for raw_row in batch_rows:
+                        clean_row = _clean(raw_row)
+                        key_val = clean_row.get(key_col)
+                        if not key_val or str(key_val).strip() in ("", "nan", "None"):
+                            errors += 1
+                            continue
 
-                        if existing:
-                            update_data = {
-                                k: v for k, v in row.items()
-                                if k != "fecha_primera_carga"
-                            }
-                            conn.execute(
-                                update(fichas_table)
-                                .where(fichas_table.c[key_col] == kv)
-                                .values(**update_data)
+                        # SAVEPOINT per row so one failure doesn't abort the batch
+                        try:
+                            with conn.begin_nested():
+                                existing = conn.execute(
+                                    select(fichas_table).where(
+                                        fichas_table.c[key_col] == key_val
+                                    )
+                                ).fetchone()
+
+                                if existing:
+                                    update_data = {
+                                        k: v for k, v in clean_row.items()
+                                        if k != "fecha_primera_carga"
+                                    }
+                                    conn.execute(
+                                        update(fichas_table)
+                                        .where(fichas_table.c[key_col] == key_val)
+                                        .values(**update_data)
+                                    )
+                                    updated += 1
+                                else:
+                                    clean_row["fecha_primera_carga"] = now_utc
+                                    conn.execute(insert(fichas_table).values(**clean_row))
+                                    inserted += 1
+
+                        except Exception as row_exc:
+                            logger.error(
+                                "Row upsert failed for key=%.80s: %s",
+                                str(key_val), row_exc,
                             )
-                            updated += 1
-                        else:
-                            row["fecha_primera_carga"] = now_utc
-                            conn.execute(insert(fichas_table).values(**row))
-                            inserted += 1
+                            errors += 1
 
-                    except Exception as exc:
-                        logger.error("Upsert error for key=%s: %s", kv, exc)
-                        errors += 1
+        except Exception as batch_exc:
+            logger.error(
+                "Batch %d–%d failed entirely: %s",
+                batch_start, batch_start + len(batch_rows), batch_exc,
+            )
+            errors += len(batch_rows)
 
-                logger.info(
-                    "Batch committed — running totals: inserted=%d updated=%d errors=%d",
-                    inserted, updated, errors,
-                )
-                batch = []
+        logger.info(
+            "Batch %d–%d done — inserted=%d updated=%d errors=%d",
+            batch_start, batch_start + len(batch_rows), inserted, updated, errors,
+        )
 
     logger.info(
         "Upsert complete — inserted: %d, updated: %d, errors: %d",
         inserted, updated, errors,
     )
     return {"inserted": inserted, "updated": updated, "errors": errors}
+
 
 
 # ─── 4. Orchestrator ─────────────────────────────────────────────────────────
