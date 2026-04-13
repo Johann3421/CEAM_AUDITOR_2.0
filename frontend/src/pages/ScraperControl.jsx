@@ -22,13 +22,17 @@ const ScraperControl = () => {
       .then((res) => {
         const list = res.data.catalogos || [];
         setCatalogos(list);
-        if (list.length > 0) setCatalogo(list[0]);
+        if (list.length > 0) setCatalogo(list[0].code ?? list[0]);
       })
       .catch(() => {
-        // Fallback hardcoded list if backend is unreachable during dev
-        const fallback = ['COMPUTADORAS DE ESCRITORIO', 'UTILES DE ESCRITORIO', 'MATERIAL DE LIMPIEZA'];
+        // Fallback if backend is unreachable during dev
+        const fallback = [
+          { code: 'EXT-CE-2022-5', label: 'EXT-CE-2022-5 — Computadoras de Escritorio, Portátiles y Escáneres' },
+          { code: 'EXT-CE-2021-7', label: 'EXT-CE-2021-7 — Útiles de Escritorio, Papeles y Cartones' },
+          { code: 'EXT-CE-2021-6', label: 'EXT-CE-2021-6 — Impresoras, Consumibles, Repuestos y Accesorios' },
+        ];
         setCatalogos(fallback);
-        setCatalogo(fallback[0]);
+        setCatalogo(fallback[0].code);
       });
   }, []);
 
@@ -121,9 +125,11 @@ const ScraperControl = () => {
                 value={catalogo}
                 onChange={(e) => setCatalogo(e.target.value)}
               >
-                {catalogos.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
+                {catalogos.map((c) => {
+                  const code = c.code ?? c;
+                  const label = c.label ?? c;
+                  return <option key={code} value={code}>{label}</option>;
+                })}
               </select>
             </div>
 

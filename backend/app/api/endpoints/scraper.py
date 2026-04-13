@@ -10,17 +10,26 @@ from app.worker.tasks import scrape_catalog_task, scrape_fichas_task
 router = APIRouter(prefix="/scraper", tags=["Scraper"])
 
 # ── Catálogos disponibles Módulo 1 ────────────────────────────────────────────
+# Each entry: code = term typed into Select2 search (exact acuerdo code),
+#             label = human-friendly name shown in the frontend dropdown.
+# All entries are currently VIGENTE (no "* No Vigente" suffix in the portal).
 CATALOGOS_DISPONIBLES = [
-    "COMPUTADORAS DE ESCRITORIO",
-    "COMPUTADORAS PORTATILES Y ESCANERES",
-    "UTILES DE ESCRITORIO",
-    "MATERIAL DE LIMPIEZA",
-    "IMPRESORAS Y EQUIPOS MULTIFUNCIONALES",
-    "AIRE ACONDICIONADO",
-    "MOBILIARIO DE OFICINA",
-    "EQUIPOS DE COMUNICACION",
-    "MATERIAL DE FERRETERIA",
-    "COMBUSTIBLES Y LUBRICANTES",
+    {"code": "EXT-CE-2022-5",  "label": "EXT-CE-2022-5 — Computadoras de Escritorio, Portátiles y Escáneres"},
+    {"code": "EXT-CE-2021-6",  "label": "EXT-CE-2021-6 — Impresoras, Consumibles, Repuestos y Accesorios de Oficina"},
+    {"code": "EXT-CE-2021-7",  "label": "EXT-CE-2021-7 — Útiles de Escritorio, Papeles y Cartones"},
+    {"code": "EXT-CE-2024-1",  "label": "EXT-CE-2024-1 — Baterías, Pilas y Accesorios"},
+    {"code": "EXT-CE-2024-2",  "label": "EXT-CE-2024-2 — Equipos Multimedia y Accesorios"},
+    {"code": "EXT-CE-2024-3",  "label": "EXT-CE-2024-3 — Materiales e Insumos de Limpieza, Papeles para Aseo y Limpieza"},
+    {"code": "EXT-CE-2024-10", "label": "EXT-CE-2024-10 — Llantas, Neumáticos y Accesorios"},
+    {"code": "EXT-CE-2024-12", "label": "EXT-CE-2024-12 — Tuberías, Pinturas, Cerámicos, Sanitarios, Accesorios y Complementos"},
+    {"code": "EXT-CE-2024-13", "label": "EXT-CE-2024-13 — Equipos de Aire Acondicionado, Similares y Accesorios"},
+    {"code": "EXT-CE-2024-14", "label": "EXT-CE-2024-14 — Luminarias, Materiales Eléctricos y Cables Eléctricos"},
+    {"code": "EXT-CE-2024-16", "label": "EXT-CE-2024-16 — Accesorios Domésticos y Bienes para Usos Diversos"},
+    {"code": "EXT-CE-2024-17", "label": "EXT-CE-2024-17 — Bebidas No Alcohólicas"},
+    {"code": "EXT-CE-2024-18", "label": "EXT-CE-2024-18 — Cereales, Aceite, Azúcares y Menestras"},
+    {"code": "EXT-CE-2024-26", "label": "EXT-CE-2024-26 — Máquinas, Equipos y Herramientas para Jardinería, Silvicultura y Agricultura"},
+    {"code": "EXT-CE-2025-11", "label": "EXT-CE-2025-11 — Mobiliario en General"},
+    {"code": "IM-CE-2020-15",  "label": "IM-CE-2020-15 — Emisión de Boletos Aéreos"},
 ]
 
 # ── Acuerdos Marco disponibles Módulo 2 ───────────────────────────────────────
