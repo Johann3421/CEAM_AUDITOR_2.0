@@ -27,4 +27,9 @@ export const fichasApi = {
   revoke: (taskId) => api.delete(`/scraper/revoke/${taskId}`),
 };
 
+export const fichasProductoApi = {
+  getAll: (params) => api.get('/fichas/', { params }),
+  getStats: () => api.get('/fichas/stats'),
+};
+
 export default api;

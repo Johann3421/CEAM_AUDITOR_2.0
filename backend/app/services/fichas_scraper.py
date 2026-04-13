@@ -29,7 +29,7 @@ import pandas as pd
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 from sqlalchemy import (
     Column, DateTime, Float, Integer, MetaData, String, Table, Text,
-    create_engine, insert, select, update,
+    create_engine, inspect as sa_inspect, insert, select, text, update,
 )
 
 
@@ -479,6 +479,30 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
 
     fichas_table = Table("fichas_producto", meta, *sa_cols, extend_existing=True)
     meta.create_all(engine)
+
+    # ── Auto-migrate legacy varchar columns → TEXT ────────────────────────
+    # If the table was previously created with a String(128) column (from an
+    # old schema run), ALTER those columns to TEXT so long values fit.
+    # Runs only on PostgreSQL; silently skipped on SQLite (no varchar issue).
+    try:
+        insp = sa_inspect(engine)
+        if insp.has_table("fichas_producto"):
+            existing_cols = {c["name"]: c["type"] for c in insp.get_columns("fichas_producto")}
+            with engine.begin() as _mc:
+                for sa_col in sa_cols:
+                    if not isinstance(sa_col.type, Text):
+                        continue
+                    col_name = sa_col.name
+                    db_type = str(existing_cols.get(col_name, "")).upper()
+                    if "VARCHAR" in db_type or "CHAR" in db_type:
+                        logger.warning(
+                            "Migrating column '%s' from %s → TEXT", col_name, db_type
+                        )
+                        _mc.execute(
+                            text(f'ALTER TABLE fichas_producto ALTER COLUMN "{col_name}" TYPE TEXT')
+                        )
+    except Exception as _me:
+        logger.warning("Schema auto-migration skipped: %s", _me)
 
     # ── Helpers ───────────────────────────────────────────────────────────
     def _clean(row: dict) -> dict:
