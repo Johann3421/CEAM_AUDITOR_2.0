@@ -28,10 +28,7 @@ ACUERDOS_MARCO = [
     {
         "code": "EXT-CE-2022-5",
         "label": "EXT-CE-2022-5 — Computadoras de Escritorio, Portátiles y Escáneres",
-        "selector": (
-            'div[data-agreement="VIGENTE\u2022EXT-CE-2022-5 COMPUTADORAS DE ESCRITORIO, '
-            'COMPUTADORAS PORTATILES Y ESCANERES"]'
-        ),
+        "selector": 'div[data-agreement*="EXT-CE-2022-5"]',
     },
 ]
 
