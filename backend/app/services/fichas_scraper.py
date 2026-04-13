@@ -188,6 +188,56 @@ async def navigate_and_download(
             logger.info("Waiting for SPA to fully render (networkidle)...")
             await page.wait_for_load_state("networkidle", timeout=PAGE_LOAD_TIMEOUT_MS)
 
+            # ── Dismiss blocking modal popup ──────────────────────────────
+            # The portal shows a #divPopUpComunicadoBloqueado modal on load.
+            # It has data-backdrop="static" and data-keyboard="false", so it
+            # cannot be dismissed by clicking outside or pressing Escape.
+            # We must click its close/accept button before interacting with the page.
+            try:
+                modal_sel = "#divPopUpComunicadoBloqueado"
+                modal_visible = await page.is_visible(modal_sel, timeout=5_000)
+                if modal_visible:
+                    logger.info("Blocking modal detected — attempting to dismiss...")
+                    # Try common close button patterns inside the modal
+                    closed = False
+                    for btn_sel in [
+                        "#divPopUpComunicadoBloqueado button[data-dismiss='modal']",
+                        "#divPopUpComunicadoBloqueado .btn-close",
+                        "#divPopUpComunicadoBloqueado .close",
+                        "#divPopUpComunicadoBloqueado button.btn-primary",
+                        "#divPopUpComunicadoBloqueado button.btn-success",
+                        "#divPopUpComunicadoBloqueado button",
+                    ]:
+                        try:
+                            btn = page.locator(btn_sel).first
+                            if await btn.is_visible(timeout=2_000):
+                                await btn.evaluate("node => node.click()")
+                                logger.info("Modal dismissed via: %s", btn_sel)
+                                closed = True
+                                break
+                        except Exception:
+                            continue
+
+                    if not closed:
+                        # Force-hide the modal via JS as last resort
+                        logger.warning("No close button found — force-hiding modal via JS")
+                        await page.evaluate(
+                            "() => {"
+                            "  const m = document.getElementById('divPopUpComunicadoBloqueado');"
+                            "  if (m) { m.style.display='none'; m.classList.remove('show'); }"
+                            "  const backdrop = document.querySelector('.modal-backdrop');"
+                            "  if (backdrop) backdrop.remove();"
+                            "  document.body.classList.remove('modal-open');"
+                            "  document.body.style.removeProperty('padding-right');"
+                            "}"
+                        )
+                        logger.info("Modal force-hidden via JS")
+
+                    # Wait for the modal to be hidden before proceeding
+                    await page.wait_for_timeout(500)
+            except Exception as modal_exc:
+                logger.warning("Modal check/dismiss failed (continuing anyway): %s", modal_exc)
+
             # ── Select the agreement card ─────────────────────────────────
             logger.info("Locating agreement element with selector: %s", agreement_selector)
 
@@ -206,7 +256,8 @@ async def navigate_and_download(
             await agreement_el.scroll_into_view_if_needed()
             await page.wait_for_timeout(500)
 
-            await agreement_el.click()
+            # Use JS click to bypass any remaining overlay interception
+            await agreement_el.evaluate("node => node.click()")
             logger.info("Agreement card clicked — waiting for fichas count and download button...")
 
             # Wait for the page to update and show the download button.
@@ -221,7 +272,7 @@ async def navigate_and_download(
                 DOWNLOAD_TIMEOUT_MS // 1000,
             )
             async with page.expect_download(timeout=DOWNLOAD_TIMEOUT_MS) as download_info:
-                await page.click(download_btn_selector)
+                await page.locator(download_btn_selector).first.evaluate("node => node.click()")
 
             download = await download_info.value
             await download.save_as(str(dest_path))
