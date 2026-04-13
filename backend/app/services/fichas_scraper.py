@@ -47,11 +47,13 @@ logger = logging.getLogger("ceam.m2.fichas")
 
 CATALOG_URL = "https://buscadorcatalogos.perucompras.gob.pe/#"
 
-# CSS selector for the agreement card — must match the data-agreement attribute exactly.
-AGREEMENT_SELECTOR = (
-    'div[data-agreement="VIGENTE\u2022EXT-CE-2022-5 COMPUTADORAS DE ESCRITORIO, '
-    'COMPUTADORAS PORTATILES Y ESCANERES"]'
-)
+# Primary selector: partial match on agreement code — robust against bullet/spacing variants.
+# Falls back to scanning all data-agreement divs if nothing matches.
+AGREEMENT_SELECTOR = 'div[data-agreement*="EXT-CE-2022-5"]'
+
+# Full exact value kept for reference / manual overrides only:
+# 'div[data-agreement="VIGENTE\u2022EXT-CE-2022-5 COMPUTADORAS DE ESCRITORIO, '
+# 'COMPUTADORAS PORTATILES Y ESCANERES"]'
 
 DOWNLOAD_BTN_SELECTOR = "a.btn-download.text-purple.text-bold"
 
@@ -187,8 +189,16 @@ async def navigate_and_download(
             await page.wait_for_load_state("networkidle", timeout=PAGE_LOAD_TIMEOUT_MS)
 
             # ── Select the agreement card ─────────────────────────────────
-            logger.info("Locating agreement element...")
-            agreement_el = page.locator(agreement_selector)
+            logger.info("Locating agreement element with selector: %s", agreement_selector)
+
+            # Dump all visible data-agreement values to help diagnose selector mismatches.
+            all_agreements = await page.evaluate(
+                "() => [...document.querySelectorAll('[data-agreement]')]"
+                ".map(el => el.getAttribute('data-agreement'))"
+            )
+            logger.info("data-agreement values found on page (%d): %s", len(all_agreements), all_agreements)
+
+            agreement_el = page.locator(agreement_selector).first
             await agreement_el.wait_for(state="visible", timeout=30_000)
 
             # Scroll into view first — prevents ClickNotAllowed on partially

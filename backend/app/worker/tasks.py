@@ -49,8 +49,10 @@ def scrape_catalog_task(
         return result
     except Exception as exc:
         logger.exception("Scrape task failed")
-        self.update_state(state="FAILURE", meta={"error": str(exc)})
-        raise
+        # Re-raise as built-in RuntimeError so Celery's JSON backend can always
+        # serialize the failure. Custom exception types (e.g. from user modules)
+        # cause KeyError/'exc_type' when Celery tries to reconstruct them from JSON.
+        raise RuntimeError(str(exc)) from None
     finally:
         db.close()
 
@@ -100,8 +102,8 @@ def scrape_fichas_task(
         return result
     except Exception as exc:
         logger.exception("Fichas scrape task failed")
-        self.update_state(state="FAILURE", meta={"error": str(exc)})
-        raise
+        # Re-raise as built-in RuntimeError — same reason as scrape_catalog_task.
+        raise RuntimeError(str(exc)) from None
     finally:
         loop.close()
         asyncio.set_event_loop(None)

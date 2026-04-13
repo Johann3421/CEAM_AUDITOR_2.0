@@ -98,6 +98,19 @@ def get_task_status(task_id: str):
     return response
 
 
+@router.delete("/flush-task/{task_id}")
+def flush_task(task_id: str):
+    """
+    Delete a task's result/meta from Redis.
+    Use this to clear a corrupted task entry so the ID can be reused cleanly.
+    """
+    try:
+        celery_app.AsyncResult(task_id).forget()
+        return {"task_id": task_id, "flushed": True}
+    except Exception as exc:
+        return {"task_id": task_id, "flushed": False, "error": str(exc)}
+
+
 @router.delete("/revoke/{task_id}")
 def revoke_task(task_id: str, terminate: bool = Query(False)):
     """Cancel a queued or running scrape task."""
