@@ -6,7 +6,7 @@ from decimal import Decimal
 class PurchaseOrderBase(BaseModel):
     codigo_acuerdo_marco: str
     procedimiento: str
-    orden_electronica: str
+    orden_electronica: Optional[str] = None
     nro_orden_fisica: str
     ruc_entidad: Optional[str] = None
     nombre_entidad: Optional[str] = None
