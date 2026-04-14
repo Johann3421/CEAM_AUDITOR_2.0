@@ -294,13 +294,17 @@ Antes de `dropna`, las filas con `orden_electronica` vacía se rellenan con el v
 - El `groupby(orden_electronica)` reduce las 1520 filas a **1184 órdenes únicas** (ratio 1.28x por entregas múltiples).
 - El `col_map` del scraper mapea correctamente las 54 columnas a los 21 campos del modelo.
 
-**Problema resuelto**: Los registros con `orden_electronica` vacía en la tabla `purchase_orders` de producción fueron insertados por una **versión anterior del scraper** que no extraía correctamente la columna J. Estos registros "huérfanos" tienen el valor de `nro_orden_fisica` almacenado como `orden_electronica`.
+**Problema resuelto**: Los registros con `orden_electronica` vacía o con valores tipo `107-2026`, `77-2026`, `189` en la tabla `purchase_orders` fueron insertados por una **versión anterior del scraper** que almacenaba `nro_orden_fisica` como `orden_electronica`. Estos registros "huérfanos" coexisten con los registros OCAM correctos.
 
-**Solución — Función de Poda** (`run_scrape_sync` en `scraper.py`):
-Después del upsert principal, se ejecuta un paso de limpieza usando la **Función de Poda** (Matemática Discreta):
-1. Se seleccionan todos los registros cuya `orden_electronica` NO siga el patrón `OCAM-%`.
-2. Para cada huérfano, se verifica si ya existe un registro con `OCAM-%` que tenga el **mismo** `nro_orden_fisica`.
-3. Si el par (huérfano, registro correcto) existe → el huérfano es redundante → se elimina.
-4. Si no hay contraparte OCAM → el huérfano se conserva (podría ser una orden legítima sin OCAM).
+**Solución v1 (fallida)**: Intentar match por `nro_orden_fisica` para encontrar duplicados. Falló porque el scraper viejo también corrompió `nro_orden_fisica`, así que los valores no coinciden entre registros viejos y nuevos.
 
-Esto garantiza idempotencia: ejecutar el scraper múltiples veces no deja duplicados.
+**Solución v2 (implementada) — Función de Poda Directa** (`run_scrape_sync` en `scraper.py`):
+Dado que el análisis del Excel confirmó que el **100% de las órdenes** del portal tienen `Orden Electrónica` con formato `OCAM-YYYY-XXXXXX-XX-X`, la poda es directa:
+```python
+pruned = db_session.query(PurchaseOrder).filter(
+    ~PurchaseOrder.orden_electronica.like("OCAM-%")
+).delete(synchronize_session="fetch")
+```
+Después del upsert exitoso de órdenes OCAM, se eliminan **todos** los registros cuya `orden_electronica` NO empiece con `OCAM-`. No se necesita matching individual porque cualquier non-OCAM es un artefacto del scraper antiguo.
+
+Esto garantiza idempotencia: ejecutar el scraper múltiples veces deja solo registros OCAM limpios.

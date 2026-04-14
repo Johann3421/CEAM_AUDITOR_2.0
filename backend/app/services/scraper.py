@@ -561,32 +561,22 @@ def run_scrape_sync(
             else:
                 inserted += 1
 
-        # ── Limpieza de Registros Huérfanos (Matemática Discreta) ─────────
-        # Problema: versiones anteriores del scraper almacenaban el valor de
-        # nro_orden_fisica como orden_electronica. Estos registros ahora son
-        # huérfanos porque el upsert crea registros nuevos con el OCAM-...
-        # correcto. Aplicamos la Función de Poda: para cada registro cuya
-        # orden_electronica NO sigue el patrón OCAM-*, verificamos si ya
-        # existe un registro con OCAM-* que tenga el mismo nro_orden_fisica.
-        # Si sí → el huérfano es redundante → se elimina.
+        # ── Limpieza de Registros Huérfanos (Función de Poda) ────────────
+        # El análisis del Excel real (DatosAbiertos) confirmó que el 100% de
+        # las órdenes del portal tienen orden_electronica con formato
+        # OCAM-YYYY-XXXXXX-XX-X.  Cualquier registro cuya orden_electronica
+        # NO empiece con "OCAM-" es un artefacto del scraper antiguo, que
+        # almacenaba erróneamente el nro_orden_fisica como orden_electronica.
+        # Tras un scrape exitoso con datos OCAM ya insertados, estos
+        # huérfanos son redundantes y se eliminan.
         try:
             from app.models.purchase_order import PurchaseOrder
-            orphans = db_session.query(PurchaseOrder).filter(
+            pruned = db_session.query(PurchaseOrder).filter(
                 ~PurchaseOrder.orden_electronica.like("OCAM-%")
-            ).all()
-            pruned = 0
-            for orphan in orphans:
-                # Buscar si existe un registro OCAM-* con el mismo nro_orden_fisica
-                proper = db_session.query(PurchaseOrder).filter(
-                    PurchaseOrder.orden_electronica.like("OCAM-%"),
-                    PurchaseOrder.nro_orden_fisica == orphan.nro_orden_fisica,
-                ).first()
-                if proper:
-                    db_session.delete(orphan)
-                    pruned += 1
+            ).delete(synchronize_session="fetch")
             if pruned > 0:
                 db_session.commit()
-                logger.info("Pruned %d orphan records (non-OCAM orden_electronica with matching OCAM counterpart)", pruned)
+                logger.info("Pruned %d orphan records (non-OCAM orden_electronica)", pruned)
         except Exception as exc:
             logger.warning("Orphan cleanup failed (non-critical): %s", exc)
             db_session.rollback()
