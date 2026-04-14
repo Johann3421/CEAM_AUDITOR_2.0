@@ -18,7 +18,13 @@ _NEW_COLS = [
 ]
 try:
     with engine.begin() as _c:
-        # 1. Quitar el unique de nro_orden_fisica si existiera
+        # 1. Quitar el index unique de nro_orden_fisica si existiera
+        try:
+            _c.execute(text("DROP INDEX IF EXISTS ix_purchase_orders_nro_orden_fisica;"))
+            _c.execute(text("CREATE INDEX IF NOT EXISTS ix_purchase_orders_nro_orden_fisica ON purchase_orders (nro_orden_fisica);"))
+        except Exception:
+            pass  # Error handling for DBs that don't support this
+        
         try:
             _c.execute(text("ALTER TABLE purchase_orders DROP CONSTRAINT IF EXISTS purchase_orders_nro_orden_fisica_key;"))
         except Exception:
