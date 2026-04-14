@@ -47,7 +47,7 @@ const OrderTable = ({ orders, loading }) => {
               <tr key={order.id} className="fade-up">
                 <td>
                   <span style={{ fontWeight: 600, color: 'var(--c-brand)' }}>
-                    {order.nro_orden_fisica}
+                    {order.orden_electronica}
                   </span>
                 </td>
                 <td>

@@ -27,7 +27,7 @@ const Orders = () => {
         skip: page * limit,
         limit,
         catalogo: catalogo || undefined,
-        nombre_entidad: search || undefined,
+        search: search || undefined,
       });
       setOrders(response.data);
     } catch (error) {
@@ -71,7 +71,7 @@ const Orders = () => {
           <input
             type="text"
             className="form-input"
-            placeholder="Buscar por entidad..."
+            placeholder="Buscar por orden, entidad o proveedor..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />

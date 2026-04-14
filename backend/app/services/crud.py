@@ -28,8 +28,9 @@ def get_orders(
     catalogo: Optional[str] = None,
     categoria: Optional[str] = None,
     estado_orden: Optional[str] = None,
-    nombre_entidad: Optional[str] = None,
+    search: Optional[str] = None,
 ) -> List[PurchaseOrder]:
+    from sqlalchemy import or_
     q = db.query(PurchaseOrder)
     if catalogo:
         q = q.filter(PurchaseOrder.catalogo.ilike(f"%{catalogo}%"))
@@ -37,8 +38,15 @@ def get_orders(
         q = q.filter(PurchaseOrder.categoria.ilike(f"%{categoria}%"))
     if estado_orden:
         q = q.filter(PurchaseOrder.estado_orden == estado_orden)
-    if nombre_entidad:
-        q = q.filter(PurchaseOrder.nombre_entidad.ilike(f"%{nombre_entidad}%"))
+    if search:
+        q = q.filter(
+            or_(
+                PurchaseOrder.nombre_entidad.ilike(f"%{search}%"),
+                PurchaseOrder.nombre_proveedor.ilike(f"%{search}%"),
+                PurchaseOrder.nro_orden_fisica.ilike(f"%{search}%"),
+                PurchaseOrder.orden_electronica.ilike(f"%{search}%")
+            )
+        )
     return q.order_by(PurchaseOrder.fecha_publicacion.desc()).offset(skip).limit(limit).all()
 
 

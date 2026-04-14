@@ -17,7 +17,7 @@ def list_orders(
     catalogo: Optional[str] = Query(None),
     categoria: Optional[str] = Query(None),
     estado_orden: Optional[str] = Query(None),
-    nombre_entidad: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     """List purchase orders with optional filters and pagination."""
@@ -28,7 +28,7 @@ def list_orders(
         catalogo=catalogo,
         categoria=categoria,
         estado_orden=estado_orden,
-        nombre_entidad=nombre_entidad,
+        search=search,
     )
 
 
