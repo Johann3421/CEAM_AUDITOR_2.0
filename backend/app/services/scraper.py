@@ -167,6 +167,19 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
         logger.warning("No 'Orden Electrónica' column found, fallback to physical order.")
         elec_col = nro_col
 
+    # ── Fallback: fill empty orden_electronica with nro_orden_fisica ──────
+    # Some orders in the Excel have the "Orden Electrónica" column empty/NaN
+    # (e.g. orders not yet fully digitised). Without this fallback those rows
+    # are silently dropped by the dropna below, losing valid order data.
+    if elec_col != nro_col:
+        mask_na = df[elec_col].isna()
+        mask_empty = df[elec_col].astype(str).str.strip().isin(["", "nan", "NaN", "None"])
+        mask = mask_na | mask_empty
+        filled_count = mask.sum()
+        if filled_count > 0:
+            df.loc[mask, elec_col] = df.loc[mask, nro_col]
+            logger.info("Filled %d empty orden_electronica values with nro_orden_fisica fallback", filled_count)
+
     # Drop rows with empty order numbers
     df = df.dropna(subset=[elec_col])
     df[elec_col] = df[elec_col].astype(str).str.strip()

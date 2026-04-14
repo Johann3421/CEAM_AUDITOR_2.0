@@ -264,3 +264,23 @@ La tabla de órdenes ahora muestra las 3 columnas nuevas. Orden de columnas:
 `Nro. Orden | Entidad | Proveedor | Publicación | Nro. Parte | P. Unitario | Monto (PEN) | Estado | Doc`
 
 El botón "Doc" usa `orden_digitalizada` (con `download`) con fallback a `pdf_url`. Si ambos son null muestra `—`.
+
+### 7.6. Búsqueda Global en `/orders` y Visualización de Orden Electrónica
+**Problema:** La columna "Nro. Orden" en `OrderTable.jsx` mostraba `nro_orden_fisica` (ej. "107-2026") en vez de `orden_electronica` (ej. "OCAM-2026-301531-23-0"). Además, el filtro de búsqueda solo filtraba por `nombre_entidad`.
+
+**Solución:**
+- **`OrderTable.jsx`**: La columna "Nro. Orden" ahora muestra `orden_electronica` con fallback a `nro_orden_fisica` si el primero es null/vacío: `{order.orden_electronica || order.nro_orden_fisica || '—'}`.
+- **`purchase_orders.py` (endpoint)**: El parámetro `nombre_entidad` fue reemplazado por `search` — un parámetro de búsqueda global.
+- **`crud.py` (`get_orders`)**: El filtro `search` ahora busca con `OR` sobre 4 campos: `nombre_entidad`, `nombre_proveedor`, `nro_orden_fisica`, `orden_electronica`. Usa `sqlalchemy.or_()`.
+- **`Orders.jsx`**: Envía `search` en vez de `nombre_entidad` a la API. Placeholder actualizado: "Buscar por orden, entidad o proveedor...".
+
+### 7.7. Fallback de `orden_electronica` Vacía en el Scraper
+**Problema:** Algunas filas del Excel del portal tienen la columna "Orden Electrónica" vacía/NaN (órdenes aún no digitalizadas). El código anterior (`df.dropna(subset=[elec_col])`) eliminaba silenciosamente esas filas, perdiendo órdenes válidas.
+
+**Solución** (`app/services/scraper.py`, bloque entre detección de `elec_col` y `dropna`):
+```python
+if elec_col != nro_col:
+    mask = df[elec_col].isna() | df[elec_col].astype(str).str.strip().isin(["", "nan", ...])
+    df.loc[mask, elec_col] = df.loc[mask, nro_col]
+```
+Antes de `dropna`, las filas con `orden_electronica` vacía se rellenan con el valor de `nro_orden_fisica`. Así ninguna orden válida se pierde. Los logs registran cuántas filas fueron rellenadas. Las órdenes que SÍ tienen OCAM-... conservan su valor original.
