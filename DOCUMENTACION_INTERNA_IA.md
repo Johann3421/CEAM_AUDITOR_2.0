@@ -314,3 +314,15 @@ Se implementó un botón de eliminación masiva en la página `/orders`:
 - **Backend** (`purchase_orders.py`): Endpoint `DELETE /purchase-orders/all` que ejecuta `db.query(PurchaseOrder).delete()` y devuelve el conteo de registros eliminados.
 - **Frontend** (`api.js`): Método `deleteAll()` en `purchaseOrdersApi`.
 - **UI** (`Orders.jsx`): Botón rojo "Borrar Todo" con icono `Trash2`, gradiente `#ef4444→#dc2626`, hover scale, y diálogo de confirmación `window.confirm()` para prevenir eliminaciones accidentales. Tras eliminar, la tabla se refresca automáticamente.
+
+### 7.10. Agrupación Base de Órdenes con Múltiples Productos
+**Problema:** Cuando una orden tiene múltiples productos (ej. 2 productos), el portal Perú Compras genera múltiples filas (ej. 4 filas en Excel). La orden electrónica original les asignaba sufijos como `OCAM-2026-301531-23-0` para el primer estado (pagos 0.00) y `OCAM-2026-301531-23-1` para el segundo. Al agrupar estrictamente por `orden_electronica` completa (incluyendo `-0` o `-1`), las órdenes se duplicaban en la DB y en la tabla del dashboard.
+
+**Solución (Matemática Discreta - Unión de Conjuntos):** 
+- Se actualizó `_process_excel` en `scraper.py` para extraer la **orden base** eliminando el último dígito del sufijo (ej. de `OCAM-...-23-1` a `OCAM-...-23`).
+- El DataFrame de `pandas` ahora agrupa (`groupby`) por esta `'orden_base'` en lugar del valor exacto de `orden_electronica`.
+- Durante el `_merge_group`:
+  - Se toma como fila base la **última fila** del grupo (`group.iloc[-1]`) garantizando que los estados y precios definitivos predominen sobre los iniciales (que suelen ser 0.00 o "ACEPTADA").
+  - Para campos descriptivos como `nro_parte` o `detalle_producto`, operamos con Unión (concatenación de valores únicos separados por `|`).
+  - Para montos numéricos, usamos la Función Supremo (`.max()`).
+- **Resultado:** En lugar de 1520 filas generando ~1184 registros separados y repetidos, ahora se compactan perfectamente en las **591 órdenes físicas únicas** correspondientes, agrupando todos sus productos dentro de la misma celda de `Nro. Parte` (ej. `AP1K8AT#ABM-OH4 | LS24C310E...`).

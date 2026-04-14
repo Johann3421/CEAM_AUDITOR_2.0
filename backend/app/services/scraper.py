@@ -191,9 +191,23 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
         return []
 
     # ── Merge duplicate rows by Nro Orden Física (Enfoque de Matemática Discreta) ──
+    # Para órdenes con múltiples productos, el excel genera múltiples filas (y con sufijos
+    # -0, -1, etc. en la orden electrónica). Agrupamos obteniendo la base de la orden.
+    def _get_base_order(o):
+        parts = str(o).strip().split('-')
+        if len(parts) >= 4 and parts[-1].isdigit():
+            return '-'.join(parts[:-1])
+        return str(o)
+
+    df['_base_elec'] = df[elec_col].apply(_get_base_order)
+
     def _merge_group(group):
-        # Tomamos el elemento base
-        row = group.iloc[0].copy()
+        # Tomamos el ÚLTIMO elemento base, ya que las filas posteriores (-1, -2)
+        # suelen contener el 'Estado de la Orden' y 'Precios' definitivos, evitando los '0.00' iniciales
+        row = group.iloc[-1].copy()
+        
+        # Sobrescribimos el valor de la orden electrónica para que sea el código base unificado
+        row[elec_col] = row['_base_elec']
         
         # 1. Operación de Monoide Libre (Concatenación sin repetición) para textos múltiples
         for field_key in ["detalle_producto", "logistica_entrega", "nro_parte"]:
@@ -222,12 +236,9 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
                     
         return row
 
-    merged = df.groupby(elec_col, sort=False).apply(_merge_group).reset_index(drop=False)
-    # If the above created a duplicate column or weird naming, we ensure the column exists
-    if elec_col not in merged.columns and 'index' in merged.columns:
-        merged = merged.rename(columns={'index': elec_col})
+    merged = df.groupby('_base_elec', sort=False).apply(_merge_group).reset_index(drop=True)
     
-    logger.info("Merged %d raw rows → %d unique orders. Columns: %s", len(df), len(merged), list(merged.columns))
+    logger.info("Merged %d raw rows → %d unique base orders. Columns: %s", len(df), len(merged), list(merged.columns))
 
     # ── Convert to PurchaseOrderCreate ────────────────────────────────────
     orders = []
