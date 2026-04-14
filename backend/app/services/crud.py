@@ -44,7 +44,8 @@ def get_orders(
                 PurchaseOrder.nombre_entidad.ilike(f"%{search}%"),
                 PurchaseOrder.nombre_proveedor.ilike(f"%{search}%"),
                 PurchaseOrder.nro_orden_fisica.ilike(f"%{search}%"),
-                PurchaseOrder.orden_electronica.ilike(f"%{search}%")
+                PurchaseOrder.orden_electronica.ilike(f"%{search}%"),
+                PurchaseOrder.nro_parte.ilike(f"%{search}%")
             )
         )
     return q.order_by(PurchaseOrder.fecha_publicacion.desc()).offset(skip).limit(limit).all()

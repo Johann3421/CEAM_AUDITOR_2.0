@@ -116,7 +116,7 @@ const Orders = () => {
           <input
             type="text"
             className="form-input"
-            placeholder="Buscar por orden, entidad o proveedor..."
+            placeholder="Buscar por orden, entidad, proveedor o nro de parte..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
