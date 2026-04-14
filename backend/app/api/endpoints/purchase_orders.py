@@ -52,6 +52,16 @@ def get_catalogos_filter(db: Session = Depends(get_db)):
     return {"catalogos": [r[0] for r in rows if r[0]]}
 
 
+@router.delete("/all", status_code=200)
+def delete_all_orders(db: Session = Depends(get_db)):
+    """Delete ALL purchase orders from the database. Used to reset data before a fresh scrape."""
+    from app.models.purchase_order import PurchaseOrder
+    count = db.query(PurchaseOrder).count()
+    db.query(PurchaseOrder).delete()
+    db.commit()
+    return {"deleted": count, "message": f"Se eliminaron {count} órdenes de compra"}
+
+
 @router.get("/{order_id}", response_model=PurchaseOrderResponse)
 def get_order(order_id: int, db: Session = Depends(get_db)):
     order = crud.get_order(db, order_id)

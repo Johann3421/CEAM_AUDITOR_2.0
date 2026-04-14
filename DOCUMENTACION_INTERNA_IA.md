@@ -308,3 +308,9 @@ pruned = db_session.query(PurchaseOrder).filter(
 Después del upsert exitoso de órdenes OCAM, se eliminan **todos** los registros cuya `orden_electronica` NO empiece con `OCAM-`. No se necesita matching individual porque cualquier non-OCAM es un artefacto del scraper antiguo.
 
 Esto garantiza idempotencia: ejecutar el scraper múltiples veces deja solo registros OCAM limpios.
+
+### 7.9. Botón "Borrar Todo" en Órdenes de Compra
+Se implementó un botón de eliminación masiva en la página `/orders`:
+- **Backend** (`purchase_orders.py`): Endpoint `DELETE /purchase-orders/all` que ejecuta `db.query(PurchaseOrder).delete()` y devuelve el conteo de registros eliminados.
+- **Frontend** (`api.js`): Método `deleteAll()` en `purchaseOrdersApi`.
+- **UI** (`Orders.jsx`): Botón rojo "Borrar Todo" con icono `Trash2`, gradiente `#ef4444→#dc2626`, hover scale, y diálogo de confirmación `window.confirm()` para prevenir eliminaciones accidentales. Tras eliminar, la tabla se refresca automáticamente.

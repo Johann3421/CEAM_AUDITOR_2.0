@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { purchaseOrdersApi } from '../services/api';
 import OrderTable from '../components/orders/OrderTable';
-import { Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, Trash2 } from 'lucide-react';
 
 const Orders = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [limit] = useState(25);
+  const [deleting, setDeleting] = useState(false);
 
   const [search, setSearch] = useState('');
   const [catalogo, setCatalogo] = useState('');
@@ -53,6 +54,24 @@ const Orders = () => {
     setPage(0);
   };
 
+  const handleDeleteAll = async () => {
+    if (!window.confirm('⚠️ ¿Estás seguro de que deseas eliminar TODAS las órdenes de compra?\n\nEsta acción no se puede deshacer. Deberás volver a scrapear los datos.')) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      const res = await purchaseOrdersApi.deleteAll();
+      alert(`✅ ${res.data.message}`);
+      setPage(0);
+      fetchOrders();
+    } catch (error) {
+      console.error('Error deleting orders:', error);
+      alert('❌ Error al eliminar las órdenes');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const hasFilters = search || catalogo;
 
   return (
@@ -62,6 +81,32 @@ const Orders = () => {
           <h1>Órdenes de Compra</h1>
           <p>Historial completo de adquisiciones · {orders.length} resultados</p>
         </div>
+        <button
+          onClick={handleDeleteAll}
+          disabled={deleting || loading}
+          className="btn"
+          style={{
+            background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+            color: '#fff',
+            border: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '10px 18px',
+            borderRadius: '10px',
+            fontWeight: 600,
+            fontSize: '0.85rem',
+            cursor: deleting ? 'wait' : 'pointer',
+            opacity: deleting ? 0.6 : 1,
+            transition: 'opacity 0.2s, transform 0.2s',
+            boxShadow: '0 2px 8px rgba(239, 68, 68, 0.3)',
+          }}
+          onMouseEnter={(e) => { if (!deleting) e.currentTarget.style.transform = 'scale(1.04)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+        >
+          <Trash2 size={16} />
+          {deleting ? 'Eliminando...' : 'Borrar Todo'}
+        </button>
       </div>
 
       {/* Toolbar */}

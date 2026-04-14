@@ -12,6 +12,7 @@ export const purchaseOrdersApi = {
   getStats: () => api.get('/purchase-orders/stats'),
   getCatalogosFilter: () => api.get('/purchase-orders/catalogos-filter'),
   getById: (id) => api.get(`/purchase-orders/${id}`),
+  deleteAll: () => api.delete('/purchase-orders/all'),
 };
 
 export const scraperApi = {
