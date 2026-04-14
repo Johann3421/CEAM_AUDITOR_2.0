@@ -205,9 +205,8 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
         # Tomamos el ÚLTIMO elemento base, ya que las filas posteriores (-1, -2)
         # suelen contener el 'Estado de la Orden' y 'Precios' definitivos, evitando los '0.00' iniciales
         row = group.iloc[-1].copy()
-        
         # Sobrescribimos el valor de la orden electrónica para que sea el código base unificado
-        row[elec_col] = row['_base_elec']
+        row[elec_col] = group.name
         
         # 1. Operación de Monoide Libre (Concatenación sin repetición) para textos múltiples
         for field_key in ["detalle_producto", "logistica_entrega", "nro_parte"]:
