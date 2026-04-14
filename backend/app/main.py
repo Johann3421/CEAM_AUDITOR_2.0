@@ -14,9 +14,17 @@ _NEW_COLS = [
     ("purchase_orders", "orden_digitalizada", "TEXT"),
     ("purchase_orders", "nro_parte",          "TEXT"),
     ("purchase_orders", "precio_unitario",     "NUMERIC(14,4)"),
+    ("purchase_orders", "orden_electronica",   "TEXT UNIQUE"),
 ]
 try:
     with engine.begin() as _c:
+        # 1. Quitar el unique de nro_orden_fisica si existiera
+        try:
+            _c.execute(text("ALTER TABLE purchase_orders DROP CONSTRAINT IF EXISTS purchase_orders_nro_orden_fisica_key;"))
+        except Exception:
+            pass  # Constraint might not exist
+            
+        # 2. Add new columns
         for table, col, coltype in _NEW_COLS:
             exists = _c.execute(
                 text(

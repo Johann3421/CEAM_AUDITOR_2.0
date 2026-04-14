@@ -7,7 +7,8 @@ class PurchaseOrder(Base):
     id = Column(Integer, primary_key=True, index=True)
     codigo_acuerdo_marco = Column(String, index=True)
     procedimiento = Column(String)
-    nro_orden_fisica = Column(String, unique=True, index=True)
+    orden_electronica = Column(String, unique=True, index=True)
+    nro_orden_fisica = Column(String, index=True)
     
     ruc_entidad = Column(String)
     nombre_entidad = Column(String)

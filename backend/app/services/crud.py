@@ -15,9 +15,9 @@ def get_order(db: Session, order_id: int) -> Optional[PurchaseOrder]:
     return db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
 
 
-def get_order_by_nro(db: Session, nro: str) -> Optional[PurchaseOrder]:
+def get_order_by_electronica(db: Session, orden: str) -> Optional[PurchaseOrder]:
     return db.query(PurchaseOrder).filter(
-        PurchaseOrder.nro_orden_fisica == nro
+        PurchaseOrder.orden_electronica == orden
     ).first()
 
 
@@ -59,8 +59,8 @@ def create_order(db: Session, order: PurchaseOrderCreate) -> PurchaseOrder:
 
 
 def upsert_order(db: Session, order: PurchaseOrderCreate) -> PurchaseOrder:
-    """Insert or update by nro_orden_fisica (idempotent scrape import)."""
-    existing = get_order_by_nro(db, order.nro_orden_fisica)
+    """Insert or update by orden_electronica (idempotent scrape import)."""
+    existing = get_order_by_electronica(db, order.orden_electronica)
     if existing:
         for key, value in order.model_dump().items():
             setattr(existing, key, value)

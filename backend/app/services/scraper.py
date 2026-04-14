@@ -142,6 +142,9 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
             col_map["nro_parte"] = col
         elif "precio" in cl and ("unitario" in cl or "unit" in cl):
             col_map["precio_unitario"] = col
+        elif "orden" in cl and "electr" in cl and "estado" not in cl and "sub" not in cl and "igv" not in cl and "total" not in cl:
+            if "orden_electronica" not in col_map:
+                col_map["orden_electronica"] = col
 
     logger.info("Column mapping: %s", col_map)
 
@@ -159,10 +162,16 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
         logger.error("No 'Nro Orden Física' column found. Columns: %s", list(df.columns))
         return []
 
+    elec_col = col_map.get("orden_electronica")
+    if not elec_col:
+        logger.warning("No 'Orden Electrónica' column found, fallback to physical order.")
+        elec_col = nro_col
+
     # Drop rows with empty order numbers
-    df = df.dropna(subset=[nro_col])
+    df = df.dropna(subset=[elec_col])
+    df[elec_col] = df[elec_col].astype(str).str.strip()
+    df = df[df[elec_col] != ""]
     df[nro_col] = df[nro_col].astype(str).str.strip()
-    df = df[df[nro_col] != ""]
 
     if len(df) == 0:
         logger.warning("No valid rows after cleanup")
@@ -200,10 +209,10 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
                     
         return row
 
-    merged = df.groupby(nro_col, sort=False).apply(_merge_group).reset_index(drop=False)
+    merged = df.groupby(elec_col, sort=False).apply(_merge_group).reset_index(drop=False)
     # If the above created a duplicate column or weird naming, we ensure the column exists
-    if nro_col not in merged.columns and 'index' in merged.columns:
-        merged = merged.rename(columns={'index': nro_col})
+    if elec_col not in merged.columns and 'index' in merged.columns:
+        merged = merged.rename(columns={'index': elec_col})
     
     logger.info("Merged %d raw rows → %d unique orders. Columns: %s", len(df), len(merged), list(merged.columns))
 
@@ -251,13 +260,15 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
                 return None
 
         nro = str(_get("nro_orden_fisica")).strip()
-        if not nro or nro == "nan":
+        elec = str(_get("orden_electronica")).strip()
+        if not elec or elec == "nan" or not nro or nro == "nan":
             continue
 
         try:
             order = PurchaseOrderCreate(
                 codigo_acuerdo_marco=str(_get("codigo_acuerdo_marco")).strip() or "N/A",
                 procedimiento=str(_get("procedimiento")).strip() or "N/A",
+                orden_electronica=elec,
                 nro_orden_fisica=nro,
                 ruc_entidad=str(_get("ruc_entidad")).strip() or None,
                 nombre_entidad=str(_get("nombre_entidad")).strip() or None,
