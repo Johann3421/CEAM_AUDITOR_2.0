@@ -284,3 +284,23 @@ if elec_col != nro_col:
     df.loc[mask, elec_col] = df.loc[mask, nro_col]
 ```
 Antes de `dropna`, las filas con `orden_electronica` vacía se rellenan con el valor de `nro_orden_fisica`. Así ninguna orden válida se pierde. Los logs registran cuántas filas fueron rellenadas. Las órdenes que SÍ tienen OCAM-... conservan su valor original.
+
+### 7.8. Análisis del Excel Real y Limpieza de Registros Huérfanos
+**Hallazgo** (diagnóstico ejecutado sobre `DatosAbiertos (3).xlsx` — 4.5 MB, exportación real del portal):
+- El Excel tiene **54 columnas** (A-BB). La fila de header siempre está en la **fila 5** (índice 0-based). Los datos empiezan en la **fila 6**.
+- **Columna J** (índice 9) = `Orden Electrónica` → contiene valores OCAM-YYYY-XXXXXX-XX-X (ej. `OCAM-2026-301816-36-0`).
+- **Columna O** (índice 14) = `Nro Orden Física` → texto libre (ej. `OC 173-2026-DEVIDA`, `004-2026`, `31`).
+- De las **1520 filas** del Excel, **TODAS** tienen `Orden Electrónica` poblada (0 NaN, 0 vacías).
+- El `groupby(orden_electronica)` reduce las 1520 filas a **1184 órdenes únicas** (ratio 1.28x por entregas múltiples).
+- El `col_map` del scraper mapea correctamente las 54 columnas a los 21 campos del modelo.
+
+**Problema resuelto**: Los registros con `orden_electronica` vacía en la tabla `purchase_orders` de producción fueron insertados por una **versión anterior del scraper** que no extraía correctamente la columna J. Estos registros "huérfanos" tienen el valor de `nro_orden_fisica` almacenado como `orden_electronica`.
+
+**Solución — Función de Poda** (`run_scrape_sync` en `scraper.py`):
+Después del upsert principal, se ejecuta un paso de limpieza usando la **Función de Poda** (Matemática Discreta):
+1. Se seleccionan todos los registros cuya `orden_electronica` NO siga el patrón `OCAM-%`.
+2. Para cada huérfano, se verifica si ya existe un registro con `OCAM-%` que tenga el **mismo** `nro_orden_fisica`.
+3. Si el par (huérfano, registro correcto) existe → el huérfano es redundante → se elimina.
+4. Si no hay contraparte OCAM → el huérfano se conserva (podría ser una orden legítima sin OCAM).
+
+Esto garantiza idempotencia: ejecutar el scraper múltiples veces no deja duplicados.
