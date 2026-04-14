@@ -208,15 +208,59 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
         # Sobrescribimos el valor de la orden electrónica para que sea el código base unificado
         row[elec_col] = group.name
         
+        import json
+        
+        # Eliminar precio_unitario de las funciones numéricas y nro_parte de concatenación normal
         # 1. Operación de Monoide Libre (Concatenación sin repetición) para textos múltiples
-        for field_key in ["detalle_producto", "logistica_entrega", "nro_parte"]:
+        for field_key in ["detalle_producto", "logistica_entrega"]:
             if field_key in col_map:
                 c = col_map[field_key]
                 vals = group[c].dropna().astype(str).unique()
                 row[c] = " | ".join(v for v in vals if v.strip() and v.strip() != "nan")
                 
-        # 2. Función Supremo (Máximo) para conjuntos Numéricos 
-        for field_key in ["sub_total", "igv", "monto_total", "precio_unitario"]:
+        # Construcción de JSON para productos anidados en nro_parte
+        # Esto soluciona el requerimiento de múltiples productos sin separar la orden base
+        productos = []
+        if "nro_parte" in col_map:
+            parte_col = col_map["nro_parte"]
+            pu_col = col_map.get("precio_unitario", "")
+            # We want tracking of sub totals strictly for each product line.
+            # In the Excel, 'Sub Total' represents the item total. 
+            sub_col_item = None
+            for col in group.columns:
+                if "sub" in col.lower() and "total" in col.lower() and "orden" not in col.lower():
+                    sub_col_item = col
+                    break
+                    
+            partes_unicas = group[parte_col].dropna().astype(str).unique()
+            for p in partes_unicas:
+                if p.strip() in ("", "nan", "None"): continue
+                
+                # Filter rows of this part that actually have a price > 0
+                filas_p = group[group[parte_col].astype(str) == p]
+                precio_val = 0.0
+                total_val = 0.0
+                if pu_col and pu_col in filas_p.columns:
+                    # try to max the prices because the -0 row has 0.00
+                    p_series = pd.to_numeric(filas_p[pu_col].astype(str).str.replace(",", "").str.replace(" ", ""), errors="coerce")
+                    if not p_series.dropna().empty:
+                        precio_val = float(p_series.max())
+                
+                if sub_col_item:
+                    s_series = pd.to_numeric(filas_p[sub_col_item].astype(str).str.replace(",", "").str.replace(" ", ""), errors="coerce")
+                    if not s_series.dropna().empty:
+                        total_val = float(s_series.max())
+                
+                productos.append({
+                    "nro_parte": p.strip(),
+                    "precio_unitario": precio_val,
+                    "total": total_val
+                })
+        
+        row[col_map.get("nro_parte", "nro_parte")] = json.dumps(productos, ensure_ascii=False) if productos else ""
+
+        # 2. Función Supremo (Máximo) para conjuntos Numéricos (excluyendo precio_unitario)
+        for field_key in ["sub_total", "igv", "monto_total"]:
             if field_key in col_map:
                 c = col_map[field_key]
                 # Se garantiza que campos string como '1,200.5' sean tratables

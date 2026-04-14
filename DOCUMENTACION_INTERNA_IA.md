@@ -326,3 +326,10 @@ Se implementó un botón de eliminación masiva en la página `/orders`:
   - Para campos descriptivos como `nro_parte` o `detalle_producto`, operamos con Unión (concatenación de valores únicos separados por `|`).
   - Para montos numéricos, usamos la Función Supremo (`.max()`).
 - **Resultado:** En lugar de 1520 filas generando ~1184 registros separados y repetidos, ahora se compactan perfectamente en las **591 órdenes físicas únicas** correspondientes, agrupando todos sus productos dentro de la misma celda de `Nro. Parte` (ej. `AP1K8AT#ABM-OH4 | LS24C310E...`).
+### 7.11. Anidamiento de Precios Múltiples y Rediseño Compacto de la Tabla Front-End
+**Problema:** Al consolidar órdenes físicas en `7.10`, usar `.max()` en `precio_unitario` eliminaba la información de los precios individuales por cada "Nro. de Parte" que formaba la orden, y la tabla frontend presentaba *scroll horizontal* que ocultaba los botones de "DOC".
+
+**Solución Implementada:**
+1. **JSON en Backend:** En `_merge_group` (`scraper.py`), se eliminó `precio_unitario` de las funciones de agregación globales. Ahora se construye un JSON (`[{"nro_parte": "...", "precio_unitario": 0, "total": 0}]`) que filtra el precio real del producto (ignorando el `-0` del portal) y el subtotal por producto, serializándolo en la columna TEXT `nro_parte`. `Monto Total` se calcula a partir de "Total Orden Electrónica", que es el verdadero total consolidado.
+2. **Despliegue Condicional en Frontend (`OrderTable.jsx`):** Se creó `renderProductos` para interceptar la columna "Nro. Parte". Si contiene un JSON Array, mapea *mini-cards* dentro de la celda de la tabla (`<div flex> P/N - U: P.U. - S/ Total </div>`). Si no, renderiza el texto plano por compatibilidad con historiales antiguos.
+3. **Rediseño Compacto:** Se eliminó la antigua columna separada para "P. Unitario", y se unificó en "Productos". Las columnas tienen tamaños fijos reajustados para prevenir el crecimiento desmedido en "Entidad" y "Proveedor", y los "Botones de Doc" adoptaron un padding menor, permitiendo que la tabla en viewport regulares o de 1366px calce perfectamente **sin scroll horizontal**.
