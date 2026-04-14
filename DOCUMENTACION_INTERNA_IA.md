@@ -42,32 +42,60 @@ El backend sigue una estructura modular estándar para FastAPI:
 Decidimos usar una sola entidad robusta para guardar todos los datos que extrae el scraper desde Perú Compras, ya que el sistema tiene una necesidad primordial: la consulta plana en formato columnar para el dashboard.
 
 **Campos Clave Implementados:**
-- **Datos de la orden**: `order_number` (Unique/Indexado), `issue_date` (DateTime p/ filtros en el dashboard).
-- **Entidades involucradas**: `entity_name`, `ruc_entity` (Cliente), `provider_name`, `ruc_provider` (Proveedor).
-- **Detalle Financiero**: `total_amount` (Guardado como Float, procesado desde strings p/ permitir agregaciones directas en SQL).
-- **Metadatos**: `pdf_url` (Link directo al certificado original), `execution_status` (Estado del contrato).
+- **Datos de la orden**: `nro_orden_fisica` (Unique/Indexado), `fecha_publicacion` (DateTime p/ filtros en el dashboard).
+- **Entidades involucradas**: `nombre_entidad`, `ruc_entidad` (Cliente), `nombre_proveedor`, `ruc_proveedor` (Proveedor).
+- **Detalle Financiero**: `monto_total` (Numeric 14,4), `sub_total`, `igv`. Guardados como Numeric para permitir agregaciones exactas en SQL.
+- **Catálogo**: `catalogo`, `acuerdo_marco`, `categoria`, `plazo_entrega_dias`.
+- **Metadatos del Documento**: `pdf_url` (link al certificado original), `estado_orden` (Estado del contrato).
+- **Campos añadidos (Abril 2026)**:
+  - `orden_digitalizada` (TEXT, nullable) — URL al PDF digitalizado de la orden física, extraído de la columna "Orden Digitalizada" del Excel.
+  - `nro_parte` (TEXT, nullable) — número de parte/SKU del ítem.
+  - `precio_unitario` (NUMERIC 14,4, nullable) — precio por unidad del ítem.
+
+**Patrón de auto-migración en `main.py`:** Las columnas nuevas se añaden automáticamente al arranque de la API sin necesidad de Alembic. El bloque `_NEW_COLS` define tuplas `(tabla, columna, tipo_sql)`. Al iniciar, se consulta `information_schema.columns`; si la columna no existe, se ejecuta `ALTER TABLE ... ADD COLUMN ...`. Esto permite despliegues sin downtime ni scripts manuales.
+
+#### Entidad Fichas: tabla dinámica `fichas_produto` (o variante con tilde)
+Generada automáticamente por `fichas_scraper.py` al procesar el Excel de fichas del portal. Las columnas dependen del Excel (no hay modelo SQLAlchemy fijo). Se utiliza un esquema **schemaless** con descubrimiento dinámico de columnas vía `information_schema.columns`. Las columnas VARCHAR existentes se migran a TEXT automáticamente en cada upsert usando `sa_inspect` + `ALTER COLUMN ... TYPE TEXT` para evitar `StringDataRightTruncation`.
 
 ### 2.3. APIs Implementadas (`app/api/endpoints/`)
 
-#### A. Endpoint de Extracción (Scraper) `scraper.py`
-Maneja la ejecución controlada de scraping.
-- `POST /scraper/run`: Inicializa la tarea de Playwright de fondo mandándola a la cola de **Celery**. Se le puede pasar el parámetro dinámico `max_pages`. Retorna inmediatamente un `task_id` (patrón de Asincronismo de Respuesta Rápida).
-- `GET /scraper/status/{task_id}`: Un endpoint crítico que permite al frontend consultar intermitentemente el estado (polling) o leer metadatos inyectados desde el worker (`meta={'progress':...}`).
+#### A. Endpoint de Extracción — Órdenes (`scraper.py`)
+Maneja la ejecución controlada del scraper de órdenes de compra (Módulo 1).
+- `POST /scraper/run`: Inicializa la tarea de Playwright de fondo mandándola a la cola de **Celery**. Acepta parámetros `fecha_inicio`, `fecha_fin`, `catalogo` (código EXT/IM del acuerdo marco) y `max_pages`. Retorna inmediatamente un `task_id`.
+- `GET /scraper/status/{task_id}`: Polling del estado de la tarea Celery. Retorna `state`, `meta.current`, `meta.total`, `meta.inserted`, `meta.updated`.
+- `GET /scraper/catalogos`: Retorna la lista de acuerdos marco disponibles como objetos `{code, label}`. El `code` es el identificador exacto del acuerdo (ej. `EXT-CE-2022-5`) que se usa para la búsqueda en el Select2 del portal. Usar `code` (no `label`) como valor del filtro.
+- `GET /scraper/test-download`: Diagnóstico — ejecuta el scraper **directamente en el proceso API** (sin Celery) y retorna JSON de traza. Disponible en Swagger `/docs`.
 
-#### B. Endpoint de Órdenes `orders.py`
+**`CATALOGOS_DISPONIBLES`** — lista de 16 acuerdos marco vigentes con formato `{code, label}`. Los códigos exactos (`EXT-CE-2022-5`, `EXT-CE-2021-6`, `IM-CE-2023-1`, etc.) se obtuvieron del HTML del portal. **No usar keywords genéricas** — el Select2 del portal sólo acepta coincidencia exacta con el texto de la opción.
+
+#### B. Endpoint de Órdenes (`purchase_orders.py`)
 Provee métodos de listado y analíticas.
-- `GET /orders/`: Listado tradicional con paginación, pero enriquecido con **Filtros Flexibles** (fecha de inicio, fin, nombre de entidad, proveedor o RUC). Usa consultas LIKE/ILIKE y operadores lógicos.
-- `GET /orders/stats`: Un endpoint **agregador** diseñado específicamente para el Dashboard de React.
-  - Retorna KPIs inmediatos como "Total Adjudicado en Monto" (`sum(total_amount)`), y agrupados por "Catalogo" (`group_by(catalog)`).
-  - *Decisión de Diseño:* Se hizo en backend para evitar que el frontend procese masivamente toda la tabla, delegando este rol pesado a la BD de PostgreSQL usando `func.sum()` y `func.count()`.
+- `GET /purchase-orders/`: Listado paginado con filtros: `search` (texto libre sobre entidad/proveedor/nro_orden), `catalogo`, `estado`, `fecha_inicio`, `fecha_fin`, `skip`, `limit`.
+- `GET /purchase-orders/stats`: Endpoint **agregador** para el Dashboard. Retorna KPIs: total órdenes, monto total adjudicado, top entidades, distribución por catálogo y por estado. Usa `func.sum()` y `func.count()` directo en PostgreSQL.
+- `GET /purchase-orders/catalogos-filter`: Retorna la lista de valores distintos de `catalogo` que existen en la DB (no-null, ordenados). Usado por `Orders.jsx` para poblar dinámicamente el dropdown de filtro — **no hardcodear opciones**.
+- `GET /purchase-orders/{id}`: Detalle de una orden por ID.
 
-### 2.4. El Worker & Scraper (`app/tasks/scrapers.py`)
-Es el motor donde transcurre la "magia sucia" de extracción.
-- Utiliza `playwright.sync_api`.
-- Se autentica (si es necesario) o navega por los frames complejos de ASP.NET antiguos de Perú Compras, maneja esperas explícitas (`wait_for_selector`) y recorre la paginación (`click("text='>>'")`).
-- Por cada iteración, empuja los resultados usando `crud.create_order()`, utilizando un insert/update idempotente (en caso la OC ya exista, se ignora o actualiza para evitar duplicados, usando la validación de Integridad de sqlalchemy).
-- En cada iteración clave actualiza el estado de la tarea en Redis para notificar al frontend:
-  `self.update_state(state='PROGRESS', meta={'current': page, 'total': max_pages})`
+#### C. Endpoint de Fichas (`fichas.py`)
+Expone las fichas técnicas extraídas por el scraper de fichas (Módulo 2).
+- `GET /fichas/`: Listado paginado con filtros: `search`, `estado`, `marca`, `acuerdo_marco`, `catalogo`, `categoria`. Usa SQL dinámico con descubrimiento de columnas via `information_schema`.
+- `GET /fichas/stats`: Estadísticas agregadas: `total_fichas`, `by_acuerdo`, `by_categoria`, `by_estado`, `by_marca`. Alimenta el panel de KPIs de Fichas en el Dashboard.
+
+### 2.4. Workers & Scrapers
+
+#### Módulo 1 — Scraper de Órdenes (`app/services/scraper.py` + `app/worker/tasks.py`)
+Extrae órdenes de compra del portal Perú Compras como Excel y las guarda en `purchase_orders`.
+- Utiliza `playwright.async_api` con `asyncio`.
+- Navega los frames ASP.NET, configura filtros de fecha y catálogo, descarga el Excel detallado.
+- Procesamiento ETL con `pandas`: limpieza de cabeceras (regex `_x000d_`), detección dinámica de `header_row_idx`, deduplicación por `nro_orden_fisica`, mapeo de columnas via `col_map`.
+- **`col_map`** — diccionario que mapea nombre-semántico → índice de columna Excel. Cubre todos los campos del modelo incluidos los nuevos: `orden_digitalizada`, `nro_parte`, `precio_unitario`.
+- Upsert idempotente: si `nro_orden_fisica` ya existe → `UPDATE`; si no → `INSERT`.
+- Actualiza el estado Celery en Redis: `self.update_state(state='PROGRESS', meta={'current': page, 'total': max_pages, 'inserted': n, 'updated': m})`.
+
+#### Módulo 2 — Scraper de Fichas (`app/services/fichas_scraper.py`)
+Extrae fichas técnicas de productos del portal y las guarda en la tabla `fichas_produto` (nombre variable según encoding del portal).
+- Descarga Excel de fichas por acuerdo marco, procesa con pandas.
+- `upsert_fichas()`: crea la tabla dinámicamente con `meta.create_all()`. Incluye auto-migración para columnas VARCHAR existentes → TEXT (usando `sa_inspect` + `ALTER COLUMN ... TYPE TEXT`) para evitar `StringDataRightTruncation` en columnas largas.
+- Identificador de upsert: columna `codigo_ficha` o equivalente.
 
 ---
 
@@ -83,20 +111,35 @@ El cliente web ha sido construido bajo un estándar de calidad **altamente esté
 
 ### 3.2. Estructura de Interfaz
 
-La vista se organiza con el patrón `Layout` -> `Páginas`:
-- `Layout.jsx`: Encapsula la Sidebar navegable.
-- **Páginas**:
-  - `Dashboard.jsx`: El centro neurálgico. Hace el *fetching* directo a `/orders/stats`. Despliega KPIs (tarjetas superiores con micro animaciones visuales indicando subidas/bajadas), una gráfica de Torta (`Recharts` - `PieChart`) para la distribución del catálogo, y quizás un `AreaChart` para la evolución a través del tiempo.
-  - `Orders.jsx`: La tabla interactiva de información general. Contiene `Inputs` para buscar por ID o rúbrica y filtros de fecha. Usa renderizado condicional inteligente y enlaces embebidos que abren el PDF original extraído mediante el scraper.
-   - `ScraperTask.jsx`: Panel de control en vivo para activar las tareas masivas.
+La vista se organiza con el patrón `Layout` → `Páginas`. La navegación vive en `Sidebar.jsx`.
+
+**Rutas activas (`App.jsx`):**
+| Ruta | Componente | Descripción |
+|---|---|---|
+| `/` | `Dashboard.jsx` | KPIs de órdenes + fichas, tabla Top Marcas |
+| `/orders` | `Orders.jsx` | Tabla filtrable de órdenes de compra |
+| `/fichas-catalogo` | `Fichas.jsx` | Tabla filtrable de fichas técnicas |
+| `/scraper` | `ScraperControl.jsx` | Panel de control scraper Módulo 1 |
+| `/fichas` | `ScraperControl.jsx` (modo fichas) | Panel de control scraper Módulo 2 |
+
+**Páginas:**
+- **`Dashboard.jsx`**: Centro neurálgico. Llama `Promise.allSettled([purchaseOrdersApi.getStats(), fichasProductoApi.getStats()])`. Muestra dos secciones de KPI: "Órdenes de Compra" (4 tarjetas) y "Fichas Producto" (4 tarjetas), más una tabla Top Marcas con datos de fichas. Usa `recharts` para gráficas de distribución por catálogo.
+- **`Orders.jsx`**: Tabla interactiva. Filtros: búsqueda de texto libre, fecha inicio/fin, catálogo (dropdown dinámico cargado desde `GET /purchase-orders/catalogos-filter` — **no hardcodear opciones**). Paginación con 25 items/página. Delega el render de filas a `OrderTable.jsx`.
+- **`OrderTable.jsx`**: Columnas actuales: `Nro. Orden | Entidad | Proveedor | Publicación | Nro. Parte | P. Unitario | Monto (PEN) | Estado | Doc`. El botón "Doc" usa `orden_digitalizada` (con atributo `download`) y hace fallback a `pdf_url` si el anterior es null.
+- **`Fichas.jsx`**: Vista de catálogo de fichas técnicas. Filtros: texto libre, estado (VIGENTE/SUSPENDIDA/ELIMINADA), marca. Paginación 25 items/página. Delega a `FichasTable.jsx`.
+- **`FichasTable.jsx`**: Columnas detectadas dinámicamente desde las claves del primer objeto. Muestra: Nro. Parte/Código, Descripción (truncada con tooltip), Marca, Categoría, Estado (badge), PDF ficha técnica, imagen si disponible.
+- **`ScraperControl.jsx`**: Panel de control unificado para Módulo 1 y Módulo 2. Dropdown de catálogo usa `{code, label}` — el `code` (EXT/IM) se envía al backend; el `label` es para display. Polling con `setInterval` cada 2s sobre `GET /scraper/status/{task_id}`.
 
 ### 3.3. Manejo de Tareas Asíncronas (Polling)
-Una funcionalidad importante a notar del Frontend en `ScraperTask.jsx` es cómo maneja la espera asíncrona:
-1. El usuario da clic en "Iniciar Tarea", y se hace el `POST`.
-2. El sistema recibe el `task_id`.
-3. Inicia un Hook tipo `setInterval` de `React` que cada 2 segundos o 3 ejecuta un `GET` a `/scraper/status/{task_id}`.
-4. Con el response, llena dinámicamente un `<progress max={100} value={...} />`.
-5. Si el response da "SUCCESS", limpia el interval (clearInterval) y lanza una notificación de éxito al usuario (además de invalidar o mandar a refrescar los datos remotos en Zustand/Context o simple fetch call).
+Implementado en `ScraperControl.jsx`:
+1. El usuario configura catálogo + rango de fechas y hace clic en "Iniciar".
+2. Se ejecuta `POST /scraper/run` (o el endpoint correspondiente al módulo).
+3. Se recibe `task_id` y se almacena en estado local.
+4. Arranca un `setInterval` cada 2s que llama `GET /scraper/status/{task_id}`.
+5. El progreso se muestra con barra de avance: `meta.current / meta.total * 100`.
+6. Al recibir `state === 'SUCCESS'` o `state === 'FAILURE'`, se limpia el interval y se muestra el mensaje final (insertados/actualizados o mensaje de error).
+
+**Importante:** Los errores del scraper **deben propagarse** (lanzar `RuntimeError`, nunca `return None`) para que Celery marque la tarea como `FAILURE` y el frontend pueda mostrar el mensaje de error.
 
 ---
 
@@ -126,10 +169,27 @@ Ya que el Frontend vive en el navegador del cliente externo (y no internal-netwo
 ## 📝 5. Resumen Ejecutivo (Tl;dr) para Inteligencias Artificiales (IAs)
 
 Si se debe modificar el proyecto en el futuro:
-- **Para alterar la Base de Datos**: Añadir el campo a `/app/models/purchase_order.py`, a los serializadores en `/app/schemas/purchase_order.py` y, *críticamente*, al servicio `/app/services/crud.py` asumiendo las reglas al crear o hacer update si la fila ya existe.
-- **Para extraer nuevos datos del Extractor**: Buscar `/app/tasks/scrapers.py`, identificar qué selectores (XPath o CSS) cambian, obtener la data de la columna y meterlo en el diccionario de Python temporal y mandarlo a creación.
-- **Para cambiar el aspecto visual**: Revisar la jerarquía en la carpeta `/frontend/src`. El esquema visual está altamente ligado al `index.css` de manera nativa (variables `:root` HSL). Evitar usar configuraciones pesadas como TailwindCSS, respetando la estructura ligera instalada.
-- **Para arreglos o fallos de Despliegue Dokploy**: Siempre revisar los puertos expuestos (`8087`,`3087`) dentro del `docker-compose.yml`, pues estos se alteraron para evitar choques en servidores compartidos.
+
+- **Para añadir un campo nuevo a `purchase_orders`**:
+  1. `app/models/purchase_order.py` — añadir columna SQLAlchemy.
+  2. `app/schemas/purchase_order.py` — añadir campo Pydantic en `PurchaseOrderBase`.
+  3. `app/services/scraper.py` — añadir entrada en `col_map` + pasar el valor en `PurchaseOrderCreate(...)`.
+  4. `app/main.py` — añadir la tupla `("purchase_orders", "nombre_col", "TIPO_SQL")` en `_NEW_COLS` para auto-migración al arranque.
+  5. `frontend/src/components/orders/OrderTable.jsx` — añadir la columna en la tabla.
+
+- **Para añadir un nuevo acuerdo marco scrapeble**:
+  - Ir a `app/api/endpoints/scraper.py`, añadir `{"code": "EXT-CE-XXXX-X", "label": "..."}` en `CATALOGOS_DISPONIBLES`. El `code` debe ser el identificador exacto del acuerdo en el portal (visible en el HTML del Select2).
+
+- **Para el scraper de fichas**: El código está en `app/services/fichas_scraper.py`. La tabla `fichas_produto` es schemaless (columnas dinámicas). No añadir un modelo SQLAlchemy fijo — mantener el patrón de descubrimiento dinámico.
+
+- **Para cambiar el aspecto visual**: Las variables CSS viven en `frontend/src/index.css` (variables `:root` HSL). No usar TailwindCSS — la estructura ligera es intencional.
+
+- **Para arreglos o fallos de Despliegue Dokploy**:
+  - Puertos expuestos: `8087` (API), `3087` (Frontend) — definidos en `docker-compose.yml`.
+  - `VITE_API_URL` debe apuntar al dominio público externo (`https://api-auditor.sekaitech.com.pe`), NO al nombre de red interno (`http://backend:8087`).
+  - Tras cambios en el scraper, **reiniciar `ceam_worker`** en Dokploy (el worker Celery no detecta cambios de archivo).
+
+- **Para diagnóstico de errores del scraper**: Usar `GET /scraper/test-download` desde Swagger `/docs` — ejecuta el scraper sin Celery y retorna JSON de traza completa.
 
 ---
 
@@ -169,3 +229,37 @@ Si el scraper falla o retorna datos incorrectos, revisar:
 
 ### ♻️ 6.5. Ciclo de Despliegue y el Worker de Celery
 **CRÍTICO:** El worker de Celery importa todos los módulos Python **una sola vez al arrancar**. A diferencia de uvicorn (que tiene `--reload`), el worker **nunca detecta cambios en archivos**. Después de hacer cualquier push con cambios en `app/services/scraper.py` o `app/worker/tasks.py`, es **obligatorio reiniciar el contenedor `ceam_worker`** en Dokploy para que el código nuevo tenga efecto. Si no se reinicia, el worker seguirá usando la versión antigua del scraper, resultando en `{"inserted":0,"updated":0}`.
+
+---
+
+## 🗓️ 7. Registro de Cambios — Abril 2026
+
+### 7.1. Nuevos Campos en `purchase_orders`
+Se añadieron tres columnas nullable a la tabla `purchase_orders` para enriquecer la información de cada orden:
+- **`orden_digitalizada`** (TEXT): URL al PDF de la orden física digitalizada. Mapea a la columna "Orden Digitalizada" del Excel del portal.
+- **`nro_parte`** (TEXT): Número de parte / SKU del ítem.
+- **`precio_unitario`** (NUMERIC 14,4): Precio por unidad del ítem.
+
+Las columnas se crean automáticamente al arranque de la API via el bloque `_NEW_COLS` en `main.py` (patrón de auto-migración sin Alembic). Los archivos afectados: `models/purchase_order.py`, `schemas/purchase_order.py`, `services/scraper.py`, `main.py`, `components/orders/OrderTable.jsx`.
+
+### 7.2. Selector de Catálogo — Scraper Módulo 1
+`CATALOGOS_DISPONIBLES` se migró de lista de keywords genéricas a lista de objetos `{code, label}`. El `code` (ej. `EXT-CE-2022-5`) es el identificador exacto del Select2 del portal. Se extrajo el listado completo de los 16 acuerdos marco vigentes del HTML del portal. El frontend (`ScraperControl.jsx`) usa `c.code` como valor del `<select>` y `c.label` como texto visible.
+
+### 7.3. Filtro de Catálogo Dinámico en Orders
+Antes, `Orders.jsx` tenía opciones de catálogo hardcodeadas (incorrectas). Ahora:
+- Nuevo endpoint `GET /purchase-orders/catalogos-filter` devuelve los valores `catalogo` distintos existentes en DB.
+- `Orders.jsx` carga las opciones desde la API al montar el componente.
+- Nunca más hardcodear opciones de catálogo en el frontend.
+
+### 7.4. Sistema de Fichas Técnicas (Módulo 2)
+Se implementó el flujo completo de fichas técnicas:
+- **Backend**: `app/services/fichas_scraper.py` extrae fichas del portal y hace upsert en tabla `fichas_produto`. Incluye auto-migración VARCHAR→TEXT al inicio de cada upsert via `sa_inspect`.
+- **API**: `app/api/endpoints/fichas.py` — `GET /fichas/` (listado paginado/filtrado) y `GET /fichas/stats` (KPIs). Usa SQL dinámico con descubrimiento de columnas via `information_schema` (tabla schemaless).
+- **Frontend**: `Fichas.jsx` (ruta `/fichas-catalogo`), `FichasTable.jsx` con columnas dinámicas, integración en `Sidebar.jsx` y `App.jsx`.
+- **Dashboard**: Sección "Fichas Producto" con 4 KPIs + tabla Top Marcas.
+
+### 7.5. `OrderTable.jsx` — Actualización de Columnas
+La tabla de órdenes ahora muestra las 3 columnas nuevas. Orden de columnas:
+`Nro. Orden | Entidad | Proveedor | Publicación | Nro. Parte | P. Unitario | Monto (PEN) | Estado | Doc`
+
+El botón "Doc" usa `orden_digitalizada` (con `download`) con fallback a `pdf_url`. Si ambos son null muestra `—`.

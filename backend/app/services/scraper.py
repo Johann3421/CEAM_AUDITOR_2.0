@@ -168,20 +168,35 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
         logger.warning("No valid rows after cleanup")
         return []
 
-    # ── Merge duplicate rows by Nro Orden Física ──────────────────────────
+    # ── Merge duplicate rows by Nro Orden Física (Enfoque de Matemática Discreta) ──
     def _merge_group(group):
-        if len(group) == 1:
-            return group.iloc[0]
+        # Tomamos el elemento base
         row = group.iloc[0].copy()
-        for field_key in ["detalle_producto", "logistica_entrega"]:
+        
+        # 1. Operación de Monoide Libre (Concatenación sin repetición) para textos múltiples
+        for field_key in ["detalle_producto", "logistica_entrega", "nro_parte"]:
             if field_key in col_map:
                 c = col_map[field_key]
                 vals = group[c].dropna().astype(str).unique()
                 row[c] = " | ".join(v for v in vals if v.strip() and v.strip() != "nan")
-        for field_key in ["sub_total", "igv", "monto_total"]:
+                
+        # 2. Función Supremo (Máximo) para conjuntos Numéricos 
+        for field_key in ["sub_total", "igv", "monto_total", "precio_unitario"]:
             if field_key in col_map:
                 c = col_map[field_key]
-                row[c] = pd.to_numeric(group[c], errors="coerce").max()
+                # Se garantiza que campos string como '1,200.5' sean tratables
+                cleaned = pd.to_numeric(group[c].astype(str).str.replace(",", "").str.replace(" ", ""), errors="coerce")
+                if not cleaned.dropna().empty:
+                    row[c] = cleaned.max()
+                    
+        # 3. Función de Elección (Primer válido) para URLs y Documentos
+        for field_key in ["orden_digitalizada"]:
+            if field_key in col_map:
+                c = col_map[field_key]
+                valid_vals = [v for v in group[c].dropna().astype(str) if v.strip() and v.strip() != "nan"]
+                if valid_vals:
+                    row[c] = valid_vals[0]
+                    
         return row
 
     merged = df.groupby(nro_col, sort=False).apply(_merge_group).reset_index(drop=False)
