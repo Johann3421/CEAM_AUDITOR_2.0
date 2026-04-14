@@ -62,7 +62,7 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
 
 @router.post("/", response_model=PurchaseOrderResponse, status_code=201)
 def create_order(payload: PurchaseOrderCreate, db: Session = Depends(get_db)):
-    existing = crud.get_order_by_nro(db, payload.nro_orden_fisica)
+    existing = crud.get_order_by_electronica(db, payload.orden_electronica)
     if existing:
         raise HTTPException(status_code=409, detail="Order number already exists")
     return crud.create_order(db, payload)

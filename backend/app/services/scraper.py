@@ -541,7 +541,7 @@ def run_scrape_sync(
         orders = _process_excel(filepath)
 
         for order in orders:
-            existing = crud.get_order_by_nro(db_session, order.nro_orden_fisica)
+            existing = crud.get_order_by_electronica(db_session, order.orden_electronica)
             crud.upsert_order(db_session, order)
             if existing:
                 updated += 1
