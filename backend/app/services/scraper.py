@@ -444,7 +444,7 @@ async def _download_excel(
             await page.wait_for_timeout(3000) # Dar tiempo a que el AJAX JS dispare
 
             logger.info("Waiting for network to completely settle...")
-            await page.wait_for_load_state("networkidle", timeout=90000)
+            await page.wait_for_load_state("networkidle", timeout=180000)
             logger.info("Network is idle. Search should be complete.")
 
             # Collect diagnostics
@@ -460,7 +460,7 @@ async def _download_excel(
 
         except PWTimeout:
             await browser.close()
-            raise RuntimeError("Timeout esperando los resultados de búsqueda (60 s). El portal tardó demasiado.")
+            raise RuntimeError("Timeout esperando los resultados de búsqueda (180 s). El portal tardó demasiado.")
         except RuntimeError:
             raise
         except Exception as exc:
@@ -482,7 +482,7 @@ async def _download_excel(
 
             logger.info("Clicking .xlsx export link...")
 
-            async with page.expect_download(timeout=120000) as download_info:
+            async with page.expect_download(timeout=600000) as download_info:
                 # Utilizamos evaluate para saltar las validaciones estrictas de Playwright.
                 # A veces el framework ASP.NET le deja un atributo 'disabled' falso al botón
                 # aunque funcionalmente ya permite la descarga.
@@ -499,7 +499,7 @@ async def _download_excel(
 
         except PWTimeout:
             await browser.close()
-            raise RuntimeError("Timeout al descargar el archivo .xlsx (120 s). El portal no entregó el archivo a tiempo.")
+            raise RuntimeError("Timeout al descargar el archivo .xlsx (600 s). El portal no entregó el archivo a tiempo.")
         except RuntimeError:
             raise
         except Exception as exc:
