@@ -187,7 +187,8 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
                 # Se garantiza que campos string como '1,200.5' sean tratables
                 cleaned = pd.to_numeric(group[c].astype(str).str.replace(",", "").str.replace(" ", ""), errors="coerce")
                 if not cleaned.dropna().empty:
-                    row[c] = cleaned.max()
+                    # Casteamos a string para evitar TypeError si el dataframe base inicializó la columna como StringExtensionType
+                    row[c] = str(cleaned.max())
                     
         # 3. Función de Elección (Primer válido) para URLs y Documentos
         for field_key in ["orden_digitalizada"]:
