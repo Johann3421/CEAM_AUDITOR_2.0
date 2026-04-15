@@ -45,7 +45,11 @@ const PreciosFichas = () => {
   const [soloConPrecio, setSoloConPrecio] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentSearch, setCurrentSearch] = useState('');
-  const [filters, setFilters] = useState({ marca: '', acuerdo_marco: '' });
+  const [filters, setFilters] = useState({ 
+    marca: '', acuerdo_marco: '', nro_parte: '',
+    precio_referencia: '', precio_min: '', precio_max: '',
+    volatilidad: '', ordenes: ''
+  });
   const limit = 50;
 
   const fetchStats = useCallback(async () => {
@@ -63,6 +67,12 @@ const PreciosFichas = () => {
       if (currentSearch) params.search = currentSearch;
       if (filters.marca) params.marca = filters.marca;
       if (filters.acuerdo_marco) params.acuerdo_marco = filters.acuerdo_marco;
+      if (filters.nro_parte) params.nro_parte = filters.nro_parte;
+      if (filters.precio_referencia) params.precio_referencia = filters.precio_referencia;
+      if (filters.precio_min) params.precio_min = filters.precio_min;
+      if (filters.precio_max) params.precio_max = filters.precio_max;
+      if (filters.volatilidad) params.volatilidad = filters.volatilidad;
+      if (filters.ordenes) params.ordenes = filters.ordenes;
       
       const r = await fichasProductoApi.getAll(params);
       setFichas(r.data);
@@ -238,7 +248,15 @@ const PreciosFichas = () => {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Nro. Parte</th>
+                <th>
+                  <HeaderFilter 
+                    title="Nro. Parte" 
+                    column="nro_parte" 
+                    currentFilter={filters.nro_parte}
+                    onFilterChange={(v) => { setFilters(prev => ({...prev, nro_parte: v})); setPage(0); }}
+                    apiCall={fichasProductoApi.getColumnFilter}
+                  />
+                </th>
                 <th>
                   <HeaderFilter 
                     title="Marca" 
@@ -257,11 +275,51 @@ const PreciosFichas = () => {
                     apiCall={fichasProductoApi.getColumnFilter}
                   />
                 </th>
-                <th style={{ textAlign: 'right' }}>P. Referencia</th>
-                <th style={{ textAlign: 'right' }}>P. Mínimo</th>
-                <th style={{ textAlign: 'right' }}>P. Máximo</th>
-                <th>Volatilidad</th>
-                <th style={{ textAlign: 'center' }}>Órdenes</th>
+                <th style={{ textAlign: 'right' }}>
+                  <HeaderFilter 
+                    title="P. Referencia" 
+                    column="precio_referencia" 
+                    currentFilter={filters.precio_referencia}
+                    onFilterChange={(v) => { setFilters(prev => ({...prev, precio_referencia: v})); setPage(0); }}
+                    apiCall={fichasProductoApi.getColumnFilter}
+                  />
+                </th>
+                <th style={{ textAlign: 'right' }}>
+                  <HeaderFilter 
+                    title="P. Mínimo" 
+                    column="precio_min" 
+                    currentFilter={filters.precio_min}
+                    onFilterChange={(v) => { setFilters(prev => ({...prev, precio_min: v})); setPage(0); }}
+                    apiCall={fichasProductoApi.getColumnFilter}
+                  />
+                </th>
+                <th style={{ textAlign: 'right' }}>
+                  <HeaderFilter 
+                    title="P. Máximo" 
+                    column="precio_max" 
+                    currentFilter={filters.precio_max}
+                    onFilterChange={(v) => { setFilters(prev => ({...prev, precio_max: v})); setPage(0); }}
+                    apiCall={fichasProductoApi.getColumnFilter}
+                  />
+                </th>
+                <th>
+                  <HeaderFilter 
+                    title="Volatilidad" 
+                    column="volatilidad" 
+                    currentFilter={filters.volatilidad}
+                    onFilterChange={(v) => { setFilters(prev => ({...prev, volatilidad: v})); setPage(0); }}
+                    apiCall={fichasProductoApi.getColumnFilter}
+                  />
+                </th>
+                <th style={{ textAlign: 'center' }}>
+                  <HeaderFilter 
+                    title="Órdenes" 
+                    column="ordenes" 
+                    currentFilter={filters.ordenes}
+                    onFilterChange={(v) => { setFilters(prev => ({...prev, ordenes: v})); setPage(0); }}
+                    apiCall={fichasProductoApi.getColumnFilter}
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>

@@ -40,6 +40,12 @@ def list_fichas(
     estado: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     con_precio: Optional[bool] = Query(None),
+    nro_parte: Optional[str] = Query(None),
+    precio_referencia: Optional[str] = Query(None),
+    precio_min: Optional[str] = Query(None),
+    precio_max: Optional[str] = Query(None),
+    volatilidad: Optional[str] = Query(None),
+    ordenes: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     """List fichas-producto with optional filters and pagination."""
@@ -63,6 +69,19 @@ def list_fichas(
     _filter("categoría", categoria, "categoria")
     _filter("marca", marca, "marca")
     _filter("estado_ficha_producto", estado, "estado")
+    _filter("nro_parte_o_código_único_de_identificación", nro_parte, "nro_parte") # Try strict physical
+    
+    # Text cast for numeric exact matches if passed from dropdown
+    def _filter_num(col: str, val: str, param: str):
+        if col in col_set and val:
+            filters.append(f'CAST("{col}" AS TEXT) ILIKE :{param}')
+            params[param] = f"{val}%"
+            
+    _filter_num("precio_referencia", precio_referencia, "precio_referencia")
+    _filter_num("precio_min", precio_min, "precio_min")
+    _filter_num("precio_max", precio_max, "precio_max")
+    _filter_num("precio_volatilidad", volatilidad, "volatilidad")
+    _filter_num("n_ordenes_precio", ordenes, "ordenes")
 
     if con_precio and "precio_referencia" in col_set:
         filters.append('precio_referencia IS NOT NULL')
@@ -141,7 +160,13 @@ def get_column_filters(column_name: str, db: Session = Depends(get_db)):
     col_mapping = {
         "acuerdo_marco": next((c for c in cols if c.startswith("acuerdo_m")), None),
         "marca": next((c for c in cols if c == "marca"), None),
-        "estado": next((c for c in cols if c.startswith("estado")), None)
+        "estado": next((c for c in cols if c.startswith("estado")), None),
+        "nro_parte": next((c for c in cols if "nro_parte" in c), None),
+        "precio_referencia": "precio_referencia" if "precio_referencia" in cols else None,
+        "precio_min": "precio_min" if "precio_min" in cols else None,
+        "precio_max": "precio_max" if "precio_max" in cols else None,
+        "volatilidad": "precio_volatilidad" if "precio_volatilidad" in cols else None,
+        "ordenes": "n_ordenes_precio" if "n_ordenes_precio" in cols else None,
     }
     target_col = col_mapping.get(column_name)
     if not target_col:
