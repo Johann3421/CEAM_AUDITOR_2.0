@@ -176,6 +176,7 @@ def enrich_precios(db: Session = Depends(get_db)):
       - Select the densest cluster (most orders at that price zone).
       - Canonical price = median of the densest cluster.
       - Volatility = (max − min) / global_median × 100  (% spread).
+    """
     # 1. Add price columns to fichas_producto if not present
     price_cols = [
         ("precio_referencia", "NUMERIC(14,4)"),
@@ -204,27 +205,17 @@ def enrich_precios(db: Session = Depends(get_db)):
 
     # 3. Gather all prices from purchase_orders grouped by nro_parte
     # Normalize keys: UPPER + STRIP to avoid case-sensitivity mismatches.
-    raw = db.execute(text(
-        """
-        SELECT
-            elem->>'nro_parte'                          AS nro_parte,
-            (elem->>'precio_unitario')::numeric          AS precio_unitario,
-            orden_electronica
-        FROM purchase_orders
-        CROSS JOIN LATERAL jsonb_array_elements(
-            CASE
-                WHEN nro_parte IS NOT NULL
-                     AND nro_parte NOT IN ('', 'null', '[]')
-                     AND nro_parte LIKE '[%'
-                THEN nro_parte::jsonb
-                ELSE '[]'::jsonb
-            END
-        ) AS elem
-        WHERE (elem->>'precio_unitario')::numeric > 0
-          AND elem->>'nro_parte' IS NOT NULL
-          AND elem->>'nro_parte' <> ''
-        """
-    )).fetchall()
+    sql_query = (
+        "SELECT elem->>'nro_parte' AS nro_parte, "
+        "(elem->>'precio_unitario')::numeric AS precio_unitario, "
+        "orden_electronica "
+        "FROM purchase_orders "
+        "CROSS JOIN LATERAL jsonb_array_elements("
+        "CASE WHEN nro_parte IS NOT NULL AND nro_parte NOT IN ('', 'null', '[]') AND nro_parte LIKE '[%' "
+        "THEN nro_parte::jsonb ELSE '[]'::jsonb END) AS elem "
+        "WHERE (elem->>'precio_unitario')::numeric > 0 AND elem->>'nro_parte' IS NOT NULL AND elem->>'nro_parte' <> ''"
+    )
+    raw = db.execute(text(sql_query)).fetchall()
     price_map: dict = defaultdict(list)
     for nro, precio, orden in raw:
         normalized = str(nro).strip().upper()
@@ -340,7 +331,7 @@ async def get_alertas_suspendidas(
 ):
     """
     Endpoint para n8n. Ejecuta el scraper de Módulo 2 en vivo y
-    devuelve las fichas que pasaron de 'Ofertada' → 'Suspendida'.
+    devuelve las fichas que pasaron de 'Ofertada' -> 'Suspendida'.
     """
     from app.services.fichas_scraper import run_module_2, AGREEMENT_SELECTOR
 
