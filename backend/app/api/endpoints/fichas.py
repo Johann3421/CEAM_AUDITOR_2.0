@@ -198,13 +198,21 @@ def enrich_precios(db: Session = Depends(get_db)):
         raise HTTPException(status_code=422, detail="No se encontró columna nro_parte en fichas_producto")
 
     # 3. Gather all prices from purchase_orders grouped by nro_parte
+    # Normalize keys: UPPER + STRIP to avoid case-sensitivity mismatches
     raw = db.execute(text(
         "SELECT nro_parte, precio_unitario FROM purchase_orders "
         "WHERE nro_parte IS NOT NULL AND precio_unitario IS NOT NULL AND precio_unitario > 0"
     )).fetchall()
     price_map: dict = defaultdict(list)
     for nro, precio in raw:
-        price_map[str(nro).strip()].append(float(precio))
+        normalized = str(nro).strip().upper()
+        if normalized:  # skip empty strings after normalization
+            price_map[normalized].append(float(precio))
+
+    # Diagnostic: log first 5 keys so mismatches can be spotted quickly
+    sample_po_keys = list(price_map.keys())[:5]
+    import logging as _log
+    _log.getLogger("ceam.enrich").info("purchase_orders nro_parte sample (normalized): %s", sample_po_keys)
 
     # 4. Epsilon-neighborhood mode clustering
     def canonical_price(precios: list) -> dict:
@@ -238,7 +246,11 @@ def enrich_precios(db: Session = Depends(get_db)):
     enriched = 0
     not_found = 0
     for (nro_val,) in fichas_keys:
-        key = str(nro_val).strip()
+        original_key = str(nro_val).strip()   # preserve original case for WHERE
+        key = original_key.upper()             # normalized key for price_map lookup
+        if not key or key in ("", "NAN", "NONE"):
+            not_found += 1
+            continue
         prices = price_map.get(key)
         if not prices:
             not_found += 1
@@ -252,7 +264,7 @@ def enrich_precios(db: Session = Depends(get_db)):
             f'WHERE "{nro_col}" = :key'
         ), {"pr": cp["precio_referencia"], "pmin": cp["precio_min"], "pmax": cp["precio_max"],
             "pmed": cp["precio_mediana"], "pvol": cp["precio_volatilidad"],
-            "n": cp["n_ordenes_precio"], "ts": now, "key": key})
+            "n": cp["n_ordenes_precio"], "ts": now, "key": original_key})
         enriched += 1
 
     db.commit()

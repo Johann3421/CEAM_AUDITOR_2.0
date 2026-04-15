@@ -515,3 +515,5 @@ Esta relación genera clases de equivalencia aproximadas sobre el conjunto de pr
 - 🟢 Baja: < 20% — precio muy estable entre órdenes
 - 🟡 Media: 20–50% — variación moderada (normal en licitaciones)
 - 🔴 Alta: > 50% — precios muy dispersos, usar con cautela
+
+**Bug corregido (§7.18-fix):** El match inicial era case-sensitive (`price_map.get("Xyl0028")` no encontraba `"XYL0028"`). Fix: ambas claves se normalizan con `.strip().upper()` antes de construir el `price_map` y antes de hacer el lookup. El `WHERE` del UPDATE sigue usando el valor original (mixed case) para no fallar el match en la PK de `fichas_producto`.
