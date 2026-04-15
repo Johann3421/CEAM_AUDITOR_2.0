@@ -11,6 +11,7 @@ export const purchaseOrdersApi = {
   getAll: (params) => api.get('/purchase-orders/', { params }),
   getStats: () => api.get('/purchase-orders/stats'),
   getCatalogosFilter: () => api.get('/purchase-orders/catalogos-filter'),
+  getColumnFilter: (col) => api.get(`/purchase-orders/filters/${col}`),
   getById: (id) => api.get(`/purchase-orders/${id}`),
   deleteAll: () => api.delete('/purchase-orders/all'),
 };

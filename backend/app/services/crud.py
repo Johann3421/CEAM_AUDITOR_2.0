@@ -29,6 +29,8 @@ def get_orders(
     categoria: Optional[str] = None,
     estado_orden: Optional[str] = None,
     search: Optional[str] = None,
+    entidad: Optional[str] = None,
+    proveedor: Optional[str] = None,
 ) -> List[PurchaseOrder]:
     from sqlalchemy import or_
     q = db.query(PurchaseOrder)
@@ -38,6 +40,10 @@ def get_orders(
         q = q.filter(PurchaseOrder.categoria.ilike(f"%{categoria}%"))
     if estado_orden:
         q = q.filter(PurchaseOrder.estado_orden == estado_orden)
+    if entidad:
+        q = q.filter(PurchaseOrder.nombre_entidad == entidad)
+    if proveedor:
+        q = q.filter(PurchaseOrder.nombre_proveedor == proveedor)
     if search:
         q = q.filter(
             or_(

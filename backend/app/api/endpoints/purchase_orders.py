@@ -18,6 +18,8 @@ def list_orders(
     categoria: Optional[str] = Query(None),
     estado_orden: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    entidad: Optional[str] = Query(None),
+    proveedor: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     """List purchase orders with optional filters and pagination."""
@@ -29,6 +31,8 @@ def list_orders(
         categoria=categoria,
         estado_orden=estado_orden,
         search=search,
+        entidad=entidad,
+        proveedor=proveedor,
     )
 
 
@@ -50,6 +54,23 @@ def get_catalogos_filter(db: Session = Depends(get_db)):
         .all()
     )
     return {"catalogos": [r[0] for r in rows if r[0]]}
+
+
+@router.get("/filters/{column_name}")
+def get_column_filters(column_name: str, db: Session = Depends(get_db)):
+    """Return distinct non-null values for a specific column to build Excel-like filters."""
+    from app.models.purchase_order import PurchaseOrder
+    valid_columns = {
+        "entidad": PurchaseOrder.nombre_entidad,
+        "proveedor": PurchaseOrder.nombre_proveedor,
+        "estado": PurchaseOrder.estado_orden,
+    }
+    if column_name not in valid_columns:
+        raise HTTPException(status_code=400, detail="Columna no permitida para filtros")
+    
+    col = valid_columns[column_name]
+    rows = db.query(col).filter(col.isnot(None), col != '').distinct().order_by(col).all()
+    return {"values": [r[0] for r in rows if r[0]]}
 
 
 @router.delete("/all", status_code=200)

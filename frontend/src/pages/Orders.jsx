@@ -18,6 +18,11 @@ const Orders = () => {
   const [search, setSearch] = useState(initialSearch);
   const [catalogo, setCatalogo] = useState('');
   const [catalogoOptions, setCatalogoOptions] = useState([]);
+  
+  // Custom Table Header Filters
+  const [estadoOrden, setEstadoOrden] = useState('');
+  const [entidad, setEntidad] = useState('');
+  const [proveedor, setProveedor] = useState('');
 
   // Load distinct catalogo values from the DB
   useEffect(() => {
@@ -34,6 +39,9 @@ const Orders = () => {
         limit,
         catalogo: catalogo || undefined,
         search: search || undefined,
+        estado_orden: estadoOrden || undefined,
+        entidad: entidad || undefined,
+        proveedor: proveedor || undefined,
       });
       setOrders(response.data);
     } catch (error) {
@@ -41,7 +49,7 @@ const Orders = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, catalogo, search]);
+  }, [page, limit, catalogo, search, estadoOrden, entidad, proveedor]);
 
   useEffect(() => {
     fetchOrders();
@@ -56,6 +64,9 @@ const Orders = () => {
   const resetFilters = () => {
     setSearch('');
     setCatalogo('');
+    setEstadoOrden('');
+    setEntidad('');
+    setProveedor('');
     setPage(0);
   };
 
@@ -77,7 +88,7 @@ const Orders = () => {
     }
   };
 
-  const hasFilters = search || catalogo;
+  const hasFilters = search || catalogo || estadoOrden || entidad || proveedor;
 
   return (
     <div>
@@ -103,25 +114,20 @@ const Orders = () => {
             fontSize: '0.85rem',
             cursor: deleting ? 'wait' : 'pointer',
             opacity: deleting ? 0.6 : 1,
-            transition: 'opacity 0.2s, transform 0.2s',
-            boxShadow: '0 2px 8px rgba(239, 68, 68, 0.3)',
+            boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)'
           }}
-          onMouseEnter={(e) => { if (!deleting) e.currentTarget.style.transform = 'scale(1.04)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
         >
           <Trash2 size={16} />
-          {deleting ? 'Eliminando...' : 'Borrar Todo'}
+          {deleting ? 'Eliminando...' : 'Eliminar Todo'}
         </button>
       </div>
 
-      {/* Toolbar */}
-      <div className="toolbar">
-        <form onSubmit={handleSearch} className="toolbar-search">
-          <Search size={16} />
+      <div className="toolbar fade-up">
+        <form onSubmit={handleSearch} className="search-bar">
+          <Search size={16} style={{ position: 'absolute', left: 12, top: 10, color: 'var(--c-text-tertiary)' }} />
           <input
             type="text"
-            className="form-input"
-            placeholder="Buscar por orden, entidad, proveedor o nro de parte..."
+            placeholder="Buscar orden, entidad, proveedor..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -146,7 +152,17 @@ const Orders = () => {
         )}
       </div>
 
-      <OrderTable orders={orders} loading={loading} />
+      <OrderTable 
+        orders={orders} 
+        loading={loading} 
+        filters={{ entidad, proveedor, estadoOrden }}
+        onFilterChange={(f) => {
+          if (f.entidad !== undefined) setEntidad(f.entidad);
+          if (f.proveedor !== undefined) setProveedor(f.proveedor);
+          if (f.estadoOrden !== undefined) setEstadoOrden(f.estadoOrden);
+          setPage(0);
+        }}
+      />
 
       {/* Pagination */}
       <div className="pagination">
