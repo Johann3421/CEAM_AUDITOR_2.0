@@ -16,113 +16,219 @@
       "name": "⏰ Lunes 07:30 AM",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [
-        0,
-        0
-      ]
+      "position": [0, 0]
     },
     {
       "parameters": {
-        "method": "GET",
-        "url": "https://api-auditor.sekaitech.com.pe/api/v1/fichas/alertas-suspendidas",
+        "method": "POST",
+        "url": "https://api-auditor.sekaitech.com.pe/api/v1/scraper/fichas/start",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            {
-              "name": "acuerdo_marco",
-              "value": "EXT-CE-2022-5"
-            }
+            { "name": "agreement_code", "value": "EXT-CE-2022-5" }
           ]
         },
         "options": {
-          "timeout": 600000,
-          "response": {
-            "response": {
-              "responseFormat": "json"
-            }
-          }
+          "timeout": 15000,
+          "response": { "response": { "responseFormat": "json" } }
         }
       },
-      "id": "http-scraper",
-      "name": "🌐 Ejecutar Scraper CEAM",
+      "id": "http-start",
+      "name": "🚀 Iniciar Scraper (Celery)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        250,
-        0
-      ]
+      "position": [250, 0]
     },
     {
       "parameters": {
         "conditions": {
-          "options": {
-            "caseSensitive": false
-          },
+          "options": { "caseSensitive": false },
           "conditions": [
             {
-              "id": "cond-api-error",
-              "leftValue": "={{ $json.error }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "equal"
-              }
+              "id": "cond-has-task",
+              "leftValue": "={{ $json.task_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
             }
           ],
           "combinator": "and"
         },
         "options": {}
       },
-      "id": "if-error-api",
-      "name": "🔍 ¿Error Scraper?",
+      "id": "if-task-ok",
+      "name": "❓ ¿task_id recibido?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [
-        500,
-        0
-      ]
+      "position": [500, 0]
+    },
+    {
+      "parameters": { "amount": 300 },
+      "id": "wait-5min",
+      "name": "⏳ Esperar 5 min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [750, 50],
+      "webhookId": "wait-round-1"
     },
     {
       "parameters": {
-        "jsCode": "// Notificar error via Evolution API\nconst EVOLUTION_URL      = 'https://evolution.sekaitech.com.pe';\nconst EVOLUTION_API_KEY  = '6mF28RqtJdPIZorVIbAaRBiKZoZr3a5t4d9jikNna7c=';\nconst EVOLUTION_INSTANCE = 'sekaitech';\nconst GROUP_JID          = '120363423813951789@g.us';\n\nconst inp = $input.item.json;\nconst errorMsg = inp.message || inp.error || 'Error desconocido';\nconst ahora = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });\n\nconst lines = [];\nlines.push('\\u26a0\\ufe0f *ERROR \\u2014 CEAM Auditor Scraper (Fichas)*');\nlines.push('\\ud83d\\uddd3\\ufe0f ' + ahora);\nlines.push('\\u2500'.repeat(34));\nlines.push('El proceso de extraccion de catalogo fallo.');\nlines.push('');\nlines.push('Error: ' + errorMsg);\nlines.push('');\nlines.push('Revisa los logs en el contenedor del backend.');\nconst texto = lines.join('\\n');\n\ntry {\n  await this.helpers.httpRequest({\n    method: 'POST',\n    url: EVOLUTION_URL + '/message/sendText/' + EVOLUTION_INSTANCE,\n    headers: { 'apikey': EVOLUTION_API_KEY, 'Content-Type': 'application/json' },\n    body: { number: GROUP_JID, text: texto },\n    json: true,\n    timeout: 10000\n  });\n} catch(e) {}\n\nreturn [{ json: { notified: true, error: String(errorMsg) } }];\n"
+        "method": "GET",
+        "url": "=https://api-auditor.sekaitech.com.pe/api/v1/scraper/status/{{ $('🚀 Iniciar Scraper (Celery)').item.json.task_id }}",
+        "options": {
+          "timeout": 15000,
+          "response": { "response": { "responseFormat": "json" } }
+        }
       },
-      "id": "notificar-error",
-      "name": "🆘 Notificar Error Scraper",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        750,
-        -150
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Construir mensajes agrupados por marca\nconst data = $input.first().json;\n\n// El endpoint sincrono devuelve: { hayAlertas, total_suspendidas, datos, resumen }\nconst hayAlertas = data.hayAlertas;\nconst datos = data.datos || {};\nconst resumen = data.resumen || {};\nconst marcas = Object.keys(datos);\n\nif (!hayAlertas || marcas.length === 0) {\n  return [{ json: { hayAlertas: 'false', mensajes: [], total: 0 } }];\n}\n\nconst sep = '\\u2500'.repeat(30);\nlet totalSuspendidas = data.total_suspendidas || 0;\n\nconst partes = [];\npartes.push('\\u26a0\\ufe0f *ALERTAS DE CATALOGO: FICHAS SUSPENDIDAS*');\npartes.push('\\ud83d\\uddd3\\ufe0f ' + new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' }));\npartes.push(sep);\npartes.push('\\ud83d\\udea8 El escaner detecto ' + totalSuspendidas + ' ficha(s) suspendida(s):');\n\nfor (const marca of marcas) {\n  const fichas = datos[marca];\n  let infoResumen = '';\n  if (resumen[marca] && resumen[marca].ofertadas_actuales !== undefined) {\n    infoResumen = ' (Quedan ' + resumen[marca].ofertadas_actuales + ' ofertadas)';\n  }\n  partes.push('\\n\\ud83c\\udfec *MARCA: ' + marca + '*' + infoResumen);\n  fichas.forEach(function(f, i) {\n    partes.push('   \\u274c *' + (i + 1) + '.* P/N: *' + f.nro_parte + '*');\n    if (f.descripcion) partes.push('      \\u21b3 ' + f.descripcion);\n  });\n}\n\npartes.push('\\n' + sep);\npartes.push('\\ud83e\\udd16 _CEAM Auditor Automatico_');\n\nreturn [{ json: { hayAlertas: 'true', mensajes: [partes.join('\\n')], total: totalSuspendidas } }];\n"
-      },
-      "id": "build-message",
-      "name": "📝 Construir Mensaje de Marcas",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        750,
-        150
-      ]
+      "id": "check-1",
+      "name": "🔍 Check Estado #1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 50]
     },
     {
       "parameters": {
         "conditions": {
-          "options": {
-            "caseSensitive": false
-          },
+          "options": { "caseSensitive": false },
           "conditions": [
             {
-              "id": "cond-hay-alertas-fichas",
+              "id": "cond-done-1",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "SUCCESS",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-done-1",
+      "name": "✅ ¿Listo? (#1)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1250, 50]
+    },
+    {
+      "parameters": { "amount": 180 },
+      "id": "wait-3min-a",
+      "name": "⏳ Esperar 3 min más",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1500, 200],
+      "webhookId": "wait-round-2"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api-auditor.sekaitech.com.pe/api/v1/scraper/status/{{ $('🚀 Iniciar Scraper (Celery)').item.json.task_id }}",
+        "options": {
+          "timeout": 15000,
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "check-2",
+      "name": "🔍 Check Estado #2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1750, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "id": "cond-done-2",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "SUCCESS",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-done-2",
+      "name": "✅ ¿Listo? (#2)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": { "amount": 180 },
+      "id": "wait-3min-b",
+      "name": "⏳ Esperar 3 min final",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2250, 350],
+      "webhookId": "wait-round-3"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api-auditor.sekaitech.com.pe/api/v1/scraper/status/{{ $('🚀 Iniciar Scraper (Celery)').item.json.task_id }}",
+        "options": {
+          "timeout": 15000,
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "check-3",
+      "name": "🔍 Check Estado #3 (final)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2500, 350]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "id": "cond-done-3",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "SUCCESS",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-done-3",
+      "name": "✅ ¿Listo? (#3)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2750, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Notificar error via Evolution API\nconst EVOLUTION_URL      = 'https://evolution.sekaitech.com.pe';\nconst EVOLUTION_API_KEY  = '6mF28RqtJdPIZorVIbAaRBiKZoZr3a5t4d9jikNna7c=';\nconst EVOLUTION_INSTANCE = 'sekaitech';\nconst GROUP_JID          = '120363423813951789@g.us';\n\nconst inp = $input.item.json;\nconst errorMsg = inp.message || inp.error || inp.status || 'Error desconocido / Timeout';\nconst ahora = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });\n\nconst lines = [];\nlines.push('\\u26a0\\ufe0f *ERROR \\u2014 CEAM Auditor Scraper (Fichas)*');\nlines.push('\\ud83d\\uddd3\\ufe0f ' + ahora);\nlines.push('\\u2500'.repeat(34));\nlines.push('El proceso de extraccion de fichas fallo o no termino a tiempo.');\nlines.push('');\nlines.push('Error: ' + errorMsg);\nlines.push('');\nlines.push('Revisa los logs del contenedor ceam_worker.');\nconst texto = lines.join('\\n');\n\ntry {\n  await this.helpers.httpRequest({\n    method: 'POST',\n    url: EVOLUTION_URL + '/message/sendText/' + EVOLUTION_INSTANCE,\n    headers: { 'apikey': EVOLUTION_API_KEY, 'Content-Type': 'application/json' },\n    body: { number: GROUP_JID, text: texto },\n    json: true,\n    timeout: 10000\n  });\n} catch(e) {}\n\nreturn [{ json: { notified: true, error: String(errorMsg) } }];\n"
+      },
+      "id": "notificar-error",
+      "name": "🆘 Notificar Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3000, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Construir mensajes agrupados por marca desde deltas_suspendidas\nconst data = $input.first().json;\nconst result = data.result || data;\nconst deltas = result.deltas_suspendidas || [];\n\nif (!deltas || deltas.length === 0) {\n  return [{ json: { hayAlertas: 'false', mensajes: [], total: 0 } }];\n}\n\nconst sep = '\\u2500'.repeat(30);\nconst totalSuspendidas = deltas.length;\n\nconst byMarca = {};\nfor (const f of deltas) {\n  const marca = (f.marca || 'OTRAS').toUpperCase();\n  if (!byMarca[marca]) byMarca[marca] = [];\n  byMarca[marca].push(f);\n}\n\nconst partes = [];\npartes.push('\\u26a0\\ufe0f *ALERTAS DE CATALOGO: FICHAS SUSPENDIDAS*');\npartes.push('\\ud83d\\uddd3\\ufe0f ' + new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' }));\npartes.push(sep);\npartes.push('\\ud83d\\udea8 El escaner detecto ' + totalSuspendidas + ' ficha(s) suspendida(s):');\n\nfor (const [marca, fichas] of Object.entries(byMarca)) {\n  partes.push('\\n\\ud83c\\udfec *MARCA: ' + marca + '*');\n  fichas.forEach(function(f, i) {\n    partes.push('   \\u274c *' + (i + 1) + '.* P/N: *' + f.nro_parte + '*');\n    if (f.descripcion) partes.push('      \\u21b3 ' + f.descripcion);\n  });\n}\n\npartes.push('\\n' + sep);\npartes.push('\\ud83e\\udd16 _CEAM Auditor Automatico_');\n\nreturn [{ json: { hayAlertas: 'true', mensajes: [partes.join('\\n')], total: totalSuspendidas } }];\n"
+      },
+      "id": "build-message",
+      "name": "📝 Construir Mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, -150]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "id": "cond-hay-alertas",
               "leftValue": "={{ $json.hayAlertas }}",
               "rightValue": "true",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
+              "operator": { "type": "string", "operation": "equals" }
             }
           ],
           "combinator": "and"
@@ -133,52 +239,37 @@
       "name": "❓ ¿Hubo Cambios?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [
-        1000,
-        150
-      ]
+      "position": [1750, -150]
     },
     {
       "parameters": {
         "fieldToSplitOut": "mensajes",
-        "options": {
-          "destinationFieldName": "mensaje"
-        }
+        "options": { "destinationFieldName": "mensaje" }
       },
       "id": "splitout-mensajes",
       "name": "✂️ Dividir Mensajes",
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
-      "position": [
-        1250,
-        50
-      ]
+      "position": [2000, -250]
     },
     {
-      "parameters": {
-        "amount": 1.5
-      },
-      "id": "wait-node",
+      "parameters": { "amount": 1.5 },
+      "id": "wait-wa",
       "name": "⏳ Esperar 1.5s",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [
-        1450,
-        50
-      ]
+      "position": [2200, -250],
+      "webhookId": "wait-wa"
     },
     {
       "parameters": {
-        "jsCode": "// ENVIAR VIA EVOLUTION API -> GRUPO WHATSAPP CEAM\nconst EVOLUTION_URL      = 'https://evolution.sekaitech.com.pe';\nconst EVOLUTION_API_KEY  = '6mF28RqtJdPIZorVIbAaRBiKZoZr3a5t4d9jikNna7c=';\nconst EVOLUTION_INSTANCE = 'sekaitech';\nconst GROUP_JID          = '120363423813951789@g.us';\n\nlet results = [];\n\nfor (const item of $input.all()) {\n  const mensaje = item.json.mensaje || '';\n  if (!mensaje) continue;\n\n  try {\n    const r = await this.helpers.httpRequest({\n      method: 'POST',\n      url: EVOLUTION_URL + '/message/sendText/' + EVOLUTION_INSTANCE,\n      headers: { 'apikey': EVOLUTION_API_KEY, 'Content-Type': 'application/json' },\n      body: { number: GROUP_JID, text: mensaje },\n      json: true,\n      timeout: 15000\n    });\n    results.push({ json: { success: true, key: r.key } });\n    await new Promise(resolve => setTimeout(resolve, 1500));\n  } catch(e) {\n    results.push({ json: { success: false, error: e.message } });\n  }\n}\n\nreturn results;\n"
+        "jsCode": "// ENVIAR VIA EVOLUTION API\nconst EVOLUTION_URL      = 'https://evolution.sekaitech.com.pe';\nconst EVOLUTION_API_KEY  = '6mF28RqtJdPIZorVIbAaRBiKZoZr3a5t4d9jikNna7c=';\nconst EVOLUTION_INSTANCE = 'sekaitech';\nconst GROUP_JID          = '120363423813951789@g.us';\n\nlet results = [];\nfor (const item of $input.all()) {\n  const mensaje = item.json.mensaje || '';\n  if (!mensaje) continue;\n  try {\n    const r = await this.helpers.httpRequest({\n      method: 'POST',\n      url: EVOLUTION_URL + '/message/sendText/' + EVOLUTION_INSTANCE,\n      headers: { 'apikey': EVOLUTION_API_KEY, 'Content-Type': 'application/json' },\n      body: { number: GROUP_JID, text: mensaje },\n      json: true,\n      timeout: 15000\n    });\n    results.push({ json: { success: true, key: r.key } });\n    await new Promise(resolve => setTimeout(resolve, 1500));\n  } catch(e) {\n    results.push({ json: { success: false, error: e.message } });\n  }\n}\nreturn results;\n"
       },
       "id": "send-wa",
       "name": "📲 Enviar a WhatsApp",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        1650,
-        50
-      ]
+      "position": [2400, -250]
     },
     {
       "parameters": {},
@@ -186,103 +277,72 @@
       "name": "🔕 Sin Cambios (OK)",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [
-        1250,
-        250
-      ]
+      "position": [2000, -50]
     }
   ],
   "connections": {
     "⏰ Lunes 07:30 AM": {
+      "main": [[{ "node": "🚀 Iniciar Scraper (Celery)", "type": "main", "index": 0 }]]
+    },
+    "🚀 Iniciar Scraper (Celery)": {
+      "main": [[{ "node": "❓ ¿task_id recibido?", "type": "main", "index": 0 }]]
+    },
+    "❓ ¿task_id recibido?": {
       "main": [
-        [
-          {
-            "node": "🌐 Ejecutar Scraper CEAM",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "⏳ Esperar 5 min", "type": "main", "index": 0 }],
+        [{ "node": "🆘 Notificar Error", "type": "main", "index": 0 }]
       ]
     },
-    "🌐 Ejecutar Scraper CEAM": {
+    "⏳ Esperar 5 min": {
+      "main": [[{ "node": "🔍 Check Estado #1", "type": "main", "index": 0 }]]
+    },
+    "🔍 Check Estado #1": {
+      "main": [[{ "node": "✅ ¿Listo? (#1)", "type": "main", "index": 0 }]]
+    },
+    "✅ ¿Listo? (#1)": {
       "main": [
-        [
-          {
-            "node": "🔍 ¿Error Scraper?",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "📝 Construir Mensaje", "type": "main", "index": 0 }],
+        [{ "node": "⏳ Esperar 3 min más", "type": "main", "index": 0 }]
       ]
     },
-    "🔍 ¿Error Scraper?": {
+    "⏳ Esperar 3 min más": {
+      "main": [[{ "node": "🔍 Check Estado #2", "type": "main", "index": 0 }]]
+    },
+    "🔍 Check Estado #2": {
+      "main": [[{ "node": "✅ ¿Listo? (#2)", "type": "main", "index": 0 }]]
+    },
+    "✅ ¿Listo? (#2)": {
       "main": [
-        [
-          {
-            "node": "🆘 Notificar Error Scraper",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "📝 Construir Mensaje de Marcas",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "📝 Construir Mensaje", "type": "main", "index": 0 }],
+        [{ "node": "⏳ Esperar 3 min final", "type": "main", "index": 0 }]
       ]
     },
-    "📝 Construir Mensaje de Marcas": {
+    "⏳ Esperar 3 min final": {
+      "main": [[{ "node": "🔍 Check Estado #3 (final)", "type": "main", "index": 0 }]]
+    },
+    "🔍 Check Estado #3 (final)": {
+      "main": [[{ "node": "✅ ¿Listo? (#3)", "type": "main", "index": 0 }]]
+    },
+    "✅ ¿Listo? (#3)": {
       "main": [
-        [
-          {
-            "node": "❓ ¿Hubo Cambios?",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "📝 Construir Mensaje", "type": "main", "index": 0 }],
+        [{ "node": "🆘 Notificar Error", "type": "main", "index": 0 }]
       ]
+    },
+    "📝 Construir Mensaje": {
+      "main": [[{ "node": "❓ ¿Hubo Cambios?", "type": "main", "index": 0 }]]
     },
     "❓ ¿Hubo Cambios?": {
       "main": [
-        [
-          {
-            "node": "✂️ Dividir Mensajes",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "🔕 Sin Cambios (OK)",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "✂️ Dividir Mensajes", "type": "main", "index": 0 }],
+        [{ "node": "🔕 Sin Cambios (OK)", "type": "main", "index": 0 }]
       ]
     },
     "✂️ Dividir Mensajes": {
-      "main": [
-        [
-          {
-            "node": "⏳ Esperar 1.5s",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "⏳ Esperar 1.5s", "type": "main", "index": 0 }]]
     },
     "⏳ Esperar 1.5s": {
-      "main": [
-        [
-          {
-            "node": "📲 Enviar a WhatsApp",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "📲 Enviar a WhatsApp", "type": "main", "index": 0 }]]
     }
   },
   "active": false,

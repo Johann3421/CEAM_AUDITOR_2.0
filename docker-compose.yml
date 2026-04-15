@@ -62,17 +62,14 @@ services:
       dockerfile: Dockerfile
     container_name: ceam_worker
     restart: unless-stopped
+    working_dir: /app
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
       - PROJECT_NAME=${PROJECT_NAME}
+      - PYTHONPATH=/app
     command: >-
-      watchmedo auto-restart
-      --directory=/app
-      --pattern=*.py
-      --recursive
-      --
       celery -A app.worker.celery_app.celery_app worker --loglevel=info --concurrency=2
     depends_on:
       db:
@@ -89,11 +86,13 @@ services:
       dockerfile: Dockerfile
     container_name: ceam_flower
     restart: unless-stopped
+    working_dir: /app
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
       - PROJECT_NAME=${PROJECT_NAME}
+      - PYTHONPATH=/app
     command: celery -A app.worker.celery_app.celery_app flower --port=5555 --timeout=10 --address=0.0.0.0
     ports:
       - "5587:5555"

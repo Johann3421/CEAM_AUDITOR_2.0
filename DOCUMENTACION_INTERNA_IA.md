@@ -342,30 +342,67 @@ Como preparación para la "Fase 2", se habilitó la búsqueda de órdenes a trav
 ### 7.13. Flujo n8n para Alertas de Fichas Suspendidas (WhatsApp via Evolution API)
 **Objetivo:** Notificar automáticamente cada lunes a las 7:30 AM (hora Perú) qué fichas de producto pasaron de "Ofertada" a "Suspendida", agrupadas por marca.
 
-**Archivo generado:** `Flujo Alertas Fichas Suspendidas (CEAM).json` — importable directamente en n8n.
+**Archivo:** `Flujo Alertas Fichas Suspendidas (CEAM).json` — importable directamente en n8n.
 
-**Arquitectura del flujo (réplica de "Alertas Deudas y Órdenes — Control Deudas v3"):**
-1. **⏰ Lunes 07:30 AM** — `scheduleTrigger` con CRON `30 7 * * 1`.
-2. **🌐 Trigger Scraper CEAM** — HTTP GET a `https://auditor.sekaitech.com.pe/api/v1/fichas/alertas-suspendidas` con timeout 5 min (300s) porque Playwright tarda en descargar el Excel del catálogo.
-3. **🔍 ¿Error Scraper?** — Bifurca: si hay error, notifica; si no, procesa datos.
-4. **🆘 Notificar Error Scraper** — Envía al grupo de WhatsApp un mensaje con el error via Evolution API (`https://evolution.sekaitech.com.pe/message/sendText/sekaitech`).
-5. **📝 Construir Mensaje de Marcas** — Parsea el JSON de respuesta del backend. Agrupa por marca y genera un mensaje con formato WhatsApp:
-   ```
-   ⚠️ *ALERTAS DE CATÁLOGO: FICHAS SUSPENDIDAS*
-   ──────────────────────────────────
-   🏬 *MARCA: KENYA* (Quedan 34 ofertadas)
-      ❌ *1.* P/N: *PCKN332*
-         ↳ Monitor 24 Pulgadas FHD
-   ```
-6. **❓ ¿Hubo Cambios?** — Si `hayAlertas === "true"`, divide y envía; si no, termina limpiamente.
-7. **✂️ Dividir → ⏳ Esperar 1.5s → 📲 Enviar a WhatsApp** — Envía con delay de 1.5s por mensaje para evitar saturación/baneo.
-
-**Parámetros de Evolution API utilizados:**
+**Infraestructura Evolution API (ya operativa en Dokploy):**
+- URL: `https://evolution.sekaitech.com.pe`
 - Instancia: `sekaitech`
-- API Key: hardcodeada en los nodos de código del flujo.
-- Grupo destino: `120363425809386009@g.us` (configurable al importar en n8n).
+- API Key: `6mF28RqtJdPIZorVIbAaRBiKZoZr3a5t4d9jikNna7c=`
+- Grupo WhatsApp exclusivo creado para este flujo: `120363423813951789@g.us` (nombre: "CEAM — Alertas Fichas Suspendidas")
+  - Creado programáticamente vía `POST /group/create/sekaitech`. **No mezclado** con el grupo de Control Deudas (`120363425809386009@g.us`).
 
-**Archivo añadido a `.gitignore`:** El JSON de referencia original `Alertas Deudas y Órdenes — Control Deudas v3 (Evolution API).json` fue excluido del repositorio por contener tokens sensibles.
+**Arquitectura del flujo v2 (patrón Celery — no bloqueante):**
+
+El diseño evolucionó de v1 (llamada síncrona directa a FastAPI) a v2 (Celery async). La v1 causaba timeout porque Playwright + ETL + upsert tarda 10–15 minutos, muy por encima del timeout de 5 min de n8n.
+
+```
+⏰ Lunes 07:30 AM
+    ↓
+🚀 POST /api/v1/scraper/fichas/start  → {task_id}  (respuesta inmediata)
+    ↓
+❓ ¿Error al iniciar?
+├── TRUE  → 🆘 Notificar Error → [fin]
+└── FALSE → 🔄 Esperar y Verificar Estado
+              (polling: 16 intentos × 60s = máx. 16 min)
+              ↓  {status:"SUCCESS", result:{deltas_suspendidas:[...]}}
+            ✅ ¿Completó con éxito?
+            ├── FALSE → 🆘 Notificar Error → [fin]
+            └── TRUE  → 📝 Construir Mensaje de Marcas
+                            ↓
+                        ❓ ¿Hubo Cambios?
+                        ├── FALSE → 🔕 Sin Cambios [fin]
+                        └── TRUE  → ✂️ → ⏳ 1.5s → 📲 Enviar WhatsApp
+```
+
+**Nodos y responsabilidades:**
+1. **⏰ Lunes 07:30 AM** — `scheduleTrigger` CRON `30 7 * * 1`.
+2. **🚀 Iniciar Scraper Fichas** — `POST /api/v1/scraper/fichas/start?agreement_code=EXT-CE-2022-5`. Retorna `{task_id, status:"queued"}`. Si falla (error de red), devuelve `{error:true, message:"..."}`.
+3. **❓ ¿Error al iniciar?** — Evalúa `$json.error`. TRUE → rama de error. FALSE → rama de polling.
+4. **🔄 Esperar y Verificar Estado** — Nodo Code con loop: cada 60s llama `GET /api/v1/scraper/status/{task_id}`. Sale del loop cuando `status === "SUCCESS"` o `"FAILURE"`, o tras 16 intentos.
+5. **✅ ¿Completó con éxito?** — Evalúa `$json.status === "SUCCESS"`.
+6. **🆘 Notificar Error Scraper** — Formatea y envía mensaje de error al grupo vía Evolution API.
+7. **📝 Construir Mensaje de Marcas** — Parsea `$json.result.deltas_suspendidas`, agrupa por marca, genera texto WhatsApp con formato bold/emoji.
+8. **❓ ¿Hubo Cambios?** — Evalúa `$json.hayAlertas === "true"`.
+9. **✂️ Dividir → ⏳ 1.5s → 📲 Enviar WhatsApp** — SplitOut + delay anti-spam + POST Evolution API.
+10. **🔕 Sin Cambios (OK)** — noOp, fin limpio sin notificación.
+
+**Gotcha crítica — expresiones n8n con `$json`:**
+En los nodos IF de n8n, la sintaxis correcta es `={{ $json.campo }}`. Al generar el JSON programáticamente con Python, el `$` puede ser engullido por la interpolación del shell, produciendo `={{ .campo }}` que n8n rechaza como "invalid syntax". Si ves ese error al importar, verificar que todas las `leftValue` de condiciones IF tengan el prefijo `$json.`.
+
+**Formato del mensaje de alerta:**
+```
+⚠️ *ALERTAS DE CATÁLOGO: FICHAS SUSPENDIDAS*
+🗓️ 28/04/2026, 7:32:15 a. m.
+──────────────────────────────
+🚨 Se detectaron *3* fichas que pasaron a SUSPENDIDA:
+
+🏬 *MARCA: KENYA*
+   ❌ *1.* P/N: *PCKN332*
+      ↳ Monitor 24 Pulgadas FHD
+
+──────────────────────────────
+🤖 _CEAM Auditor Automático_
+```
 
 ### 7.14. Corrección de ACUERDOS_MARCO — Sincronización Dinámica con CATALOGOS_DISPONIBLES
 **Problema:** El módulo de Fichas (Módulo 2) solo mostraba 1 opción en el dropdown del frontend (`EXT-CE-2022-5`), mientras que el módulo de Órdenes (Módulo 1) listaba 16 catálogos vigentes. Esto se debía a que `ACUERDOS_MARCO` estaba definido como una lista estática con un solo elemento hardcodeado.
@@ -393,25 +430,41 @@ Ahora ambos módulos comparten la misma fuente de verdad. Al agregar un nuevo ca
 
 **Retorno extendido:** La función ahora devuelve un dict con 4 claves: `inserted`, `updated`, `errors`, `deltas_suspendidas`.
 
-### 7.16. Endpoint `/api/v1/fichas/alertas-suspendidas` — API Síncrona para n8n
+### 7.16. Endpoint `/api/v1/fichas/alertas-suspendidas` — ⚠️ Descartado como entrada principal de n8n
 **Ubicación:** `backend/app/api/endpoints/fichas.py`.
 
-**Método:** `GET /fichas/alertas-suspendidas?acuerdo_marco=EXT-CE-2022-5`
+**Por qué fue descartado:** Este endpoint ejecuta `run_module_2()` sincrónicamente dentro del proceso FastAPI (Playwright + ETL + upsert ~11k filas). En producción tarda 10–15 min, superando el timeout de 5 min de n8n y el de uvicorn, causando `Internal Server Error` (500) vacío.
 
-**Comportamiento:**
-1. Recibe el código del acuerdo marco como query param (default: `EXT-CE-2022-5`).
-2. Busca el selector CSS correspondiente en la lista interna.
-3. Ejecuta `run_module_2()` de forma **síncrona** (async/await). Esto dispara Playwright, descarga el Excel, procesa el ETL y realiza el upsert con detección de deltas. Puede tardar hasta 5 minutos.
-4. Agrupa los `deltas_suspendidas` por marca en un dict `datos: { "KENYA": [...], "HP": [...] }`.
-5. Para cada marca afectada, consulta la DB para obtener cuántas fichas "Ofertadas" le quedan (`resumen: { "KENYA": { ofertadas_actuales: 34 } }`).
-6. Retorna un JSON estructurado compatible con el nodo `📝 Construir Mensaje de Marcas` de n8n:
+**Estado actual:** El endpoint sigue existiendo como herramienta de diagnóstico manual (disponible en `/docs`), pero **no es llamado por el flujo n8n v2**. El flujo ahora usa `POST /api/v1/scraper/fichas/start` (Celery).
+
+**Fix aplicado (import roto):** El import original era `from app.services.fichas_scraper import run_module_2, ACUERDOS_MARCO as M2_ACUERDOS` — `ACUERDOS_MARCO` no existe en ese módulo (el nombre correcto es `AGREEMENT_SELECTOR`). Esto causaba `ImportError` al llamar el endpoint. Corregido a:
+```python
+from app.services.fichas_scraper import run_module_2, AGREEMENT_SELECTOR
+selector = f'div[data-agreement*="{acuerdo_marco}"]'
+```
+
+### 7.17. Endpoint `POST /api/v1/scraper/fichas/start` — Punto de entrada del flujo n8n v2
+**Ubicación:** `backend/app/api/endpoints/scraper.py`.
+
+**Método:** `POST /scraper/fichas/start?agreement_code=EXT-CE-2022-5`
+
+**Comportamiento:** Despacha `scrape_fichas_task` a la cola Celery y retorna inmediatamente `{task_id, status:"queued", agreement_code}`. El worker ejecuta `run_module_2()` en segundo plano con su propio event loop (`loop.run_until_complete(...)`).
+
+**Resultado Celery (`GET /scraper/status/{task_id}` cuando `status=SUCCESS`):**
 ```json
 {
-  "hayAlertas": true,
-  "total_suspendidas": 1,
-  "datos": { "KENYA": [{"nro_parte": "...", "descripcion": "...", "anterior": "OFERTADA", "actual": "SUSPENDIDA"}] },
-  "resumen": { "KENYA": {"ofertadas_actuales": 34} },
-  "meta": { "filepath": "...", "rows_processed": 500, "inserted": 0, "updated": 500 }
+  "task_id": "...",
+  "status": "SUCCESS",
+  "result": {
+    "filepath": "/tmp/catalogos/fichas_EXT-CE-2022-5_20260415_073512.xlsx",
+    "rows_processed": 11264,
+    "inserted": 0,
+    "updated": 11264,
+    "errors": 0,
+    "deltas_suspendidas": [
+      {"marca": "KENYA", "nro_parte": "PCKN332", "descripcion": "Monitor 24...", "anterior": "OFERTADA", "actual": "SUSPENDIDA"}
+    ]
+  }
 }
 ```
-7. En caso de error, retorna `{ "error": true, "message": "...", "trace": "..." }`, que n8n maneja con el nodo `🔍 ¿Error Scraper?`.
+El nodo `📝 Construir Mensaje de Marcas` del flujo n8n accede a `$json.result.deltas_suspendidas` para generar el mensaje.
