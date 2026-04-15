@@ -1,0 +1,274 @@
+{
+  "name": "Alertas Fichas Suspendidas — CEAM Auditor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 7 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "trigger-lun-730",
+      "name": "⏰ Lunes 07:30 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// CONSULTAR API CEAM AUDITOR\n// Dispara el webscraper para fichas y devuelve el delta de suspendidas\nconst API_URL = 'https://auditor.sekaitech.com.pe';\nconst CEAM_TOKEN = 'token_aqui_si_aplica';\n\nlet result;\ntry {\n  result = await this.helpers.httpRequest({\n    method: 'GET',\n    url: API_URL + '/api/v1/fichas/alertas-suspendidas',\n    headers: {\n      'Accept': 'application/json'\n    },\n    timeout: 300000, // 5 MINUTOS (porque Playwright puede tardar en scrapear)\n    json: true\n  });\n  if (typeof result === 'string') result = JSON.parse(result);\n} catch(e) {\n  return [{ json: { error: true, message: e.message } }];\n}\n\nreturn [{ json: result }];\n"
+      },
+      "id": "http-scraper-api",
+      "name": "🌐 Trigger Scraper CEAM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "cond-api-ok",
+              "leftValue": "={{ $json.error !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-error-api",
+      "name": "🔍 ¿Error Scraper?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// NOTIFICAR ERROR VIA EVOLUTION API\nconst EVOLUTION_URL      = 'https://evolution.sekaitech.com.pe';\nconst EVOLUTION_API_KEY  = '6mF28RqtJdPIZorVIbAaRBiKZoZr3a5t4d9jikNna7c=';\nconst EVOLUTION_INSTANCE = 'sekaitech';\nconst GROUP_JID          = '120363425809386009@g.us';\n\nconst inp  = $input.item.json;\nconst errorMsg = inp.message || inp.error || 'Error desconocido';\nconst ahora = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });\n\nconst texto = `⚠️ *ERROR — CEAM Auditor Scraper (Fichas)*\\n🗓️ ${ahora}\\n────────────────────────────────────\\nEl proceso de extracción de catálogo falló.\\n\\nError: ${errorMsg}\\n\\nRevisa los logs en el contenedor del backend.`;\n\ntry {\n  await this.helpers.httpRequest({\n    method: 'POST',\n    url: EVOLUTION_URL + '/message/sendText/' + EVOLUTION_INSTANCE,\n    headers: {\n      'apikey': EVOLUTION_API_KEY,\n      'Content-Type': 'application/json'\n    },\n    body: { number: GROUP_JID, text: texto },\n    json: true,\n    timeout: 10000\n  });\n} catch(e) {}\n\nreturn [{ json: { notified: true, error: errorMsg } }];\n"
+      },
+      "id": "notificar-error",
+      "name": "🆘 Notificar Error Scraper",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        -150
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// =================================================================\n//  PROCESAR DELTAS DE FICHAS (AGRUPADOS POR MARCA)\n// =================================================================\nlet data = $input.first().json;\n\n// Manejar estructuras anidadas si existe\nif (data.body) data = data.body;\nif (data.data) data = data.data;\n\nif (!data || !data.hayAlertas || !data.datos || Object.keys(data.datos).length === 0) {\n  return [{ json: { hayAlertas: \"false\", mensajes: [], total: 0 } }];\n}\n\nconst sep = '─'.repeat(30);\nconst mensajes = [];\nlet totalSuspendidas = 0;\n\n// El backend enviará: datos: { \"Kenya\": [{nro_parte: \"123\", descripcion: \"...\"}] }\n// y opcionalmente resumen: { \"Kenya\": { ofertadas_actuales: 34 } }\n\nlet header = [\n  '⚠️ *ALERTAS DE CATÁLOGO: FICHAS SUSPENDIDAS*',\n  '🗓️ ' + new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' }),\n  sep,\n  '🚨 El escaner detectó los siguientes cambios:'\n];\n\nmensajes.push(header.join('\\n'));\n\nconst marcas = Object.keys(data.datos);\nfor (const marca of marcas) {\n  const fichas = data.datos[marca];\n  if (fichas && fichas.length > 0) {\n    totalSuspendidas += fichas.length;\n    \n    // Si el backend provee la cuota de ofertadas restantes, la mostramos\n    let infoResumen = '';\n    if (data.resumen && data.resumen[marca]) {\n      const ofertadas = data.resumen[marca].ofertadas_actuales;\n      infoResumen = ` (Quedan ${ofertadas} ofertadas)`;\n    }\n    \n    let bloque = [];\n    bloque.push(`\\n🏬 *MARCA: ${marca.toUpperCase()}*${infoResumen}`);\n    \n    fichas.forEach((f, i) => {\n       bloque.push(`   ❌ *${i + 1}.* P/N: *${f.nro_parte}*`);\n       if (f.descripcion) bloque.push(`      ↳ ${f.descripcion}`);\n    });\n    \n    mensajes.push(bloque.join('\\n'));\n  }\n}\n\nmensajes.push('\\n' + sep + '\\n🤖 _CEAM Auditor Automático_');\n\nreturn [{ json: { hayAlertas: \"true\", mensajes: [mensajes.join('\\n')], total: totalSuspendidas } }];\n"
+      },
+      "id": "procesar-fichas",
+      "name": "📝 Construir Mensaje de Marcas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "cond-hay-alertas-fichas",
+              "leftValue": "={{ $json.hayAlertas }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-hay-alertas",
+      "name": "❓ ¿Hubo Cambios?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "mensajes",
+        "options": {
+          "destinationFieldName": "mensaje"
+        }
+      },
+      "id": "splitout-mensajes",
+      "name": "✂️ Dividir Mensajes",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        50
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 1.5
+      },
+      "id": "wait-node",
+      "name": "⏳ Esperar 1.5s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1450,
+        50
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ENVIAR VIA EVOLUTION API → GRUPO WHATSAPP CEAM\nconst EVOLUTION_URL      = 'https://evolution.sekaitech.com.pe';\nconst EVOLUTION_API_KEY  = '6mF28RqtJdPIZorVIbAaRBiKZoZr3a5t4d9jikNna7c=';\nconst EVOLUTION_INSTANCE = 'sekaitech';\nconst GROUP_JID          = '120363425809386009@g.us';\n\nlet results = [];\n\nfor (const item of $input.all()) {\n  const mensaje = item.json.mensaje || '';\n  if (!mensaje) continue;\n\n  try {\n    const r = await this.helpers.httpRequest({\n      method: 'POST',\n      url: EVOLUTION_URL + '/message/sendText/' + EVOLUTION_INSTANCE,\n      headers: {\n        'apikey': EVOLUTION_API_KEY,\n        'Content-Type': 'application/json'\n      },\n      body: {\n        number: GROUP_JID,\n        text: mensaje\n      },\n      json: true,\n      timeout: 15000\n    });\n    results.push({ json: { success: true, key: r.key } });\n    await new Promise(resolve => setTimeout(resolve, 1500));\n  } catch(e) {\n    results.push({ json: { success: false, error: e.message } });\n  }\n}\n\nreturn results;\n"
+      },
+      "id": "send-wa",
+      "name": "📲 Enviar a WhatsApp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1650,
+        50
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "noop-node",
+      "name": "🔕 Sin Cambios (OK)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        250
+      ]
+    }
+  ],
+  "connections": {
+    "⏰ Lunes 07:30 AM": {
+      "main": [
+        [
+          {
+            "node": "🌐 Trigger Scraper CEAM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🌐 Trigger Scraper CEAM": {
+      "main": [
+        [
+          {
+            "node": "🔍 ¿Error Scraper?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 ¿Error Scraper?": {
+      "main": [
+        [
+          {
+            "node": "🆘 Notificar Error Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📝 Construir Mensaje de Marcas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Construir Mensaje de Marcas": {
+      "main": [
+        [
+          {
+            "node": "❓ ¿Hubo Cambios?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ ¿Hubo Cambios?": {
+      "main": [
+        [
+          {
+            "node": "✂️ Dividir Mensajes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "🔕 Sin Cambios (OK)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✂️ Dividir Mensajes": {
+      "main": [
+        [
+          {
+            "node": "⏳ Esperar 1.5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⏳ Esperar 1.5s": {
+      "main": [
+        [
+          {
+            "node": "📲 Enviar a WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

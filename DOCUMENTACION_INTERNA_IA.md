@@ -338,3 +338,80 @@ Se implementó un botón de eliminación masiva en la página `/orders`:
 Como preparación para la "Fase 2", se habilitó la búsqueda de órdenes a través del Nro. de Parte del producto.
 - En `backend/app/services/crud.py` se añadió `PurchaseOrder.nro_parte.ilike(f"%{search}%")` al filtro general OR de búsqueda. Puesto que `nro_parte` ahora almacena la data de los productos en formato JSON, la base de datos puede realizar full-scan matching de los códigos directamente en texto.
 - En el frontend (`Orders.jsx`), se actualizó el *placeholder* indicando: "Buscar por orden, entidad, proveedor o nro de parte...".
+
+### 7.13. Flujo n8n para Alertas de Fichas Suspendidas (WhatsApp via Evolution API)
+**Objetivo:** Notificar automáticamente cada lunes a las 7:30 AM (hora Perú) qué fichas de producto pasaron de "Ofertada" a "Suspendida", agrupadas por marca.
+
+**Archivo generado:** `Flujo Alertas Fichas Suspendidas (CEAM).json` — importable directamente en n8n.
+
+**Arquitectura del flujo (réplica de "Alertas Deudas y Órdenes — Control Deudas v3"):**
+1. **⏰ Lunes 07:30 AM** — `scheduleTrigger` con CRON `30 7 * * 1`.
+2. **🌐 Trigger Scraper CEAM** — HTTP GET a `https://auditor.sekaitech.com.pe/api/v1/fichas/alertas-suspendidas` con timeout 5 min (300s) porque Playwright tarda en descargar el Excel del catálogo.
+3. **🔍 ¿Error Scraper?** — Bifurca: si hay error, notifica; si no, procesa datos.
+4. **🆘 Notificar Error Scraper** — Envía al grupo de WhatsApp un mensaje con el error via Evolution API (`https://evolution.sekaitech.com.pe/message/sendText/sekaitech`).
+5. **📝 Construir Mensaje de Marcas** — Parsea el JSON de respuesta del backend. Agrupa por marca y genera un mensaje con formato WhatsApp:
+   ```
+   ⚠️ *ALERTAS DE CATÁLOGO: FICHAS SUSPENDIDAS*
+   ──────────────────────────────────
+   🏬 *MARCA: KENYA* (Quedan 34 ofertadas)
+      ❌ *1.* P/N: *PCKN332*
+         ↳ Monitor 24 Pulgadas FHD
+   ```
+6. **❓ ¿Hubo Cambios?** — Si `hayAlertas === "true"`, divide y envía; si no, termina limpiamente.
+7. **✂️ Dividir → ⏳ Esperar 1.5s → 📲 Enviar a WhatsApp** — Envía con delay de 1.5s por mensaje para evitar saturación/baneo.
+
+**Parámetros de Evolution API utilizados:**
+- Instancia: `sekaitech`
+- API Key: hardcodeada en los nodos de código del flujo.
+- Grupo destino: `120363425809386009@g.us` (configurable al importar en n8n).
+
+**Archivo añadido a `.gitignore`:** El JSON de referencia original `Alertas Deudas y Órdenes — Control Deudas v3 (Evolution API).json` fue excluido del repositorio por contener tokens sensibles.
+
+### 7.14. Corrección de ACUERDOS_MARCO — Sincronización Dinámica con CATALOGOS_DISPONIBLES
+**Problema:** El módulo de Fichas (Módulo 2) solo mostraba 1 opción en el dropdown del frontend (`EXT-CE-2022-5`), mientras que el módulo de Órdenes (Módulo 1) listaba 16 catálogos vigentes. Esto se debía a que `ACUERDOS_MARCO` estaba definido como una lista estática con un solo elemento hardcodeado.
+
+**Solución:** En `backend/app/api/endpoints/scraper.py`, se reemplazó la lista estática por una **list comprehension** que deriva dinámicamente de `CATALOGOS_DISPONIBLES`:
+```python
+ACUERDOS_MARCO = [
+    {
+        "code": c["code"],
+        "label": c["label"],
+        "selector": f'div[data-agreement*="{c["code"]}"]',
+    }
+    for c in CATALOGOS_DISPONIBLES
+]
+```
+Ahora ambos módulos comparten la misma fuente de verdad. Al agregar un nuevo catálogo vigente a `CATALOGOS_DISPONIBLES`, automáticamente aparece en ambos dropdowns (Órdenes y Fichas).
+
+### 7.15. Detección de Deltas (Ofertada → Suspendida) en `upsert_fichas`
+**Ubicación:** `backend/app/services/fichas_scraper.py` → función `upsert_fichas()`.
+
+**Mecanismo:** Durante el loop de upsert por lotes (batches de 100 filas), antes de ejecutar el `UPDATE`, se compara el campo `estado_ficha_producto` del registro existente en la DB contra el valor nuevo del Excel:
+- Si el estado anterior contiene `"ofertada"` (case-insensitive) y el nuevo contiene `"suspendida"`, la ficha se registra en `deltas_suspendidas[]` con: marca, nro_parte, descripcion, estado anterior y estado actual.
+- Usa `existing._mapping.get()` para acceder a las columnas del registro SQLAlchemy de forma segura.
+- Si ocurre algún error en la comparación, se loguea como WARNING y continúa sin abortar el upsert.
+
+**Retorno extendido:** La función ahora devuelve un dict con 4 claves: `inserted`, `updated`, `errors`, `deltas_suspendidas`.
+
+### 7.16. Endpoint `/api/v1/fichas/alertas-suspendidas` — API Síncrona para n8n
+**Ubicación:** `backend/app/api/endpoints/fichas.py`.
+
+**Método:** `GET /fichas/alertas-suspendidas?acuerdo_marco=EXT-CE-2022-5`
+
+**Comportamiento:**
+1. Recibe el código del acuerdo marco como query param (default: `EXT-CE-2022-5`).
+2. Busca el selector CSS correspondiente en la lista interna.
+3. Ejecuta `run_module_2()` de forma **síncrona** (async/await). Esto dispara Playwright, descarga el Excel, procesa el ETL y realiza el upsert con detección de deltas. Puede tardar hasta 5 minutos.
+4. Agrupa los `deltas_suspendidas` por marca en un dict `datos: { "KENYA": [...], "HP": [...] }`.
+5. Para cada marca afectada, consulta la DB para obtener cuántas fichas "Ofertadas" le quedan (`resumen: { "KENYA": { ofertadas_actuales: 34 } }`).
+6. Retorna un JSON estructurado compatible con el nodo `📝 Construir Mensaje de Marcas` de n8n:
+```json
+{
+  "hayAlertas": true,
+  "total_suspendidas": 1,
+  "datos": { "KENYA": [{"nro_parte": "...", "descripcion": "...", "anterior": "OFERTADA", "actual": "SUSPENDIDA"}] },
+  "resumen": { "KENYA": {"ofertadas_actuales": 34} },
+  "meta": { "filepath": "...", "rows_processed": 500, "inserted": 0, "updated": 500 }
+}
+```
+7. En caso de error, retorna `{ "error": true, "message": "...", "trace": "..." }`, que n8n maneja con el nodo `🔍 ¿Error Scraper?`.
