@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Filter, Search, Check } from 'lucide-react';
 
 const HeaderFilter = ({ title, column, currentFilter, onFilterChange, apiCall }) => {
@@ -6,7 +7,9 @@ const HeaderFilter = ({ title, column, currentFilter, onFilterChange, apiCall })
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
   const popoverRef = useRef();
+  const iconWrapRef = useRef();
 
   useEffect(() => {
     if (isOpen && options.length === 0) {
@@ -19,21 +22,47 @@ const HeaderFilter = ({ title, column, currentFilter, onFilterChange, apiCall })
   }, [isOpen, column, options.length, apiCall]);
 
   useEffect(() => {
+    if (isOpen && iconWrapRef.current) {
+      const rect = iconWrapRef.current.getBoundingClientRect();
+      // Position fixed below the icon
+      setCoords({ top: rect.bottom + 4, left: rect.left });
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
     const handleClickOutside = (event) => {
-      if (popoverRef.current && !popoverRef.current.contains(event.target)) {
+      if (popoverRef.current && !popoverRef.current.contains(event.target) &&
+          iconWrapRef.current && !iconWrapRef.current.contains(event.target)) {
         setIsOpen(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    
+    const handleScroll = (event) => {
+      // Close on scroll if it's not scrolling inside the popover itself
+      if (popoverRef.current && popoverRef.current.contains(event.target)) return;
+      setIsOpen(false);
+    };
 
-  const filteredOptions = options.filter(o => o.toLowerCase().includes(searchTerm.toLowerCase()));
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      window.addEventListener('scroll', handleScroll, true);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [isOpen]);
+
+  const filteredOptions = options.filter(o => {
+    if (o == null) return false;
+    return String(o).toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, position: 'relative' }}>
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       {title}
       <div 
+        ref={iconWrapRef}
         onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
         style={{ 
           cursor: 'pointer', 
@@ -47,12 +76,12 @@ const HeaderFilter = ({ title, column, currentFilter, onFilterChange, apiCall })
         <Filter size={12} strokeWidth={currentFilter ? 3 : 2} />
       </div>
       
-      {isOpen && (
+      {isOpen && createPortal(
         <div ref={popoverRef} className="card fade-up" style={{
-          position: 'absolute', top: 24, left: 0, zIndex: 100, 
+          position: 'fixed', top: coords.top, left: coords.left, zIndex: 999999, 
           width: 260, minHeight: 100, maxHeight: 350, display: 'flex', flexDirection: 'column',
-          boxShadow: '0 8px 30px rgba(0,0,0,0.12)', padding: 0, overflow: 'hidden',
-          backgroundColor: 'var(--c-bg)'
+          boxShadow: '0 8px 30px rgba(0,0,0,0.18)', padding: 0, overflow: 'hidden',
+          backgroundColor: 'var(--c-bg)', border: '1px solid var(--c-border)'
         }}>
           <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--c-border)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <Search size={14} color="var(--c-text-tertiary)" />
@@ -106,7 +135,8 @@ const HeaderFilter = ({ title, column, currentFilter, onFilterChange, apiCall })
               </>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
