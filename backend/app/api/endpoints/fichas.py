@@ -132,17 +132,13 @@ async def get_alertas_suspendidas(
     db: Session = Depends(get_db)
 ):
     """
-    Endpoint síncrono para n8n. Ejecuta el scraper de Módulo 2 en vivo y 
-    devuelve las alertas de fichas que pasaron de 'Ofertada' a 'Suspendida'.
+    Endpoint para n8n. Ejecuta el scraper de Módulo 2 en vivo y
+    devuelve las fichas que pasaron de 'Ofertada' → 'Suspendida'.
     """
-    from app.services.fichas_scraper import run_module_2, ACUERDOS_MARCO as M2_ACUERDOS
-    
-    # Buscar selector para el acuerdo
-    selector = 'div[data-agreement*="EXT-CE-2022-5"]'
-    for a in M2_ACUERDOS:
-        if a.get("code") == acuerdo_marco:
-            selector = a.get("selector")
-            break
+    from app.services.fichas_scraper import run_module_2, AGREEMENT_SELECTOR
+
+    # Build the CSS selector from the agreement code
+    selector = f'div[data-agreement*="{acuerdo_marco}"]'
             
     try:
         from app.db.database import engine as app_engine
