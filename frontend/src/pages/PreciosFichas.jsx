@@ -5,6 +5,7 @@ import {
   DollarSign, Zap, TrendingUp, AlertTriangle, CheckCircle,
   Loader2, RefreshCw, ChevronLeft, ChevronRight, Info, Search
 } from 'lucide-react';
+import HeaderFilter from '../components/HeaderFilter';
 
 // ─── Volatility badge ────────────────────────────────────────────────────────
 
@@ -44,6 +45,7 @@ const PreciosFichas = () => {
   const [soloConPrecio, setSoloConPrecio] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentSearch, setCurrentSearch] = useState('');
+  const [filters, setFilters] = useState({ marca: '', acuerdo_marco: '' });
   const limit = 50;
 
   const fetchStats = useCallback(async () => {
@@ -59,12 +61,15 @@ const PreciosFichas = () => {
       const params = { skip: page * limit, limit };
       if (soloConPrecio) params.con_precio = true;
       if (currentSearch) params.search = currentSearch;
+      if (filters.marca) params.marca = filters.marca;
+      if (filters.acuerdo_marco) params.acuerdo_marco = filters.acuerdo_marco;
+      
       const r = await fichasProductoApi.getAll(params);
       setFichas(r.data);
     } catch (_) {} finally {
       setLoading(false);
     }
-  }, [page, soloConPrecio, currentSearch]);
+  }, [page, soloConPrecio, currentSearch, filters]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => { fetchFichas(); }, [fetchFichas]);
@@ -234,8 +239,24 @@ const PreciosFichas = () => {
             <thead>
               <tr>
                 <th>Nro. Parte</th>
-                <th>Marca</th>
-                <th>Acuerdo Marco</th>
+                <th>
+                  <HeaderFilter 
+                    title="Marca" 
+                    column="marca" 
+                    currentFilter={filters.marca}
+                    onFilterChange={(v) => { setFilters(prev => ({...prev, marca: v})); setPage(0); }}
+                    apiCall={fichasProductoApi.getColumnFilter}
+                  />
+                </th>
+                <th>
+                  <HeaderFilter 
+                    title="Acuerdo Marco" 
+                    column="acuerdo_marco" 
+                    currentFilter={filters.acuerdo_marco}
+                    onFilterChange={(v) => { setFilters(prev => ({...prev, acuerdo_marco: v})); setPage(0); }}
+                    apiCall={fichasProductoApi.getColumnFilter}
+                  />
+                </th>
                 <th style={{ textAlign: 'right' }}>P. Referencia</th>
                 <th style={{ textAlign: 'right' }}>P. Mínimo</th>
                 <th style={{ textAlign: 'right' }}>P. Máximo</th>

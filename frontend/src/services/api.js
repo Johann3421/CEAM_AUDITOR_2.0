@@ -33,6 +33,7 @@ export const fichasApi = {
 export const fichasProductoApi = {
   getAll: (params) => api.get('/fichas/', { params }),
   getStats: () => api.get('/fichas/stats'),
+  getColumnFilter: (col) => api.get(`/fichas/filters/${col}`),
   deleteAll: () => api.delete('/fichas/all'),
 };
 

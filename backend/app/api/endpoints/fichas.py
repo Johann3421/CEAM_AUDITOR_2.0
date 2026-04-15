@@ -133,6 +133,27 @@ def get_fichas_stats(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/filters/{column_name}")
+def get_column_filters(column_name: str, db: Session = Depends(get_db)):
+    """Return distinct values for a given column for Excel-like filters."""
+    cols = _safe_col(db)
+    # Match the logical name with the physical column
+    col_mapping = {
+        "acuerdo_marco": next((c for c in cols if c.startswith("acuerdo_m")), None),
+        "marca": next((c for c in cols if c == "marca"), None),
+        "estado": next((c for c in cols if c.startswith("estado")), None)
+    }
+    target_col = col_mapping.get(column_name)
+    if not target_col:
+        raise HTTPException(status_code=400, detail="Columna no permitida o no encontrada.")
+    
+    try:
+        rows = db.execute(text(f'SELECT DISTINCT "{target_col}" FROM {_TABLE} WHERE "{target_col}" IS NOT NULL AND "{target_col}" != \'\' ORDER BY "{target_col}" LIMIT 500')).fetchall()
+        return {"values": [r[0] for r in rows if r[0]]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/precio-stats")
 def get_precio_stats(db: Session = Depends(get_db)):
     """Coverage and volatility stats for enriched prices."""
