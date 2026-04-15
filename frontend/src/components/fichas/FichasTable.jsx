@@ -2,9 +2,8 @@ import React from 'react';
 import { ExternalLink, Package, FileSearch, Tag, Image } from 'lucide-react';
 
 const STATUS_CLASS = {
-  vigente: 'badge-success',
+  ofertada: 'badge-success',
   suspendida: 'badge-warning',
-  eliminada: 'badge-error',
 };
 
 const badgeClass = (estado) => {

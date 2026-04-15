@@ -516,91 +516,125 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
             out[k] = None if null else v
         return out
 
-    # ── Upsert loop — one transaction per batch, savepoint per row ────────
+    # ── Ensure unique index so ON CONFLICT works even if PK was never applied ─
+    try:
+        safe_idx = re.sub(r"[^a-z0-9]", "_", key_col[:30])
+        with engine.begin() as _ic:
+            _ic.execute(text(
+                f'CREATE UNIQUE INDEX IF NOT EXISTS "idx_fichas_uq_{safe_idx}" '
+                f'ON fichas_producto ("{key_col}")'
+            ))
+        logger.info("Unique index ensured on column '%s'", key_col)
+    except Exception as _idx_e:
+        logger.warning("Could not ensure unique index: %s", _idx_e)
+
+    # ── Pre-fetch existing rows for delta detection (one round-trip) ──────
+    existing_map: dict = {}
+    try:
+        col_names = [c.name for c in fichas_table.c]
+        fetch_cols = [fichas_table.c[key_col]]
+        if "estado_ficha_producto" in col_names:
+            fetch_cols.append(fichas_table.c["estado_ficha_producto"])
+        if "fecha_primera_carga" in col_names:
+            fetch_cols.append(fichas_table.c["fecha_primera_carga"])
+        with engine.connect() as _rc:
+            for _r in _rc.execute(select(*fetch_cols)).fetchall():
+                _rm = dict(zip([c.name for c in fetch_cols], _r))
+                existing_map[str(_rm[key_col]).strip()] = _rm
+        logger.info("Pre-fetched %d existing rows for delta detection", len(existing_map))
+    except Exception as _fe:
+        logger.warning("Could not pre-fetch existing rows: %s", _fe)
+
+    # ── Upsert loop — PostgreSQL ON CONFLICT DO UPDATE (true upsert) ──────
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
     inserted = 0
     updated = 0
     errors = 0
     deltas_suspendidas = []
-    
+
     now_utc = datetime.now(tz=timezone.utc)
     rows = df.to_dict(orient="records")
 
-    # Split into batches
     for batch_start in range(0, len(rows), BATCH_SIZE):
         batch_rows = rows[batch_start:batch_start + BATCH_SIZE]
+        batch_vals: list = []
+
+        for raw_row in batch_rows:
+            clean_row = _clean(raw_row)
+            key_val = clean_row.get(key_col)
+            if not key_val or str(key_val).strip() in ("", "nan", "None"):
+                errors += 1
+                continue
+
+            key_str = str(key_val).strip()
+            existing = existing_map.get(key_str)
+
+            if existing:
+                # Delta: Ofertada → Suspendida
+                try:
+                    old_state = str(existing.get("estado_ficha_producto") or "").strip().lower()
+                    new_state = str(clean_row.get("estado_ficha_producto") or "").strip().lower()
+                    if "ofertada" in old_state and "suspendida" in new_state:
+                        desc_keys = [k for k in clean_row if "descrip" in k]
+                        desc = str(clean_row.get(desc_keys[0], "")).strip() if desc_keys else ""
+                        deltas_suspendidas.append({
+                            "marca": str(clean_row.get("marca", "")).strip(),
+                            "nro_parte": key_str,
+                            "descripcion": desc,
+                            "anterior": existing.get("estado_ficha_producto"),
+                            "actual": clean_row.get("estado_ficha_producto"),
+                        })
+                except Exception as diff_exc:
+                    logger.warning("Delta calc error for %s: %s", key_str, diff_exc)
+
+                # Preserve original insertion date
+                clean_row.pop("fecha_primera_carga", None)
+                updated += 1
+            else:
+                clean_row["fecha_primera_carga"] = now_utc
+                # Track in-memory so duplicate keys within same Excel don't double-insert
+                existing_map[key_str] = {"estado_ficha_producto": clean_row.get("estado_ficha_producto")}
+                inserted += 1
+
+            batch_vals.append(clean_row)
+
+        if not batch_vals:
+            continue
 
         try:
-            with engine.connect() as conn:
-                with conn.begin():
-                    for raw_row in batch_rows:
-                        clean_row = _clean(raw_row)
-                        key_val = clean_row.get(key_col)
-                        if not key_val or str(key_val).strip() in ("", "nan", "None"):
-                            errors += 1
-                            continue
-
-                        # SAVEPOINT per row so one failure doesn't abort the batch
-                        try:
-                            with conn.begin_nested():
-                                existing = conn.execute(
-                                    select(fichas_table).where(
-                                        fichas_table.c[key_col] == key_val
-                                    )
-                                ).fetchone()
-
-                                if existing:
-                                    # Delta analysis: From Ofertada -> Suspendida
-                                    try:
-                                        estado_col = "estado_ficha_producto"
-                                        if estado_col in clean_row and hasattr(existing, "_mapping"):
-                                            old_state = existing._mapping.get(estado_col)
-                                            new_state = clean_row[estado_col]
-                                            
-                                            if old_state and new_state:
-                                                old_lower = str(old_state).strip().lower()
-                                                new_lower = str(new_state).strip().lower()
-                                                if "ofertada" in old_lower and "suspendida" in new_lower:
-                                                    marca = str(clean_row.get("marca", "")).strip()
-                                                    nro_parte = str(clean_row.get(key_col, "")).strip()
-                                                    desc = str(clean_row.get("descripción_fichaproducto", "")).strip()
-                                                    deltas_suspendidas.append({
-                                                        "marca": marca,
-                                                        "nro_parte": nro_parte,
-                                                        "descripcion": desc,
-                                                        "anterior": old_state,
-                                                        "actual": new_state
-                                                    })
-                                    except Exception as diff_exc:
-                                        logger.warning("Error calculating deltas for %s: %s", key_val, diff_exc)
-
-                                    update_data = {
-                                        k: v for k, v in clean_row.items()
-                                        if k != "fecha_primera_carga"
-                                    }
-                                    conn.execute(
-                                        update(fichas_table)
-                                        .where(fichas_table.c[key_col] == key_val)
-                                        .values(**update_data)
-                                    )
-                                    updated += 1
-                                else:
-                                    clean_row["fecha_primera_carga"] = now_utc
-                                    conn.execute(insert(fichas_table).values(**clean_row))
-                                    inserted += 1
-
-                        except Exception as row_exc:
-                            logger.error(
-                                "Row upsert failed for key=%.80s: %s",
-                                str(key_val), row_exc,
-                            )
-                            errors += 1
-
+            with engine.begin() as conn:
+                for val in batch_vals:
+                    try:
+                        stmt = pg_insert(fichas_table).values(**val)
+                        up_cols = {
+                            col: stmt.excluded[col]
+                            for col in val
+                            if col not in (key_col, "fecha_primera_carga")
+                        }
+                        stmt = stmt.on_conflict_do_update(
+                            index_elements=[key_col],
+                            set_=up_cols,
+                        )
+                        conn.execute(stmt)
+                    except Exception as row_exc:
+                        logger.error(
+                            "Row upsert failed key=%.80s: %s",
+                            val.get(key_col, "?"), row_exc,
+                        )
+                        errors += 1
+                        if "fecha_primera_carga" in val:
+                            inserted = max(0, inserted - 1)
+                        else:
+                            updated = max(0, updated - 1)
         except Exception as batch_exc:
             logger.error(
                 "Batch %d–%d failed entirely: %s",
                 batch_start, batch_start + len(batch_rows), batch_exc,
             )
-            errors += len(batch_rows)
+            errors += len(batch_vals)
+            inserted = max(0, inserted - sum(1 for v in batch_vals if "fecha_primera_carga" in v))
+            updated = max(0, updated - sum(1 for v in batch_vals if "fecha_primera_carga" not in v))
 
         logger.info(
             "Batch %d–%d done — inserted=%d updated=%d errors=%d",
@@ -612,10 +646,10 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
         inserted, updated, errors,
     )
     return {
-        "inserted": inserted, 
-        "updated": updated, 
-        "errors": errors, 
-        "deltas_suspendidas": deltas_suspendidas
+        "inserted": inserted,
+        "updated": updated,
+        "errors": errors,
+        "deltas_suspendidas": deltas_suspendidas,
     }
 
 

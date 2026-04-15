@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { fichasApi } from '../services/api';
+import { fichasApi, fichasProductoApi } from '../services/api';
 import {
   Play, Square, Loader2, CheckCircle, AlertCircle,
-  Clock, Database, List, Info, FileSpreadsheet,
+  Clock, Database, List, Info, FileSpreadsheet, Trash2,
 } from 'lucide-react';
 
 const FichasControl = () => {
@@ -79,6 +79,23 @@ const FichasControl = () => {
       case 'PENDING': return 'badge-warning';
       case 'STARTED': return 'badge-info';
       default:        return 'badge-info';
+    }
+  };
+
+  const [deleting, setDeleting] = useState(false);
+  const [deleteMsg, setDeleteMsg] = useState(null);
+
+  const handleDeleteAll = async () => {
+    if (!window.confirm('¿Estás seguro? Esto borrará TODAS las fichas de la base de datos. El próximo scraping las re-insertará desde cero.')) return;
+    setDeleting(true);
+    setDeleteMsg(null);
+    try {
+      await fichasProductoApi.deleteAll();
+      setDeleteMsg({ ok: true, text: 'Tabla vaciada correctamente. Puedes lanzar el scraper para re-poblarla.' });
+    } catch (e) {
+      setDeleteMsg({ ok: false, text: `Error al borrar: ${e?.response?.data?.detail || e.message}` });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -270,6 +287,43 @@ const FichasControl = () => {
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Danger zone */}
+      <div className="card fade-up" style={{ border: '1px solid rgba(239,68,68,0.35)' }}>
+        <div className="card-header" style={{ borderBottom: '1px solid rgba(239,68,68,0.2)' }}>
+          <span className="card-title" style={{ color: 'var(--c-danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Trash2 size={14} />
+            Zona de mantenimiento
+          </span>
+        </div>
+        <div className="card-body">
+          <p style={{ fontSize: 13, color: 'var(--c-text-secondary)', marginBottom: 16 }}>
+            Borra <strong>todas</strong> las fichas de la base de datos. Útil para eliminar duplicados acumulados.
+            Tras borrar, lanza el scraper para re-insertar desde cero con upsert correcto.
+          </p>
+          {deleteMsg && (
+            <div style={{
+              marginBottom: 14,
+              padding: '10px 14px',
+              borderRadius: 8,
+              fontSize: 13,
+              background: deleteMsg.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+              border: `1px solid ${deleteMsg.ok ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)'}`,
+              color: deleteMsg.ok ? 'var(--c-success)' : 'var(--c-danger)',
+            }}>
+              {deleteMsg.text}
+            </div>
+          )}
+          <button
+            className="btn btn-danger"
+            onClick={handleDeleteAll}
+            disabled={deleting || polling}
+          >
+            {deleting ? <Loader2 size={14} className="spin" /> : <Trash2 size={14} />}
+            {deleting ? 'Borrando...' : 'Borrar todas las fichas'}
+          </button>
         </div>
       </div>
 

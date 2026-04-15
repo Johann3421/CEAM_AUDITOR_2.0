@@ -126,6 +126,18 @@ def get_fichas_stats(db: Session = Depends(get_db)):
     }
 
 
+@router.delete("/all")
+def delete_all_fichas(db: Session = Depends(get_db)):
+    """Truncate the fichas_producto table. Used to clear duplicates before a clean re-scrape."""
+    try:
+        db.execute(text(f"TRUNCATE TABLE {_TABLE} RESTART IDENTITY"))
+        db.commit()
+        return {"deleted": True, "message": "Tabla fichas_producto vaciada correctamente."}
+    except Exception as e:
+        db.rollback()
+        raise
+
+
 @router.get("/alertas-suspendidas")
 async def get_alertas_suspendidas(
     acuerdo_marco: str = Query("EXT-CE-2022-5", description="Código del Acuerdo Marco a escanear"),

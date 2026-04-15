@@ -272,11 +272,13 @@
       "position": [2400, -250]
     },
     {
-      "parameters": {},
+      "parameters": {
+        "jsCode": "// Sin cambios — notificar al grupo\nconst EVOLUTION_URL      = 'https://evolution.sekaitech.com.pe';\nconst EVOLUTION_API_KEY  = '6mF28RqtJdPIZorVIbAaRBiKZoZr3a5t4d9jikNna7c=';\nconst EVOLUTION_INSTANCE = 'sekaitech';\nconst GROUP_JID          = '120363423813951789@g.us';\n\nconst today = new Date().toLocaleDateString('es-PE', { weekday:'long', year:'numeric', month:'long', day:'numeric', timeZone:'America/Lima' });\nconst texto = `✅ *CEAM Auditor — Revisión Semanal*\n\n📅 ${today}\n\nNo se detectaron cambios de estado en las fichas producto. Ninguna ficha pasó a estado *Suspendida* en esta revisión.\n\n_Todo en orden._`;\n\ntry {\n  const r = await this.helpers.httpRequest({\n    method: 'POST',\n    url: EVOLUTION_URL + '/message/sendText/' + EVOLUTION_INSTANCE,\n    headers: { 'apikey': EVOLUTION_API_KEY, 'Content-Type': 'application/json' },\n    body: { number: GROUP_JID, text: texto },\n    json: true,\n    timeout: 15000\n  });\n  return [{ json: { success: true, mensaje: 'sin_cambios', key: r.key } }];\n} catch(e) {\n  return [{ json: { success: false, error: e.message } }];\n}\n"
+      },
       "id": "noop-node",
       "name": "🔕 Sin Cambios (OK)",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [2000, -50]
     }
   ],

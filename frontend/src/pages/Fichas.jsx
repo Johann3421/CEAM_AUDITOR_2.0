@@ -78,9 +78,8 @@ const Fichas = () => {
           onChange={(e) => { setEstado(e.target.value); setPage(0); }}
         >
           <option value="">Todos los estados</option>
-          <option value="VIGENTE">VIGENTE</option>
-          <option value="SUSPENDIDA">SUSPENDIDA</option>
-          <option value="ELIMINADA">ELIMINADA</option>
+          <option value="Ofertada">OFERTADA</option>
+          <option value="Suspendida">SUSPENDIDA</option>
         </select>
 
         <input
