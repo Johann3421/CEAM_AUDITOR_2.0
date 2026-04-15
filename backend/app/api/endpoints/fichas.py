@@ -198,10 +198,28 @@ def enrich_precios(db: Session = Depends(get_db)):
         raise HTTPException(status_code=422, detail="No se encontró columna nro_parte en fichas_producto")
 
     # 3. Gather all prices from purchase_orders grouped by nro_parte
-    # Normalize keys: UPPER + STRIP to avoid case-sensitivity mismatches
+    # purchase_orders.nro_parte stores a JSON array: [{"nro_parte": "...", "precio_unitario": N, ...}]
+    # We expand that JSON with jsonb_array_elements so we get one row per product.
+    # Normalize keys: UPPER + STRIP to avoid case-sensitivity mismatches.
     raw = db.execute(text(
-        "SELECT nro_parte, precio_unitario FROM purchase_orders "
-        "WHERE nro_parte IS NOT NULL AND precio_unitario IS NOT NULL AND precio_unitario > 0"
+        """
+        SELECT
+            elem->>'nro_parte'                          AS nro_parte,
+            (elem->>'precio_unitario')::numeric          AS precio_unitario
+        FROM purchase_orders
+        CROSS JOIN LATERAL jsonb_array_elements(
+            CASE
+                WHEN nro_parte IS NOT NULL
+                     AND nro_parte NOT IN ('', 'null', '[]')
+                     AND nro_parte LIKE '[%'
+                THEN nro_parte::jsonb
+                ELSE '[]'::jsonb
+            END
+        ) AS elem
+        WHERE (elem->>'precio_unitario')::numeric > 0
+          AND elem->>'nro_parte' IS NOT NULL
+          AND elem->>'nro_parte' <> ''
+        """
     )).fetchall()
     price_map: dict = defaultdict(list)
     for nro, precio in raw:
@@ -212,7 +230,10 @@ def enrich_precios(db: Session = Depends(get_db)):
     # Diagnostic: log first 5 keys so mismatches can be spotted quickly
     sample_po_keys = list(price_map.keys())[:5]
     import logging as _log
-    _log.getLogger("ceam.enrich").info("purchase_orders nro_parte sample (normalized): %s", sample_po_keys)
+    _log.getLogger("ceam.enrich").info(
+        "price_map built: %d unique nro_parte from purchase_orders. Sample: %s",
+        len(price_map), sample_po_keys
+    )
 
     # 4. Epsilon-neighborhood mode clustering
     def canonical_price(precios: list) -> dict:
@@ -274,6 +295,10 @@ def enrich_precios(db: Session = Depends(get_db)):
         "not_found": not_found,
         "total_fichas": total,
         "coverage_pct": round(enriched / total * 100, 1) if total > 0 else 0.0,
+        "_debug": {
+            "price_map_size": len(price_map),
+            "sample_po_keys": list(price_map.keys())[:5],
+        },
     }
 
 
