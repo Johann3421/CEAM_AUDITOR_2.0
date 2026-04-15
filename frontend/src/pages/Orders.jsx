@@ -1,16 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { purchaseOrdersApi } from '../services/api';
 import OrderTable from '../components/orders/OrderTable';
 import { Search, ChevronLeft, ChevronRight, X, Trash2 } from 'lucide-react';
 
 const Orders = () => {
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const initialSearch = queryParams.get('search') || '';
+
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [limit] = useState(25);
   const [deleting, setDeleting] = useState(false);
 
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(initialSearch);
   const [catalogo, setCatalogo] = useState('');
   const [catalogoOptions, setCatalogoOptions] = useState([]);
 
