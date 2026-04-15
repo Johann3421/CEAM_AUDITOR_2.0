@@ -35,10 +35,11 @@ CATALOGOS_DISPONIBLES = [
 # ── Acuerdos Marco disponibles Módulo 2 ───────────────────────────────────────
 ACUERDOS_MARCO = [
     {
-        "code": "EXT-CE-2022-5",
-        "label": "EXT-CE-2022-5 — Computadoras de Escritorio, Portátiles y Escáneres",
-        "selector": 'div[data-agreement*="EXT-CE-2022-5"]',
-    },
+        "code": c["code"],
+        "label": c["label"],
+        "selector": f'div[data-agreement*="{c["code"]}"]',
+    }
+    for c in CATALOGOS_DISPONIBLES
 ]
 
 

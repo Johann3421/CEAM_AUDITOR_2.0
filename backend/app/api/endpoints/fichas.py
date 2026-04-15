@@ -124,3 +124,81 @@ def get_fichas_stats(db: Session = Depends(get_db)):
         "by_estado": _agg("estado_ficha_producto", "estado"),
         "by_marca": _agg("marca", "marca"),
     }
+
+
+@router.get("/alertas-suspendidas")
+async def get_alertas_suspendidas(
+    acuerdo_marco: str = Query("EXT-CE-2022-5", description="Código del Acuerdo Marco a escanear"),
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint síncrono para n8n. Ejecuta el scraper de Módulo 2 en vivo y 
+    devuelve las alertas de fichas que pasaron de 'Ofertada' a 'Suspendida'.
+    """
+    from app.services.fichas_scraper import run_module_2, ACUERDOS_MARCO as M2_ACUERDOS
+    
+    # Buscar selector para el acuerdo
+    selector = 'div[data-agreement*="EXT-CE-2022-5"]'
+    for a in M2_ACUERDOS:
+        if a.get("code") == acuerdo_marco:
+            selector = a.get("selector")
+            break
+            
+    try:
+        from app.db.database import engine as app_engine
+        result = await run_module_2(
+            engine=app_engine,
+            agreement_selector=selector,
+            agreement_code=acuerdo_marco,
+            cleanup=True
+        )
+        
+        deltas = result.get("deltas_suspendidas", [])
+        
+        # Agrupar por marca
+        datos = {}
+        for d in deltas:
+            marca = d["marca"].upper() if d["marca"] else "OTRAS"
+            if marca not in datos:
+                datos[marca] = []
+            datos[marca].append({
+                "nro_parte": d["nro_parte"],
+                "descripcion": d["descripcion"],
+                "anterior": d["anterior"],
+                "actual": d["actual"]
+            })
+            
+        resumen = {}
+        # Para cada marca que tuvo caídas, consultar en base de datos cuántas 'Ofertadas' le quedan
+        cols = _safe_col(db)
+        if "marca" in cols and "estado_ficha_producto" in cols:
+            for marca in datos.keys():
+                count = db.execute(
+                    text(
+                        f"SELECT COUNT(*) FROM {_TABLE} "
+                        f"WHERE UPPER(marca) = :m AND UPPER(estado_ficha_producto) LIKE '%OFERTADA%'"
+                    ),
+                    {"m": marca}
+                ).scalar() or 0
+                resumen[marca] = {"ofertadas_actuales": count}
+                
+        return {
+            "hayAlertas": len(deltas) > 0,
+            "total_suspendidas": len(deltas),
+            "datos": datos,
+            "resumen": resumen,
+            "meta": {
+                "filepath": result.get("filepath"),
+                "rows_processed": result.get("rows_processed"),
+                "inserted": result.get("inserted"),
+                "updated": result.get("updated")
+            }
+        }
+        
+    except Exception as e:
+        import traceback
+        return {
+            "error": True,
+            "message": str(e),
+            "trace": traceback.format_exc()
+        }

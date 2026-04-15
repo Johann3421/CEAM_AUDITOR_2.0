@@ -520,6 +520,8 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
     inserted = 0
     updated = 0
     errors = 0
+    deltas_suspendidas = []
+    
     now_utc = datetime.now(tz=timezone.utc)
     rows = df.to_dict(orient="records")
 
@@ -547,6 +549,30 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
                                 ).fetchone()
 
                                 if existing:
+                                    # Delta analysis: From Ofertada -> Suspendida
+                                    try:
+                                        estado_col = "estado_ficha_producto"
+                                        if estado_col in clean_row and hasattr(existing, "_mapping"):
+                                            old_state = existing._mapping.get(estado_col)
+                                            new_state = clean_row[estado_col]
+                                            
+                                            if old_state and new_state:
+                                                old_lower = str(old_state).strip().lower()
+                                                new_lower = str(new_state).strip().lower()
+                                                if "ofertada" in old_lower and "suspendida" in new_lower:
+                                                    marca = str(clean_row.get("marca", "")).strip()
+                                                    nro_parte = str(clean_row.get(key_col, "")).strip()
+                                                    desc = str(clean_row.get("descripción_fichaproducto", "")).strip()
+                                                    deltas_suspendidas.append({
+                                                        "marca": marca,
+                                                        "nro_parte": nro_parte,
+                                                        "descripcion": desc,
+                                                        "anterior": old_state,
+                                                        "actual": new_state
+                                                    })
+                                    except Exception as diff_exc:
+                                        logger.warning("Error calculating deltas for %s: %s", key_val, diff_exc)
+
                                     update_data = {
                                         k: v for k, v in clean_row.items()
                                         if k != "fecha_primera_carga"
@@ -585,7 +611,12 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
         "Upsert complete — inserted: %d, updated: %d, errors: %d",
         inserted, updated, errors,
     )
-    return {"inserted": inserted, "updated": updated, "errors": errors}
+    return {
+        "inserted": inserted, 
+        "updated": updated, 
+        "errors": errors, 
+        "deltas_suspendidas": deltas_suspendidas
+    }
 
 
 
