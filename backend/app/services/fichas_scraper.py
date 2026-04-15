@@ -576,12 +576,20 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
                     old_state = str(existing.get("estado_ficha_producto") or "").strip().lower()
                     new_state = str(clean_row.get("estado_ficha_producto") or "").strip().lower()
                     if "ofertada" in old_state and "suspendida" in new_state:
+                        # Find description column (handles accent-stripped variants)
                         desc_keys = [k for k in clean_row if "descrip" in k]
                         desc = str(clean_row.get(desc_keys[0], "")).strip() if desc_keys else ""
+                        # Find ficha técnica URL (pandas strips accents: ficha_técnica → ficha_tcnica)
+                        ficha_url = ""
+                        for _fk in ("ficha_tcnica", "ficha_tecnica", "ficha_técnica", "url_ficha"):
+                            if clean_row.get(_fk):
+                                ficha_url = str(clean_row[_fk]).strip()
+                                break
                         deltas_suspendidas.append({
                             "marca": str(clean_row.get("marca", "")).strip(),
                             "nro_parte": key_str,
-                            "descripcion": desc,
+                            "acuerdo_marco": str(clean_row.get("acuerdo_marco", "")).strip(),
+                            "ficha_url": ficha_url,
                             "anterior": existing.get("estado_ficha_producto"),
                             "actual": clean_row.get("estado_ficha_producto"),
                         })
