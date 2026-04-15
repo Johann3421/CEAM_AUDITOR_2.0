@@ -23,12 +23,30 @@
     },
     {
       "parameters": {
-        "jsCode": "// Despachar tarea Celery de scraping de fichas\nconst API_URL = 'https://api-auditor.sekaitech.com.pe';\n\nlet result;\ntry {\n  result = await this.helpers.httpRequest({\n    method: 'POST',\n    url: API_URL + '/api/v1/scraper/fichas/start?agreement_code=EXT-CE-2022-5',\n    headers: { 'Accept': 'application/json' },\n    json: true,\n    timeout: 15000\n  });\n  if (typeof result === 'string') result = JSON.parse(result);\n} catch(e) {\n  return [{ json: { error: true, message: e.message } }];\n}\n\nif (!result.task_id) {\n  return [{ json: { error: true, message: result.error || 'No se recibio task_id del backend' } }];\n}\n\nreturn [{ json: result }];\n"
+        "method": "GET",
+        "url": "https://api-auditor.sekaitech.com.pe/api/v1/fichas/alertas-suspendidas",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "acuerdo_marco",
+              "value": "EXT-CE-2022-5"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 600000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
       },
-      "id": "http-start-fichas",
-      "name": "🚀 Iniciar Scraper Fichas",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "http-scraper",
+      "name": "🌐 Ejecutar Scraper CEAM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         250,
         0
@@ -42,7 +60,7 @@
           },
           "conditions": [
             {
-              "id": "cond-start-error",
+              "id": "cond-api-error",
               "leftValue": "={{ $json.error }}",
               "rightValue": true,
               "operator": {
@@ -55,8 +73,8 @@
         },
         "options": {}
       },
-      "id": "if-start-error",
-      "name": "❓ ¿Error al iniciar?",
+      "id": "if-error-api",
+      "name": "🔍 ¿Error Scraper?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
@@ -66,71 +84,28 @@
     },
     {
       "parameters": {
-        "jsCode": "// Polling de estado hasta que la tarea Celery termine (SUCCESS o FAILURE)\n// Tiempo maximo: 16 intentos x 60s = ~16 minutos\nconst API_URL = 'https://api-auditor.sekaitech.com.pe';\nconst task_id = $input.first().json.task_id;\nconst MAX_ATTEMPTS = 16;\nconst WAIT_MS = 60000;\n\nlet lastResp = { status: 'TIMEOUT', error: 'La tarea supero el tiempo maximo de espera (16 minutos)' };\n\nfor (let i = 0; i < MAX_ATTEMPTS; i++) {\n  await new Promise(resolve => setTimeout(resolve, WAIT_MS));\n  try {\n    const resp = await this.helpers.httpRequest({\n      method: 'GET',\n      url: API_URL + '/api/v1/scraper/status/' + task_id,\n      headers: { 'Accept': 'application/json' },\n      json: true,\n      timeout: 15000\n    });\n    lastResp = (typeof resp === 'string') ? JSON.parse(resp) : resp;\n    const st = lastResp.status;\n    if (st === 'SUCCESS' || st === 'FAILURE') break;\n  } catch(e) {\n    lastResp = { status: 'FAILURE', error: e.message };\n    break;\n  }\n}\n\nreturn [{ json: lastResp }];\n"
-      },
-      "id": "poll-estado",
-      "name": "🔄 Esperar y Verificar Estado",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        750,
-        150
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": false
-          },
-          "conditions": [
-            {
-              "id": "cond-success",
-              "leftValue": "={{ $json.status }}",
-              "rightValue": "SUCCESS",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "if-success",
-      "name": "✅ ¿Completó con éxito?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        1000,
-        150
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Notificar error via Evolution API\nconst EVOLUTION_URL      = 'https://evolution.sekaitech.com.pe';\nconst EVOLUTION_API_KEY  = '6mF28RqtJdPIZorVIbAaRBiKZoZr3a5t4d9jikNna7c=';\nconst EVOLUTION_INSTANCE = 'sekaitech';\nconst GROUP_JID          = '120363423813951789@g.us';\n\nconst inp = $input.item.json;\nconst errorMsg = inp.message || inp.error || 'Error desconocido';\nconst ahora = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });\n\nconst texto = [  '\\u26a0\\ufe0f *ERROR \\u2014 CEAM Auditor Scraper (Fichas)*',  '\\ud83d\\uddd3\\ufe0f ' + ahora,  '\\u2500'.repeat(34),  'El proceso de extraccion de catalogo fallo.',  '',  'Error: ' + errorMsg,  '',  'Revisa los logs en el contenedor del backend.'].join('\\n');\n\ntry {\n  await this.helpers.httpRequest({\n    method: 'POST',\n    url: EVOLUTION_URL + '/message/sendText/' + EVOLUTION_INSTANCE,\n    headers: { 'apikey': EVOLUTION_API_KEY, 'Content-Type': 'application/json' },\n    body: { number: GROUP_JID, text: texto },\n    json: true,\n    timeout: 10000\n  });\n} catch(e) {}\n\nreturn [{ json: { notified: true, error: String(errorMsg) } }];\n"
+        "jsCode": "// Notificar error via Evolution API\nconst EVOLUTION_URL      = 'https://evolution.sekaitech.com.pe';\nconst EVOLUTION_API_KEY  = '6mF28RqtJdPIZorVIbAaRBiKZoZr3a5t4d9jikNna7c=';\nconst EVOLUTION_INSTANCE = 'sekaitech';\nconst GROUP_JID          = '120363423813951789@g.us';\n\nconst inp = $input.item.json;\nconst errorMsg = inp.message || inp.error || 'Error desconocido';\nconst ahora = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });\n\nconst lines = [];\nlines.push('\\u26a0\\ufe0f *ERROR \\u2014 CEAM Auditor Scraper (Fichas)*');\nlines.push('\\ud83d\\uddd3\\ufe0f ' + ahora);\nlines.push('\\u2500'.repeat(34));\nlines.push('El proceso de extraccion de catalogo fallo.');\nlines.push('');\nlines.push('Error: ' + errorMsg);\nlines.push('');\nlines.push('Revisa los logs en el contenedor del backend.');\nconst texto = lines.join('\\n');\n\ntry {\n  await this.helpers.httpRequest({\n    method: 'POST',\n    url: EVOLUTION_URL + '/message/sendText/' + EVOLUTION_INSTANCE,\n    headers: { 'apikey': EVOLUTION_API_KEY, 'Content-Type': 'application/json' },\n    body: { number: GROUP_JID, text: texto },\n    json: true,\n    timeout: 10000\n  });\n} catch(e) {}\n\nreturn [{ json: { notified: true, error: String(errorMsg) } }];\n"
       },
       "id": "notificar-error",
       "name": "🆘 Notificar Error Scraper",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1250,
-        -100
+        750,
+        -150
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Construir mensajes agrupados por marca desde deltas_suspendidas\n// El resultado Celery viene en: .result.deltas_suspendidas\nconst data = $input.first().json;\nconst deltas = (data.result && data.result.deltas_suspendidas) ? data.result.deltas_suspendidas : [];\n\nif (!deltas || deltas.length === 0) {\n  return [{ json: { hayAlertas: 'false', mensajes: [], total: 0 } }];\n}\n\nconst sep = '\\u2500'.repeat(30);\nconst totalSuspendidas = deltas.length;\n\n// Agrupar por marca\nconst byMarca = {};\nfor (const f of deltas) {\n  const marca = (f.marca || 'OTRAS').toUpperCase();\n  if (!byMarca[marca]) byMarca[marca] = [];\n  byMarca[marca].push(f);\n}\n\nconst partes = [\n  '\\u26a0\\ufe0f *ALERTAS DE CATALOGO: FICHAS SUSPENDIDAS*',\n  '\\ud83d\\uddd3\\ufe0f ' + new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' }),\n  sep,\n  '\\ud83d\\udea8 El escaner detecto ' + totalSuspendidas + ' ficha(s) suspendida(s):'\n];\n\nfor (const [marca, fichas] of Object.entries(byMarca)) {\n  partes.push('\\n\\ud83c\\udfec *MARCA: ' + marca + '*');\n  fichas.forEach(function(f, i) {\n    partes.push('   \\u274c *' + (i + 1) + '.* P/N: *' + f.nro_parte + '*');\n    if (f.descripcion) partes.push('      \\u21b3 ' + f.descripcion);\n  });\n}\n\npartes.push('\\n' + sep + '\\n\\ud83e\\udd16 _CEAM Auditor Automatico_');\n\nreturn [{ json: { hayAlertas: 'true', mensajes: [partes.join('\\n')], total: totalSuspendidas } }];\n"
+        "jsCode": "// Construir mensajes agrupados por marca\nconst data = $input.first().json;\n\n// El endpoint sincrono devuelve: { hayAlertas, total_suspendidas, datos, resumen }\nconst hayAlertas = data.hayAlertas;\nconst datos = data.datos || {};\nconst resumen = data.resumen || {};\nconst marcas = Object.keys(datos);\n\nif (!hayAlertas || marcas.length === 0) {\n  return [{ json: { hayAlertas: 'false', mensajes: [], total: 0 } }];\n}\n\nconst sep = '\\u2500'.repeat(30);\nlet totalSuspendidas = data.total_suspendidas || 0;\n\nconst partes = [];\npartes.push('\\u26a0\\ufe0f *ALERTAS DE CATALOGO: FICHAS SUSPENDIDAS*');\npartes.push('\\ud83d\\uddd3\\ufe0f ' + new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' }));\npartes.push(sep);\npartes.push('\\ud83d\\udea8 El escaner detecto ' + totalSuspendidas + ' ficha(s) suspendida(s):');\n\nfor (const marca of marcas) {\n  const fichas = datos[marca];\n  let infoResumen = '';\n  if (resumen[marca] && resumen[marca].ofertadas_actuales !== undefined) {\n    infoResumen = ' (Quedan ' + resumen[marca].ofertadas_actuales + ' ofertadas)';\n  }\n  partes.push('\\n\\ud83c\\udfec *MARCA: ' + marca + '*' + infoResumen);\n  fichas.forEach(function(f, i) {\n    partes.push('   \\u274c *' + (i + 1) + '.* P/N: *' + f.nro_parte + '*');\n    if (f.descripcion) partes.push('      \\u21b3 ' + f.descripcion);\n  });\n}\n\npartes.push('\\n' + sep);\npartes.push('\\ud83e\\udd16 _CEAM Auditor Automatico_');\n\nreturn [{ json: { hayAlertas: 'true', mensajes: [partes.join('\\n')], total: totalSuspendidas } }];\n"
       },
       "id": "build-message",
       "name": "📝 Construir Mensaje de Marcas",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1250,
-        350
+        750,
+        150
       ]
     },
     {
@@ -159,8 +134,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        1500,
-        350
+        1000,
+        150
       ]
     },
     {
@@ -175,8 +150,8 @@
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
       "position": [
-        1750,
-        200
+        1250,
+        50
       ]
     },
     {
@@ -188,8 +163,8 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        1950,
-        200
+        1450,
+        50
       ]
     },
     {
@@ -201,8 +176,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2150,
-        200
+        1650,
+        50
       ]
     },
     {
@@ -212,8 +187,8 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        1750,
-        450
+        1250,
+        250
       ]
     }
   ],
@@ -222,25 +197,25 @@
       "main": [
         [
           {
-            "node": "🚀 Iniciar Scraper Fichas",
+            "node": "🌐 Ejecutar Scraper CEAM",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "🚀 Iniciar Scraper Fichas": {
+    "🌐 Ejecutar Scraper CEAM": {
       "main": [
         [
           {
-            "node": "❓ ¿Error al iniciar?",
+            "node": "🔍 ¿Error Scraper?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "❓ ¿Error al iniciar?": {
+    "🔍 ¿Error Scraper?": {
       "main": [
         [
           {
@@ -249,38 +224,9 @@
             "index": 0
           }
         ],
-        [
-          {
-            "node": "🔄 Esperar y Verificar Estado",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "🔄 Esperar y Verificar Estado": {
-      "main": [
-        [
-          {
-            "node": "✅ ¿Completó con éxito?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "✅ ¿Completó con éxito?": {
-      "main": [
         [
           {
             "node": "📝 Construir Mensaje de Marcas",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "🆘 Notificar Error Scraper",
             "type": "main",
             "index": 0
           }
