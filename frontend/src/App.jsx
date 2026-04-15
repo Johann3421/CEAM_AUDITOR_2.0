@@ -6,6 +6,7 @@ import Orders from './pages/Orders';
 import ScraperControl from './pages/ScraperControl';
 import FichasControl from './pages/FichasControl';
 import Fichas from './pages/Fichas';
+import PreciosFichas from './pages/PreciosFichas';
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/fichas-catalogo" element={<Fichas />} />
+            <Route path="/precios-fichas" element={<PreciosFichas />} />
             <Route path="/scraper" element={<ScraperControl />} />
             <Route path="/fichas" element={<FichasControl />} />
           </Routes>

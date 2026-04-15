@@ -35,4 +35,9 @@ export const fichasProductoApi = {
   deleteAll: () => api.delete('/fichas/all'),
 };
 
+export const preciosFichasApi = {
+  getStats: () => api.get('/fichas/precio-stats'),
+  enrich: () => api.post('/fichas/enrich-precios'),
+};
+
 export default api;

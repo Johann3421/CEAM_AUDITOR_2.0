@@ -468,3 +468,50 @@ selector = f'div[data-agreement*="{acuerdo_marco}"]'
 }
 ```
 El nodo `📝 Construir Mensaje de Marcas` del flujo n8n accede a `$json.result.deltas_suspendidas` para generar el mensaje.
+
+---
+
+### 7.18. Módulo "Precios por Fichas" — Enriquecimiento con Clustering ε-vecindad
+
+**Problema:** Las fichas-producto extraídas del portal no contienen precio. Las órdenes de compra sí tienen `precio_unitario` + `nro_parte`. Sin embargo, una misma ficha puede tener **N precios distintos** entre órdenes (cotizaciones diferentes, descuentos por volumen, variación temporal).
+
+**Solución — Epsilon-Neighborhood Mode Clustering (Matemática Discreta):**
+
+Se define una relación de proximidad sobre ℝ⁺:
+
+> (p₁, p₂) ∈ R  ⟺  p₂ ≤ p₁ × (1 + ε),  con ε = 0.05 (5%)
+
+Esta relación genera clases de equivalencia aproximadas sobre el conjunto de precios. El algoritmo:
+1. Ordena todos los precios para un `nro_parte` de menor a mayor.
+2. Barrido greedy izquierda→derecha: cada precio se añade al cluster actual si cae dentro del 5% del primer elemento del cluster (anchor); en caso contrario abre un nuevo cluster.
+3. Se selecciona el **cluster más denso** (mayor número de órdenes) → zona de precio de consenso de mercado.
+4. `precio_referencia` = mediana del cluster ganador.
+5. `precio_volatilidad` = (max − min) / mediana_global × 100 → spread porcentual total.
+
+**Columnas añadidas a `fichas_producto` (ALTER IF NOT EXISTS en runtime):**
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `precio_referencia` | NUMERIC(14,4) | Mediana del cluster más denso |
+| `precio_min` | NUMERIC(14,4) | Mínimo global de órdenes |
+| `precio_max` | NUMERIC(14,4) | Máximo global de órdenes |
+| `precio_mediana` | NUMERIC(14,4) | Mediana global de todos los precios |
+| `precio_volatilidad` | NUMERIC(7,2) | Spread % (max−min)/mediana × 100 |
+| `n_ordenes_precio` | INTEGER | Cantidad de órdenes usadas |
+| `precio_actualizado_at` | TIMESTAMPTZ | Última ejecución del enriquecimiento |
+
+**Endpoints nuevos en `fichas.py`:**
+- `GET /fichas/precio-stats` → cobertura total, distribución de volatilidad (baja/media/alta)
+- `POST /fichas/enrich-precios` → ejecuta el algoritmo, actualiza `fichas_producto`, devuelve `{enriched, not_found, total_fichas, coverage_pct}`
+
+**Frontend — `PreciosFichas.jsx` (`/precios-fichas`):**
+- Botón "Enriquecer Precios" → llama a `POST /fichas/enrich-precios`
+- KPI cards: total fichas, con precio, sin precio, volatilidad alta
+- Barra de distribución de volatilidad con badges coloreados (verde/amarillo/rojo)
+- Tabla: nro_parte | marca | acuerdo | P.Referencia | P.Mín | P.Máx | Volatilidad | N Órdenes
+- Toggle "Solo fichas con precio"
+- Accesible desde el sidebar con icono `DollarSign`
+
+**Criterio de volatilidad:**
+- 🟢 Baja: < 20% — precio muy estable entre órdenes
+- 🟡 Media: 20–50% — variación moderada (normal en licitaciones)
+- 🔴 Alta: > 50% — precios muy dispersos, usar con cautela

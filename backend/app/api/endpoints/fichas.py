@@ -1,6 +1,9 @@
 """Fichas Producto REST endpoints."""
+import statistics
+from collections import defaultdict
+from datetime import datetime, timezone
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -123,6 +126,142 @@ def get_fichas_stats(db: Session = Depends(get_db)):
         "by_categoria": _agg("categoría" if "categoría" in col_set else "categora", "categoria"),
         "by_estado": _agg("estado_ficha_producto", "estado"),
         "by_marca": _agg("marca", "marca"),
+    }
+
+
+@router.get("/precio-stats")
+def get_precio_stats(db: Session = Depends(get_db)):
+    """Coverage and volatility stats for enriched prices."""
+    cols = _safe_col(db)
+    if "precio_referencia" not in cols:
+        return {"total": 0, "con_precio": 0, "sin_precio": 0, "coverage_pct": 0.0, "enriquecido_at": None, "volatilidad": {"baja": 0, "media": 0, "alta": 0}}
+    try:
+        total = db.execute(text(f"SELECT COUNT(*) FROM {_TABLE}")).scalar() or 0
+        con_precio = db.execute(text(f"SELECT COUNT(*) FROM {_TABLE} WHERE precio_referencia IS NOT NULL")).scalar() or 0
+        last_upd = db.execute(text(f"SELECT MAX(precio_actualizado_at) FROM {_TABLE}")).scalar()
+        vol = db.execute(text(
+            f"SELECT "
+            f"COUNT(*) FILTER (WHERE precio_volatilidad < 20) as baja, "
+            f"COUNT(*) FILTER (WHERE precio_volatilidad BETWEEN 20 AND 50) as media, "
+            f"COUNT(*) FILTER (WHERE precio_volatilidad > 50) as alta "
+            f"FROM {_TABLE} WHERE precio_referencia IS NOT NULL"
+        )).fetchone()
+        return {
+            "total": total,
+            "con_precio": con_precio,
+            "sin_precio": total - con_precio,
+            "coverage_pct": round(con_precio / total * 100, 1) if total > 0 else 0.0,
+            "enriquecido_at": str(last_upd) if last_upd else None,
+            "volatilidad": {"baja": vol[0] or 0, "media": vol[1] or 0, "alta": vol[2] or 0},
+        }
+    except Exception:
+        return {"total": 0, "con_precio": 0, "sin_precio": 0, "coverage_pct": 0.0, "enriquecido_at": None, "volatilidad": {"baja": 0, "media": 0, "alta": 0}}
+
+
+@router.post("/enrich-precios")
+def enrich_precios(db: Session = Depends(get_db)):
+    """
+    Match fichas_producto ↔ purchase_orders by nro_parte and compute a
+    canonical reference price using epsilon-neighborhood mode clustering.
+
+    Algorithm (Discrete Math — proximity equivalence classes):
+      - Sort all prices for a given nro_parte.
+      - Build clusters: greedy scan; a price joins the current cluster if it
+        falls within ε=5% of the cluster’s first element (anchor).
+        Formally: (p₁, p₂) ∈ R  ⇔  p₂ ≤ p₁ × (1+ε).
+      - Select the densest cluster (most orders at that price zone).
+      - Canonical price = median of the densest cluster.
+      - Volatility = (max − min) / global_median × 100  (% spread).
+    """
+    # 1. Add price columns to fichas_producto if not present
+    price_cols = [
+        ("precio_referencia", "NUMERIC(14,4)"),
+        ("precio_min", "NUMERIC(14,4)"),
+        ("precio_max", "NUMERIC(14,4)"),
+        ("precio_mediana", "NUMERIC(14,4)"),
+        ("precio_volatilidad", "NUMERIC(7,2)"),
+        ("n_ordenes_precio", "INTEGER"),
+        ("precio_actualizado_at", "TIMESTAMP WITH TIME ZONE"),
+    ]
+    try:
+        for col_name, col_type in price_cols:
+            db.execute(text(f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al agregar columnas de precio: {e}")
+
+    # 2. Detect nro_parte key column in fichas_producto
+    cols = _safe_col(db)
+    nro_col = next((c for c in cols if c.startswith("nro_parte")), None)
+    if not nro_col:
+        raise HTTPException(status_code=422, detail="No se encontró columna nro_parte en fichas_producto")
+
+    # 3. Gather all prices from purchase_orders grouped by nro_parte
+    raw = db.execute(text(
+        "SELECT nro_parte, precio_unitario FROM purchase_orders "
+        "WHERE nro_parte IS NOT NULL AND precio_unitario IS NOT NULL AND precio_unitario > 0"
+    )).fetchall()
+    price_map: dict = defaultdict(list)
+    for nro, precio in raw:
+        price_map[str(nro).strip()].append(float(precio))
+
+    # 4. Epsilon-neighborhood mode clustering
+    def canonical_price(precios: list) -> dict:
+        precios_s = sorted(precios)
+        EPS = 0.05  # 5% proximity tolerance
+        clusters, current = [], [precios_s[0]]
+        for p in precios_s[1:]:
+            if current[0] > 0 and p <= current[0] * (1 + EPS):
+                current.append(p)
+            else:
+                clusters.append(current)
+                current = [p]
+        clusters.append(current)
+        best = max(clusters, key=len)
+        canonical = statistics.median(best)
+        med_g = statistics.median(precios_s)
+        volatilidad = round((max(precios_s) - min(precios_s)) / med_g * 100, 2) if med_g > 0 else 0.0
+        return {
+            "precio_referencia": round(canonical, 4),
+            "precio_min": round(min(precios_s), 4),
+            "precio_max": round(max(precios_s), 4),
+            "precio_mediana": round(med_g, 4),
+            "precio_volatilidad": volatilidad,
+            "n_ordenes_precio": len(precios_s),
+        }
+
+    # 5. Update fichas_producto
+    now = datetime.now(tz=timezone.utc)
+    fichas_keys = db.execute(text(f'SELECT "{nro_col}" FROM {_TABLE} WHERE "{nro_col}" IS NOT NULL')).fetchall()
+
+    enriched = 0
+    not_found = 0
+    for (nro_val,) in fichas_keys:
+        key = str(nro_val).strip()
+        prices = price_map.get(key)
+        if not prices:
+            not_found += 1
+            continue
+        cp = canonical_price(prices)
+        db.execute(text(
+            f'UPDATE {_TABLE} SET '
+            f'precio_referencia = :pr, precio_min = :pmin, precio_max = :pmax, '
+            f'precio_mediana = :pmed, precio_volatilidad = :pvol, '
+            f'n_ordenes_precio = :n, precio_actualizado_at = :ts '
+            f'WHERE "{nro_col}" = :key'
+        ), {"pr": cp["precio_referencia"], "pmin": cp["precio_min"], "pmax": cp["precio_max"],
+            "pmed": cp["precio_mediana"], "pvol": cp["precio_volatilidad"],
+            "n": cp["n_ordenes_precio"], "ts": now, "key": key})
+        enriched += 1
+
+    db.commit()
+    total = len(fichas_keys)
+    return {
+        "enriched": enriched,
+        "not_found": not_found,
+        "total_fichas": total,
+        "coverage_pct": round(enriched / total * 100, 1) if total > 0 else 0.0,
     }
 
 
