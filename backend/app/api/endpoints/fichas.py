@@ -39,6 +39,7 @@ def list_fichas(
     marca: Optional[str] = Query(None),
     estado: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    con_precio: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
 ):
     """List fichas-producto with optional filters and pagination."""
@@ -62,6 +63,9 @@ def list_fichas(
     _filter("categoría", categoria, "categoria")
     _filter("marca", marca, "marca")
     _filter("estado_ficha_producto", estado, "estado")
+
+    if con_precio and "precio_referencia" in col_set:
+        filters.append('precio_referencia IS NOT NULL')
 
     # Full-text search over description + nro_parte
     if search:

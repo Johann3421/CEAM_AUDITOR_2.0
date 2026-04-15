@@ -52,15 +52,20 @@ const PreciosFichas = () => {
   const fetchFichas = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fichasProductoApi.getAll({ skip: page * limit, limit });
+      const params = { skip: page * limit, limit };
+      if (soloConPrecio) params.con_precio = true;
+      const r = await fichasProductoApi.getAll(params);
       setFichas(r.data);
     } catch (_) {} finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [page, soloConPrecio]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => { fetchFichas(); }, [fetchFichas]);
+  
+  // Reset page to 0 when toggle changes to avoid empty pagination pages
+  useEffect(() => { setPage(0); }, [soloConPrecio]);
 
   const handleEnrich = async () => {
     setEnriching(true);
@@ -76,11 +81,6 @@ const PreciosFichas = () => {
       setEnriching(false);
     }
   };
-
-  // Filter client-side for "solo con precio" toggle
-  const visible = soloConPrecio
-    ? fichas.filter((f) => f.precio_referencia != null)
-    : fichas;
 
   const fmt = (n) =>
     n == null ? '—' : new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN', minimumFractionDigits: 2 }).format(n);
@@ -227,14 +227,14 @@ const PreciosFichas = () => {
                     ))}
                   </tr>
                 ))
-              ) : visible.length === 0 ? (
+              ) : fichas.length === 0 ? (
                 <tr>
                   <td colSpan={8} style={{ textAlign: 'center', padding: 32, color: 'var(--c-text-tertiary)' }}>
                     No hay fichas{soloConPrecio ? ' con precio' : ''} en esta página.
                   </td>
                 </tr>
               ) : (
-                visible.map((f, idx) => {
+                fichas.map((f, idx) => {
                   const nroParte = f.nro_parte_o_cdigo_nico_de_identificacin
                     || f['nro_parte_o_código_único_de_identificación']
                     || f.nro_parte || '—';
