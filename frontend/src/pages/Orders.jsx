@@ -123,9 +123,10 @@ const Orders = () => {
       </div>
 
       <div className="toolbar fade-up">
-        <form onSubmit={handleSearch} className="search-bar">
-          <Search size={16} style={{ position: 'absolute', left: 12, top: 10, color: 'var(--c-text-tertiary)' }} />
+        <form onSubmit={handleSearch} className="toolbar-search">
+          <Search size={16} color="var(--c-text-tertiary)" />
           <input
+            className="form-input"
             type="text"
             placeholder="Buscar orden, entidad, proveedor..."
             value={search}
