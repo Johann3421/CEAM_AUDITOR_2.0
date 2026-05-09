@@ -1,7 +1,7 @@
 """CRUD operations for PurchaseOrder."""
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 from app.models.purchase_order import PurchaseOrder
 from app.schemas.purchase_order import PurchaseOrderCreate
@@ -125,6 +125,50 @@ def get_stats(db: Session) -> dict:
         .limit(5)
         .all()
     )
+    # Providers count
+    try:
+        providers_count = db.query(func.count(func.distinct(PurchaseOrder.nombre_proveedor))).scalar() or 0
+    except Exception:
+        providers_count = 0
+
+    # Success rate: porcentaje de órdenes con estado que contiene 'acept'
+    try:
+        accepted = db.query(func.count(PurchaseOrder.id)).filter(PurchaseOrder.estado_orden.ilike('%acept%')).scalar() or 0
+        success_rate = round((accepted / total_orders) * 100, 1) if total_orders else None
+    except Exception:
+        success_rate = None
+    # Last update info: try to infer from data timestamps
+    try:
+        last_orders_update = db.query(func.max(PurchaseOrder.fecha_publicacion)).scalar()
+    except Exception:
+        last_orders_update = None
+
+    # fichas_producto may store fecha_primera_carga — query safely
+    try:
+        last_fichas_update = db.execute(text("SELECT MAX(fecha_primera_carga) FROM fichas_producto")).scalar()
+    except Exception:
+        last_fichas_update = None
+
+    # Determine most recent source
+    last_update_date = None
+    last_update_source = None
+    try:
+        if last_fichas_update and last_orders_update:
+            if last_fichas_update > last_orders_update:
+                last_update_date = last_fichas_update
+                last_update_source = "fichas"
+            else:
+                last_update_date = last_orders_update
+                last_update_source = "orders"
+        elif last_fichas_update:
+            last_update_date = last_fichas_update
+            last_update_source = "fichas"
+        elif last_orders_update:
+            last_update_date = last_orders_update
+            last_update_source = "orders"
+    except Exception:
+        last_update_date = None
+        last_update_source = None
     return {
         "total_orders": total_orders,
         "total_amount": float(total_amount),
@@ -134,4 +178,10 @@ def get_stats(db: Session) -> dict:
             {"nombre_proveedor": r[0], "total": float(r[1] or 0)}
             for r in top_providers
         ],
+        "providers_count": int(providers_count),
+        "success_rate": success_rate,
+        "last_orders_update": last_orders_update.isoformat() if last_orders_update is not None else None,
+        "last_fichas_update": last_fichas_update.isoformat() if last_fichas_update is not None else None,
+        "last_update": last_update_date.isoformat() if last_update_date is not None else None,
+        "last_update_source": last_update_source,
     }

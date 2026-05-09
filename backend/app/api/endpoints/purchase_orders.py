@@ -1,7 +1,11 @@
 """Purchase Orders REST endpoints."""
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func
+import csv
+import io
 
 from app.db.database import get_db
 from app.schemas.purchase_order import PurchaseOrderCreate, PurchaseOrderResponse
@@ -40,6 +44,54 @@ def list_orders(
 def get_stats(db: Session = Depends(get_db)):
     """Aggregated statistics for dashboard KPIs and charts."""
     return crud.get_stats(db)
+
+
+@router.get("/providers")
+def get_providers(db: Session = Depends(get_db)):
+    from app.models.purchase_order import PurchaseOrder
+    rows = (
+        db.query(
+            PurchaseOrder.nombre_proveedor,
+            func.count(PurchaseOrder.id).label("orders"),
+            func.sum(PurchaseOrder.monto_total).label("total"),
+        )
+        .filter(PurchaseOrder.nombre_proveedor.isnot(None), PurchaseOrder.nombre_proveedor != "")
+        .group_by(PurchaseOrder.nombre_proveedor)
+        .order_by(func.sum(PurchaseOrder.monto_total).desc())
+        .all()
+    )
+    return {"providers": [{"nombre_proveedor": r[0], "orders": int(r[1]), "total": float(r[2] or 0)} for r in rows]}
+
+
+@router.get("/export")
+def export_orders(proveedor: str = Query(...), db: Session = Depends(get_db)):
+    from app.models.purchase_order import PurchaseOrder
+    rows = db.query(PurchaseOrder).filter(PurchaseOrder.nombre_proveedor == proveedor).order_by(PurchaseOrder.fecha_publicacion.desc()).all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="No orders for provider")
+
+    def iter_csv():
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["orden_electronica", "nro_orden_fisica", "fecha_publicacion", "nombre_entidad", "nombre_proveedor", "monto_total"])
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
+        for r in rows:
+            writer.writerow([
+                r.orden_electronica or '',
+                r.nro_orden_fisica or '',
+                r.fecha_publicacion.isoformat() if r.fecha_publicacion else '',
+                r.nombre_entidad or '',
+                r.nombre_proveedor or '',
+                float(r.monto_total or 0),
+            ])
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate(0)
+
+    filename = f"orders_{proveedor.replace(' ', '_')}.csv"
+    return StreamingResponse(iter_csv(), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 
 @router.get("/catalogos-filter")

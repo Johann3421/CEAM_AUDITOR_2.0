@@ -39,13 +39,6 @@ def list_fichas(
     marca: Optional[str] = Query(None),
     estado: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    con_precio: Optional[bool] = Query(None),
-    nro_parte: Optional[str] = Query(None),
-    precio_referencia: Optional[str] = Query(None),
-    precio_min: Optional[str] = Query(None),
-    precio_max: Optional[str] = Query(None),
-    volatilidad: Optional[str] = Query(None),
-    ordenes: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     """List fichas-producto with optional filters and pagination."""
@@ -69,22 +62,6 @@ def list_fichas(
     _filter("categoría", categoria, "categoria")
     _filter("marca", marca, "marca")
     _filter("estado_ficha_producto", estado, "estado")
-    _filter("nro_parte_o_código_único_de_identificación", nro_parte, "nro_parte") # Try strict physical
-    
-    # Text cast for numeric exact matches if passed from dropdown
-    def _filter_num(col: str, val: str, param: str):
-        if col in col_set and val:
-            filters.append(f'CAST("{col}" AS TEXT) ILIKE :{param}')
-            params[param] = f"{val}%"
-            
-    _filter_num("precio_referencia", precio_referencia, "precio_referencia")
-    _filter_num("precio_min", precio_min, "precio_min")
-    _filter_num("precio_max", precio_max, "precio_max")
-    _filter_num("precio_volatilidad", volatilidad, "volatilidad")
-    _filter_num("n_ordenes_precio", ordenes, "ordenes")
-
-    if con_precio and "precio_referencia" in col_set:
-        filters.append('precio_referencia IS NOT NULL')
 
     # Full-text search over description + nro_parte
     if search:
@@ -152,33 +129,6 @@ def get_fichas_stats(db: Session = Depends(get_db)):
     }
 
 
-@router.get("/filters/{column_name}")
-def get_column_filters(column_name: str, db: Session = Depends(get_db)):
-    """Return distinct values for a given column for Excel-like filters."""
-    cols = _safe_col(db)
-    # Match the logical name with the physical column
-    col_mapping = {
-        "acuerdo_marco": next((c for c in cols if c.startswith("acuerdo_m")), None),
-        "marca": next((c for c in cols if c == "marca"), None),
-        "estado": next((c for c in cols if c.startswith("estado")), None),
-        "nro_parte": next((c for c in cols if "nro_parte" in c), None),
-        "precio_referencia": "precio_referencia" if "precio_referencia" in cols else None,
-        "precio_min": "precio_min" if "precio_min" in cols else None,
-        "precio_max": "precio_max" if "precio_max" in cols else None,
-        "volatilidad": "precio_volatilidad" if "precio_volatilidad" in cols else None,
-        "ordenes": "n_ordenes_precio" if "n_ordenes_precio" in cols else None,
-    }
-    target_col = col_mapping.get(column_name)
-    if not target_col:
-        raise HTTPException(status_code=400, detail="Columna no permitida o no encontrada.")
-    
-    try:
-        rows = db.execute(text(f'SELECT DISTINCT "{target_col}" FROM {_TABLE} WHERE "{target_col}" IS NOT NULL AND "{target_col}" != \'\' ORDER BY "{target_col}" LIMIT 500')).fetchall()
-        return {"values": [r[0] for r in rows if r[0]]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/precio-stats")
 def get_precio_stats(db: Session = Depends(get_db)):
     """Coverage and volatility stats for enriched prices."""
@@ -232,8 +182,6 @@ def enrich_precios(db: Session = Depends(get_db)):
         ("precio_volatilidad", "NUMERIC(7,2)"),
         ("n_ordenes_precio", "INTEGER"),
         ("precio_actualizado_at", "TIMESTAMP WITH TIME ZONE"),
-        ("orden_min", "VARCHAR(255)"),
-        ("orden_max", "VARCHAR(255)"),
     ]
     try:
         for col_name, col_type in price_cols:
@@ -250,23 +198,34 @@ def enrich_precios(db: Session = Depends(get_db)):
         raise HTTPException(status_code=422, detail="No se encontró columna nro_parte en fichas_producto")
 
     # 3. Gather all prices from purchase_orders grouped by nro_parte
+    # purchase_orders.nro_parte stores a JSON array: [{"nro_parte": "...", "precio_unitario": N, ...}]
+    # We expand that JSON with jsonb_array_elements so we get one row per product.
     # Normalize keys: UPPER + STRIP to avoid case-sensitivity mismatches.
-    sql_query = (
-        "SELECT elem->>'nro_parte' AS nro_parte, "
-        "(elem->>'precio_unitario')::numeric AS precio_unitario, "
-        "orden_electronica "
-        "FROM purchase_orders "
-        "CROSS JOIN LATERAL jsonb_array_elements("
-        "CASE WHEN nro_parte IS NOT NULL AND nro_parte NOT IN ('', 'null', '[]') AND nro_parte LIKE '[%' "
-        "THEN nro_parte::jsonb ELSE '[]'::jsonb END) AS elem "
-        "WHERE (elem->>'precio_unitario')::numeric > 0 AND elem->>'nro_parte' IS NOT NULL AND elem->>'nro_parte' <> ''"
-    )
-    raw = db.execute(text(sql_query)).fetchall()
+    raw = db.execute(text(
+        """
+        SELECT
+            elem->>'nro_parte'                          AS nro_parte,
+            (elem->>'precio_unitario')::numeric          AS precio_unitario
+        FROM purchase_orders
+        CROSS JOIN LATERAL jsonb_array_elements(
+            CASE
+                WHEN nro_parte IS NOT NULL
+                     AND nro_parte NOT IN ('', 'null', '[]')
+                     AND nro_parte LIKE '[%'
+                THEN nro_parte::jsonb
+                ELSE '[]'::jsonb
+            END
+        ) AS elem
+        WHERE (elem->>'precio_unitario')::numeric > 0
+          AND elem->>'nro_parte' IS NOT NULL
+          AND elem->>'nro_parte' <> ''
+        """
+    )).fetchall()
     price_map: dict = defaultdict(list)
-    for nro, precio, orden in raw:
+    for nro, precio in raw:
         normalized = str(nro).strip().upper()
         if normalized:  # skip empty strings after normalization
-            price_map[normalized].append((float(precio), str(orden)))
+            price_map[normalized].append(float(precio))
 
     # Diagnostic: log first 5 keys so mismatches can be spotted quickly
     sample_po_keys = list(price_map.keys())[:5]
@@ -277,14 +236,11 @@ def enrich_precios(db: Session = Depends(get_db)):
     )
 
     # 4. Epsilon-neighborhood mode clustering
-    def canonical_price(precios_con_orden: list) -> dict:
-        # Sort by price
-        precios_s = sorted(precios_con_orden, key=lambda x: x[0])
-        precios_valores = [x[0] for x in precios_s]
-        
+    def canonical_price(precios: list) -> dict:
+        precios_s = sorted(precios)
         EPS = 0.05  # 5% proximity tolerance
-        clusters, current = [], [precios_valores[0]]
-        for p in precios_valores[1:]:
+        clusters, current = [], [precios_s[0]]
+        for p in precios_s[1:]:
             if current[0] > 0 and p <= current[0] * (1 + EPS):
                 current.append(p)
             else:
@@ -293,14 +249,12 @@ def enrich_precios(db: Session = Depends(get_db)):
         clusters.append(current)
         best = max(clusters, key=len)
         canonical = statistics.median(best)
-        med_g = statistics.median(precios_valores)
-        volatilidad = round((max(precios_valores) - min(precios_valores)) / med_g * 100, 2) if med_g > 0 else 0.0
+        med_g = statistics.median(precios_s)
+        volatilidad = round((max(precios_s) - min(precios_s)) / med_g * 100, 2) if med_g > 0 else 0.0
         return {
             "precio_referencia": round(canonical, 4),
-            "precio_min": round(precios_s[0][0], 4),
-            "orden_min": precios_s[0][1],
-            "precio_max": round(precios_s[-1][0], 4),
-            "orden_max": precios_s[-1][1],
+            "precio_min": round(min(precios_s), 4),
+            "precio_max": round(max(precios_s), 4),
             "precio_mediana": round(med_g, 4),
             "precio_volatilidad": volatilidad,
             "n_ordenes_precio": len(precios_s),
@@ -326,22 +280,12 @@ def enrich_precios(db: Session = Depends(get_db)):
         db.execute(text(
             f'UPDATE {_TABLE} SET '
             f'precio_referencia = :pr, precio_min = :pmin, precio_max = :pmax, '
-            f'orden_min = :omin, orden_max = :omax, '
             f'precio_mediana = :pmed, precio_volatilidad = :pvol, '
             f'n_ordenes_precio = :n, precio_actualizado_at = :ts '
             f'WHERE "{nro_col}" = :key'
-        ), {
-            "pr": cp["precio_referencia"], 
-            "pmin": cp["precio_min"], 
-            "pmax": cp["precio_max"],
-            "omin": cp["orden_min"],
-            "omax": cp["orden_max"],
-            "pmed": cp["precio_mediana"], 
-            "pvol": cp["precio_volatilidad"],
-            "n": cp["n_ordenes_precio"], 
-            "ts": now, 
-            "key": original_key
-        })
+        ), {"pr": cp["precio_referencia"], "pmin": cp["precio_min"], "pmax": cp["precio_max"],
+            "pmed": cp["precio_mediana"], "pvol": cp["precio_volatilidad"],
+            "n": cp["n_ordenes_precio"], "ts": now, "key": original_key})
         enriched += 1
 
     db.commit()
@@ -377,7 +321,7 @@ async def get_alertas_suspendidas(
 ):
     """
     Endpoint para n8n. Ejecuta el scraper de Módulo 2 en vivo y
-    devuelve las fichas que pasaron de 'Ofertada' -> 'Suspendida'.
+    devuelve las fichas que pasaron de 'Ofertada' → 'Suspendida'.
     """
     from app.services.fichas_scraper import run_module_2, AGREEMENT_SELECTOR
 

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { purchaseOrdersApi, fichasProductoApi } from '../services/api';
 import StatCard from '../components/dashboard/StatCard';
 import { CatalogBarChart, CategoryPieChart } from '../components/dashboard/Charts';
@@ -8,6 +9,7 @@ const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [fichasStats, setFichasStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchStats();
@@ -54,6 +56,11 @@ const Dashboard = () => {
         <div>
           <h1>Dashboard</h1>
           <p>Análisis inteligente de órdenes y fichas — Perú Compras</p>
+          {stats?.last_update && (
+            <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginTop: 6 }}>
+              Última actualización: {new Date(stats.last_update).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' })} · Fuente: {stats.last_update_source === 'fichas' ? 'Fichas' : 'Órdenes'}
+            </div>
+          )}
         </div>
         <button onClick={fetchStats} className="btn" disabled={loading}>
           <RefreshCw size={14} className={loading ? 'spin' : ''} />
@@ -73,6 +80,8 @@ const Dashboard = () => {
           value={stats?.total_orders?.toLocaleString() || '0'}
           trend="+12% este mes"
           isPositive={true}
+          onClick={() => navigate('/orders')}
+          title="Ver todas las órdenes"
         />
         <StatCard
           label="Monto Total Adjudicado"
@@ -80,18 +89,23 @@ const Dashboard = () => {
           prefix="S/ "
           trend="+5.4% vs anterior"
           isPositive={true}
+          onClick={() => navigate('/orders')}
+          title="Ir a órdenes (filtro por monto)"
         />
         <StatCard
           label="Proveedores Activos"
-          value="42"
+          value={stats?.providers_count || (stats?.top_providers?.length || '0')}
           trend="Estable"
           isPositive={true}
+          onClick={() => navigate('/providers')}
+          title="Ver lista de proveedores activos"
         />
         <StatCard
           label="Tasa de Éxito"
-          value="98.5%"
+          value={stats?.success_rate ? `${stats.success_rate}%` : '—'}
           trend="+2.1%"
           isPositive={true}
+          title="Tasa de éxito: basada en órdenes concretadas vs total"
         />
       </div>
 
@@ -107,6 +121,8 @@ const Dashboard = () => {
           value={fichasStats?.total_fichas?.toLocaleString() || '0'}
           trend="Catálogos indexados"
           isPositive={true}
+          onClick={() => navigate('/fichas-catalogo')}
+          title="Ver ficheros indexados"
         />
         <StatCard
           label="Por Estado"
@@ -119,6 +135,11 @@ const Dashboard = () => {
           value={fichasStats?.by_marca?.[0]?.name || '—'}
           trend={fichasStats?.by_marca?.[0]?.total?.toLocaleString() + ' fichas' || ''}
           isPositive={true}
+          onClick={() => {
+            const m = fichasStats?.by_marca?.[0]?.name;
+            if (m) navigate(`/fichas?marca=${encodeURIComponent(m)}`);
+          }}
+          title="Ver fichas filtradas por esta marca"
         />
         <StatCard
           label="Top Categoría"
@@ -151,6 +172,7 @@ const Dashboard = () => {
                 <th>Proveedor</th>
                 <th style={{ textAlign: 'right' }}>Monto Adjudicado (PEN)</th>
                 <th>Estado</th>
+                <th style={{ width: 120, textAlign: 'center' }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -168,6 +190,29 @@ const Dashboard = () => {
                   </td>
                   <td>
                     <span className="badge badge-success">Activo</span>
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    <button
+                      className="btn btn-sm"
+                      onClick={async () => {
+                        try {
+                          const resp = await purchaseOrdersApi.export({ proveedor: provider.nombre_proveedor });
+                          const url = window.URL.createObjectURL(new Blob([resp.data]));
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `orders_${provider.nombre_proveedor.replace(/\s+/g, '_')}.csv`;
+                          document.body.appendChild(a);
+                          a.click();
+                          a.remove();
+                          window.URL.revokeObjectURL(url);
+                        } catch (err) {
+                          console.error('Export failed', err);
+                          alert('Error al descargar CSV');
+                        }
+                      }}
+                    >
+                      Descargar
+                    </button>
                   </td>
                 </tr>
               )) || (

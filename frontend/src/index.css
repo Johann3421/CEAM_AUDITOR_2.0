@@ -226,6 +226,11 @@ a:hover { text-decoration: underline; }
   padding: 20px;
 }
 
+.stat-card.clickable:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.12);
+}
+
 .stat-card-label {
   font-size: 12px;
   color: var(--c-text-tertiary);
