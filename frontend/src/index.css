@@ -226,11 +226,6 @@ a:hover { text-decoration: underline; }
   padding: 20px;
 }
 
-.stat-card.clickable:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 30px rgba(0,0,0,0.12);
-}
-
 .stat-card-label {
   font-size: 12px;
   color: var(--c-text-tertiary);
@@ -323,8 +318,6 @@ a:hover { text-decoration: underline; }
 .data-table tbody tr:hover {
   background: var(--c-surface-hover);
 }
-
-.data-table tbody tr.clickable-row { cursor: pointer; }
 
 .data-table tbody tr:last-child td {
   border-bottom: none;
@@ -600,3 +593,99 @@ input[type="range"]::-webkit-slider-thumb {
   .page-container { margin-left: 0; padding: 20px 16px; }
   .stats-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Clickable table rows ──────────────────────────────────── */
+.data-table tbody tr.clickable-row {
+  cursor: pointer;
+}
+.data-table tbody tr.clickable-row:hover {
+  background: var(--c-brand-light);
+}
+.data-table tbody tr.clickable-row:focus {
+  outline: 2px solid var(--c-brand);
+  outline-offset: -2px;
+}
+
+/* ── Section label (above stat grids) ─────────────────────── */
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--c-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+/* ── Stat card tooltip ─────────────────────────────────────── */
+.stat-card.has-tooltip { position: relative; }
+
+.stat-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--c-text);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  width: 240px;
+  text-align: center;
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+  pointer-events: none;
+}
+
+.stat-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--c-text);
+}
+
+.stat-card.has-tooltip:hover .stat-tooltip {
+  display: block;
+}
+
+/* ── Stat card "Ver detalles" hint ────────────────────────── */
+.stat-card-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--c-brand);
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.stat-card.clickable:hover .stat-card-hint {
+  opacity: 1;
+}
+
+/* ── Filter chips ──────────────────────────────────────────── */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--c-brand-light);
+  color: var(--c-brand);
+  border: 1px solid #bfdbfe;
+  border-radius: 20px;
+  padding: 3px 10px 3px 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.filter-chip button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--c-brand);
+  padding: 0;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  opacity: .7;
+}
+.filter-chip button:hover { opacity: 1; }

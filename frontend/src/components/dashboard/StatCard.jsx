@@ -1,19 +1,19 @@
 import React from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 
-const StatCard = ({ label, value, trend, isPositive, prefix = '', onClick, title }) => {
+const StatCard = ({ label, value, trend, isPositive, prefix = '', onClick, title, tooltip }) => {
   const handleKey = (e) => {
     if (onClick && (e.key === 'Enter' || e.key === ' ')) onClick();
   };
 
   return (
     <div
-      className={`stat-card fade-up${onClick ? ' clickable' : ''}`}
+      className={`stat-card fade-up${onClick ? ' clickable' : ''}${tooltip ? ' has-tooltip' : ''}`}
       onClick={onClick}
       onKeyDown={handleKey}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
-      title={title}
+      title={!tooltip ? title : undefined}
       style={onClick ? { cursor: 'pointer' } : undefined}
     >
       <div className="stat-card-label">{label}</div>
@@ -23,6 +23,14 @@ const StatCard = ({ label, value, trend, isPositive, prefix = '', onClick, title
           {isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
           {trend}
         </span>
+      )}
+      {tooltip && (
+        <div className="stat-tooltip">{tooltip}</div>
+      )}
+      {onClick && (
+        <div className="stat-card-hint">
+          <span>Ver detalles →</span>
+        </div>
       )}
     </div>
   );

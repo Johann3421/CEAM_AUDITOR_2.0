@@ -1,20 +1,30 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { fichasProductoApi } from '../services/api';
 import FichasTable from '../components/fichas/FichasTable';
-import { Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, SlidersHorizontal } from 'lucide-react';
 
 const Fichas = () => {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
-  const [fichas, setFichas] = useState([]);
+  // Init from URL params so links from Dashboard pre-apply filters
+  const [search, setSearch]   = useState(searchParams.get('search')    || '');
+  const [estado, setEstado]   = useState(searchParams.get('estado')    || '');
+  const [marca,  setMarca]    = useState(searchParams.get('marca')     || '');
+  const [categoria, setCategoria] = useState(searchParams.get('categoria') || '');
+
+  const [fichas, setFichas]   = useState([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(0);
-  const [limit] = useState(25);
+  const [page, setPage]       = useState(0);
+  const limit = 25;
 
-  const [search, setSearch] = useState(searchParams.get('search') || '');
-  const [estado, setEstado] = useState(searchParams.get('estado') || '');
-  const [marca, setMarca] = useState(searchParams.get('marca') || '');
+  const activeFilters = [
+    marca     && { key: 'marca',     label: 'Marca',     value: marca },
+    categoria && { key: 'categoria', label: 'Categoría', value: categoria },
+    estado    && { key: 'estado',    label: 'Estado',    value: estado },
+    search    && { key: 'search',    label: 'Búsqueda',  value: search },
+  ].filter(Boolean);
 
   const fetchFichas = useCallback(async () => {
     setLoading(true);
@@ -22,9 +32,10 @@ const Fichas = () => {
       const response = await fichasProductoApi.getAll({
         skip: page * limit,
         limit,
-        search: search || undefined,
-        estado: estado || undefined,
-        marca: marca || undefined,
+        search:    search    || undefined,
+        estado:    estado    || undefined,
+        marca:     marca     || undefined,
+        categoria: categoria || undefined,
       });
       setFichas(response.data);
     } catch (error) {
@@ -32,47 +43,50 @@ const Fichas = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, estado, marca]);
+  }, [page, search, estado, marca, categoria]);
 
-  useEffect(() => {
-    fetchFichas();
-  }, [fetchFichas]);
+  useEffect(() => { fetchFichas(); }, [fetchFichas]);
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    setPage(0);
-    fetchFichas();
-  };
-
-  const resetFilters = () => {
-    setSearch('');
-    setEstado('');
-    setMarca('');
+  const removeFilter = (key) => {
+    if (key === 'marca')     { setMarca('');     }
+    if (key === 'categoria') { setCategoria(''); }
+    if (key === 'estado')    { setEstado('');    }
+    if (key === 'search')    { setSearch('');    }
     setPage(0);
   };
 
-  const hasFilters = search || estado || marca;
+  const resetAll = () => {
+    setSearch(''); setEstado(''); setMarca(''); setCategoria(''); setPage(0);
+  };
+
+  const handleSearch = (e) => { e.preventDefault(); setPage(0); fetchFichas(); };
 
   return (
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1>Fichas Producto</h1>
-          <p>Catálogo de fichas técnicas · {fichas.length} resultados en esta página</p>
+          <p>Catálogo de fichas técnicas · {loading ? '…' : fichas.length} resultados en esta página</p>
         </div>
       </div>
 
-      {(searchParams.get('marca') || searchParams.get('estado') || searchParams.get('search')) && (
-        <div style={{ marginBottom: 12 }}>
-          <div className="card" style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div className="badge badge-info">Filtro activo</div>
-            <div style={{ flex: 1, color: 'var(--c-text-secondary)' }}>
-              {searchParams.get('marca') && <span style={{ marginRight: 12 }}><strong>Marca:</strong> {searchParams.get('marca')}</span>}
-              {searchParams.get('estado') && <span style={{ marginRight: 12 }}><strong>Estado:</strong> {searchParams.get('estado')}</span>}
-              {searchParams.get('search') && <span><strong>Buscar:</strong> {searchParams.get('search')}</span>}
-            </div>
-            <button className="btn" onClick={resetFilters}>Limpiar filtros</button>
-          </div>
+      {/* Active filter chips */}
+      {activeFilters.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <span style={{ fontSize: 12, color: 'var(--c-text-tertiary)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <SlidersHorizontal size={13} /> Filtros activos:
+          </span>
+          {activeFilters.map(f => (
+            <span key={f.key} className="filter-chip">
+              <strong>{f.label}:</strong>&nbsp;{f.value}
+              <button onClick={() => removeFilter(f.key)} aria-label={`Quitar filtro ${f.label}`}>
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+          <button className="btn btn-sm" onClick={resetAll} style={{ marginLeft: 4 }}>
+            <X size={12} /> Limpiar todo
+          </button>
         </div>
       )}
 
@@ -83,11 +97,29 @@ const Fichas = () => {
           <input
             type="text"
             className="form-input"
-            placeholder="Buscar por descripción o código..."
+            placeholder="Buscar por descripción, código o marca…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </form>
+
+        <input
+          type="text"
+          className="form-input"
+          placeholder="Marca…"
+          value={marca}
+          onChange={(e) => { setMarca(e.target.value); setPage(0); }}
+          style={{ maxWidth: 160 }}
+        />
+
+        <input
+          type="text"
+          className="form-input"
+          placeholder="Categoría…"
+          value={categoria}
+          onChange={(e) => { setCategoria(e.target.value); setPage(0); }}
+          style={{ maxWidth: 200 }}
+        />
 
         <select
           className="form-select"
@@ -99,34 +131,22 @@ const Fichas = () => {
           <option value="Suspendida">SUSPENDIDA</option>
         </select>
 
-        <input
-          type="text"
-          className="form-input"
-          placeholder="Filtrar por marca..."
-          value={marca}
-          onChange={(e) => { setMarca(e.target.value); setPage(0); }}
-          style={{ maxWidth: 160 }}
-        />
-
-        {hasFilters && (
-          <button onClick={resetFilters} className="btn" title="Limpiar filtros">
-            <X size={14} />
-            Limpiar
+        {activeFilters.length > 0 && (
+          <button onClick={resetAll} className="btn" title="Limpiar todos los filtros">
+            <X size={14} /> Limpiar
           </button>
         )}
       </div>
 
       <FichasTable fichas={fichas} loading={loading} />
 
-      {/* Pagination */}
       <div className="pagination">
         <button
           onClick={() => setPage(Math.max(0, page - 1))}
           disabled={page === 0 || loading}
           className="btn btn-sm"
         >
-          <ChevronLeft size={16} />
-          Anterior
+          <ChevronLeft size={16} /> Anterior
         </button>
         <span className="pagination-info">Página {page + 1}</span>
         <button
@@ -134,8 +154,7 @@ const Fichas = () => {
           disabled={fichas.length < limit || loading}
           className="btn btn-sm"
         >
-          Siguiente
-          <ChevronRight size={16} />
+          Siguiente <ChevronRight size={16} />
         </button>
       </div>
     </div>
