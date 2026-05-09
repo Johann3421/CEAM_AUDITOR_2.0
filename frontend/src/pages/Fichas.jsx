@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { fichasProductoApi } from '../services/api';
 import FichasTable from '../components/fichas/FichasTable';
 import { Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 const Fichas = () => {
+  const [searchParams] = useSearchParams();
+
   const [fichas, setFichas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [limit] = useState(25);
 
-  const [search, setSearch] = useState('');
-  const [estado, setEstado] = useState('');
-  const [marca, setMarca] = useState('');
+  const [search, setSearch] = useState(searchParams.get('search') || '');
+  const [estado, setEstado] = useState(searchParams.get('estado') || '');
+  const [marca, setMarca] = useState(searchParams.get('marca') || '');
 
   const fetchFichas = useCallback(async () => {
     setLoading(true);
@@ -58,6 +61,20 @@ const Fichas = () => {
           <p>Catálogo de fichas técnicas · {fichas.length} resultados en esta página</p>
         </div>
       </div>
+
+      {(searchParams.get('marca') || searchParams.get('estado') || searchParams.get('search')) && (
+        <div style={{ marginBottom: 12 }}>
+          <div className="card" style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div className="badge badge-info">Filtro activo</div>
+            <div style={{ flex: 1, color: 'var(--c-text-secondary)' }}>
+              {searchParams.get('marca') && <span style={{ marginRight: 12 }}><strong>Marca:</strong> {searchParams.get('marca')}</span>}
+              {searchParams.get('estado') && <span style={{ marginRight: 12 }}><strong>Estado:</strong> {searchParams.get('estado')}</span>}
+              {searchParams.get('search') && <span><strong>Buscar:</strong> {searchParams.get('search')}</span>}
+            </div>
+            <button className="btn" onClick={resetFilters}>Limpiar filtros</button>
+          </div>
+        </div>
+      )}
 
       {/* Toolbar */}
       <div className="toolbar">

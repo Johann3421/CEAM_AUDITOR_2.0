@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { purchaseOrdersApi, fichasProductoApi } from '../services/api';
 import StatCard from '../components/dashboard/StatCard';
 import { CatalogBarChart, CategoryPieChart } from '../components/dashboard/Charts';
-import { RefreshCw, TrendingUp, Building2, BookOpen } from 'lucide-react';
+import { RefreshCw, TrendingUp, Building2, BookOpen, Info } from 'lucide-react';
 
 const Dashboard = () => {
   const [stats, setStats] = useState(null);
@@ -54,11 +54,18 @@ const Dashboard = () => {
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1>Dashboard</h1>
+          <h1 style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+            Dashboard
+            {stats?.last_update && (
+              <span style={{ fontSize: 13, color: 'var(--c-text-secondary)', fontWeight: 600 }}>
+                - FECHA DE ACTUALIZACIÓN - {new Date(stats.last_update).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+              </span>
+            )}
+          </h1>
           <p>Análisis inteligente de órdenes y fichas — Perú Compras</p>
           {stats?.last_update && (
-            <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginTop: 6 }}>
-              Última actualización: {new Date(stats.last_update).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' })} · Fuente: {stats.last_update_source === 'fichas' ? 'Fichas' : 'Órdenes'}
+            <div style={{ fontSize: 12, color: 'var(--c-text-tertiary)', marginTop: 6 }}>
+              Fuente: {stats.last_update_source === 'fichas' ? 'Fichas' : 'Órdenes'}
             </div>
           )}
         </div>
@@ -105,7 +112,8 @@ const Dashboard = () => {
           value={stats?.success_rate ? `${stats.success_rate}%` : '—'}
           trend="+2.1%"
           isPositive={true}
-          title="Tasa de éxito: basada en órdenes concretadas vs total"
+          label={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>Tasa de Éxito <Info size={14} title="Porcentaje de órdenes aceptadas sobre el total de órdenes. Indica la efectividad del proceso de adjudicación." style={{ color: 'var(--c-text-tertiary)', cursor: 'help' }} /></span>}
+          title="Ver detalle de tasa de éxito"
         />
       </div>
 
@@ -148,6 +156,11 @@ const Dashboard = () => {
             : '—'}
           trend={fichasStats?.by_categoria?.[0]?.total?.toLocaleString() + ' fichas' || ''}
           isPositive={true}
+          onClick={() => {
+            const c = fichasStats?.by_categoria?.[0]?.name;
+            if (c) navigate(`/fichas?categoria=${encodeURIComponent(c)}`);
+          }}
+          title="Ver fichas filtradas por esta categoría"
         />
       </div>
 
@@ -247,7 +260,14 @@ const Dashboard = () => {
               </thead>
               <tbody>
                 {fichasStats.by_marca.slice(0, 5).map((row, i) => (
-                  <tr key={i}>
+                  <tr
+                    key={i}
+                    className="clickable-row"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => navigate(`/fichas?marca=${encodeURIComponent(row.name)}`)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/fichas?marca=${encodeURIComponent(row.name)}`); }}
+                  >
                     <td style={{ color: 'var(--c-text-tertiary)', fontWeight: 500 }}>{i + 1}</td>
                     <td style={{ fontWeight: 500 }}>{row.name}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
