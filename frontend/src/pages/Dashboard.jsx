@@ -79,19 +79,17 @@ const Dashboard = () => {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <h1 style={{ margin: 0 }}>Dashboard</h1>
-            {lastUpdateLabel && (
-              <>
-                <span style={{ color: 'var(--c-border)', fontWeight: 300, fontSize: 20 }}>—</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text-secondary)' }}>
-                  FECHA DE ACTUALIZACIÓN
-                </span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-brand)' }}>
-                  {fmt(stats.last_update)}
-                </span>
-                <span className="badge badge-info" style={{ fontSize: 11 }}>
-                  {stats.last_update_source === 'fichas' ? 'Scraper Fichas' : 'Scraper Órdenes'}
-                </span>
-              </>
+            <span style={{ color: 'var(--c-border)', fontWeight: 300, fontSize: 22, lineHeight: 1 }}>—</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Fecha de Actualización
+            </span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-brand)' }}>
+              {stats?.last_update ? fmt(stats.last_update) : '—'}
+            </span>
+            {stats?.last_update_source && (
+              <span className="badge badge-info" style={{ fontSize: 11 }}>
+                {stats.last_update_source === 'fichas' ? 'Scraper Fichas' : 'Scraper Órdenes'}
+              </span>
             )}
           </div>
           <p style={{ marginTop: 4 }}>Análisis inteligente de órdenes y fichas — Perú Compras</p>

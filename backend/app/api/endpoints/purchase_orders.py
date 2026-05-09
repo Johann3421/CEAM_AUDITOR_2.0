@@ -83,6 +83,70 @@ def delete_all_orders(db: Session = Depends(get_db)):
     return {"deleted": count, "message": f"Se eliminaron {count} órdenes de compra"}
 
 
+@router.get("/providers")
+def list_providers(db: Session = Depends(get_db)):
+    """Return all distinct providers with their order count and total amount."""
+    from app.models.purchase_order import PurchaseOrder
+    from sqlalchemy import func as f
+    rows = (
+        db.query(
+            PurchaseOrder.nombre_proveedor,
+            f.count(PurchaseOrder.id).label("orders"),
+            f.sum(PurchaseOrder.monto_total).label("total"),
+        )
+        .group_by(PurchaseOrder.nombre_proveedor)
+        .order_by(f.sum(PurchaseOrder.monto_total).desc())
+        .all()
+    )
+    return {
+        "providers": [
+            {
+                "nombre_proveedor": r[0],
+                "orders": r[1],
+                "total": float(r[2] or 0),
+            }
+            for r in rows
+            if r[0]
+        ]
+    }
+
+
+@router.get("/export")
+def export_orders_csv(
+    proveedor: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Stream orders as CSV. Filter by proveedor if provided."""
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    orders = crud.get_orders(db, skip=0, limit=100_000, proveedor=proveedor)
+
+    def generate():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "id", "orden_electronica", "nro_orden_fisica", "fecha_publicacion",
+            "nombre_entidad", "nombre_proveedor", "catalogo", "categoria",
+            "estado_orden", "monto_total", "nro_parte",
+        ])
+        for o in orders:
+            writer.writerow([
+                o.id, o.orden_electronica, o.nro_orden_fisica,
+                o.fecha_publicacion, o.nombre_entidad, o.nombre_proveedor,
+                o.catalogo, o.categoria, o.estado_orden, o.monto_total, o.nro_parte,
+            ])
+        yield buf.getvalue()
+
+    filename = f"ordenes_{proveedor or 'todas'}.csv"
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{order_id}", response_model=PurchaseOrderResponse)
 def get_order(order_id: int, db: Session = Depends(get_db)):
     order = crud.get_order(db, order_id)

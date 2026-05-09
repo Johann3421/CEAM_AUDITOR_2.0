@@ -14,6 +14,8 @@ export const purchaseOrdersApi = {
   getColumnFilter: (col) => api.get(`/purchase-orders/filters/${col}`),
   getById: (id) => api.get(`/purchase-orders/${id}`),
   deleteAll: () => api.delete('/purchase-orders/all'),
+  getProviders: () => api.get('/purchase-orders/providers'),
+  export: (params) => api.get('/purchase-orders/export', { params, responseType: 'blob' }),
 };
 
 export const scraperApi = {
