@@ -76,13 +76,54 @@ def list_fichas(
 
     where_clause = ("WHERE " + " AND ".join(filters)) if filters else ""
     quoted_cols = ", ".join(f'"{c}"' for c in cols)
+
+    # Total count with the same filters (without limit/skip)
+    count_params = {k: v for k, v in params.items() if k not in ("skip", "limit")}
+    total_count = 0
+    try:
+        total_count = db.execute(
+            text(f'SELECT COUNT(*) FROM {_TABLE} {where_clause}'),
+            count_params,
+        ).scalar() or 0
+    except Exception:
+        pass
+
     sql = text(
         f'SELECT {quoted_cols} FROM {_TABLE} {where_clause}'
         f' ORDER BY fecha_extraccion DESC NULLS LAST'
         f' LIMIT :limit OFFSET :skip'
     )
     rows = db.execute(sql, params).fetchall()
-    return [dict(zip(cols, row)) for row in rows]
+    return {
+        "total": total_count,
+        "items": [dict(zip(cols, row)) for row in rows],
+    }
+
+
+@router.get("/filters/{col_name}")
+def get_fichas_filter_values(col_name: str, db: Session = Depends(get_db)):
+    """Return distinct non-null values for a fichas column (for Excel-like dropdowns)."""
+    allowed = {"marca", "categoría", "categora", "acuerdo_marco", "estado_ficha_producto"}
+    cols = _safe_col(db)
+    col_set = set(cols)
+
+    # Accept either spelling; find actual column name in DB
+    candidates = [col_name]
+    if col_name == "categoria":
+        candidates = ["categoría", "categora"]
+    matched = next((c for c in candidates if c in col_set), None)
+    if matched is None or matched not in {c for c in col_set if c in allowed or col_name in allowed}:
+        # Still allow if the matched col exists even if alias differs
+        if matched is None:
+            return {"values": []}
+
+    try:
+        rows = db.execute(
+            text(f'SELECT DISTINCT "{matched}" FROM {_TABLE} WHERE "{matched}" IS NOT NULL AND "{matched}" != \'\' ORDER BY "{matched}"')
+        ).fetchall()
+        return {"values": [r[0] for r in rows if r[0]]}
+    except Exception:
+        return {"values": []}
 
 
 @router.get("/stats")
