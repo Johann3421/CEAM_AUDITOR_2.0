@@ -14,6 +14,7 @@ const Orders = () => {
   const [page, setPage] = useState(0);
   const [limit] = useState(25);
   const [deleting, setDeleting] = useState(false);
+  const [sort, setSort] = useState({ col: null, dir: 'desc' });
 
   const [search, setSearch] = useState(initialSearch);
   const [catalogo, setCatalogo] = useState('');
@@ -90,6 +91,22 @@ const Orders = () => {
 
   const hasFilters = search || catalogo || estadoOrden || entidad || proveedor;
 
+  const toggleSort = (col) => {
+    setSort(prev =>
+      prev.col === col
+        ? { col, dir: prev.dir === 'desc' ? 'asc' : 'desc' }
+        : { col, dir: 'desc' }
+    );
+  };
+
+  const sortedOrders = sort.col
+    ? [...orders].sort((a, b) => {
+        const va = a[sort.col] ?? (sort.dir === 'desc' ? -Infinity : Infinity);
+        const vb = b[sort.col] ?? (sort.dir === 'desc' ? -Infinity : Infinity);
+        return sort.dir === 'desc' ? vb - va : va - vb;
+      })
+    : orders;
+
   return (
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -154,7 +171,7 @@ const Orders = () => {
       </div>
 
       <OrderTable 
-        orders={orders} 
+        orders={sortedOrders} 
         loading={loading} 
         filters={{ entidad, proveedor, estadoOrden }}
         onFilterChange={(f) => {
@@ -163,6 +180,8 @@ const Orders = () => {
           if (f.estadoOrden !== undefined) setEstadoOrden(f.estadoOrden);
           setPage(0);
         }}
+        sort={sort}
+        onSort={toggleSort}
       />
 
       {/* Pagination */}
