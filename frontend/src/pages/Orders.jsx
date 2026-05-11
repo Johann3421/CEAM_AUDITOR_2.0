@@ -7,7 +7,11 @@ import { Search, ChevronLeft, ChevronRight, X, Trash2, SlidersHorizontal } from 
 const Orders = () => {
   const location = useLocation();
   const queryParams = new URLSearchParams(location.search);
-  const initialSearch = queryParams.get('search') || '';
+  const initialSearch   = queryParams.get('search')   || '';
+  const initialProveedor = queryParams.get('proveedor') || '';
+  const initialEntidad   = queryParams.get('entidad')   || '';
+  const initialEstado    = queryParams.get('estado_orden') || '';
+  const initialCatalogo  = queryParams.get('catalogo')  || '';
 
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -18,13 +22,13 @@ const Orders = () => {
   const [sort, setSort] = useState({ col: null, dir: 'desc' });
 
   const [search, setSearch] = useState(initialSearch);
-  const [catalogo, setCatalogo] = useState('');
+  const [catalogo, setCatalogo] = useState(initialCatalogo);
   const [catalogoOptions, setCatalogoOptions] = useState([]);
   
   // Custom Table Header Filters
-  const [estadoOrden, setEstadoOrden] = useState('');
-  const [entidad, setEntidad] = useState('');
-  const [proveedor, setProveedor] = useState('');
+  const [estadoOrden, setEstadoOrden] = useState(initialEstado);
+  const [entidad, setEntidad] = useState(initialEntidad);
+  const [proveedor, setProveedor] = useState(initialProveedor);
 
   // Load distinct catalogo values from the DB
   useEffect(() => {

@@ -50,6 +50,21 @@ const Fichas = () => {
 
   useEffect(() => { fetchFichas(); }, [fetchFichas]);
 
+  // Sync state whenever the URL params change (e.g. navigating from Dashboard
+  // to /fichas-catalogo?marca=X while already on the fichas page).
+  useEffect(() => {
+    const m = searchParams.get('marca')     || '';
+    const c = searchParams.get('categoria') || '';
+    const e = searchParams.get('estado')    || '';
+    const s = searchParams.get('search')    || '';
+    setMarca(m);
+    setCategoria(c);
+    setEstado(e);
+    setSearch(s);
+    setPage(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   // ── Filters ────────────────────────────────────────────────
   const activeFilters = [
     marca     && { key: 'marca',     label: 'Marca',     value: marca },

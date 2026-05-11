@@ -50,7 +50,14 @@ def _build_fichas_where(
 
     _f("acuerdo_marco", acuerdo_marco, "acuerdo")
     _f("catálogo", catalogo, "catalogo")
-    _f("categoría", categoria, "categoria")
+
+    # categoria column may be stored as "categoría" (with accent) or "categora" (scraped variant)
+    if categoria:
+        cat_col = next((c for c in ("categoría", "categora") if c in col_set), None)
+        if cat_col:
+            filters.append(f'"{cat_col}" ILIKE :categoria')
+            params["categoria"] = f"%{categoria}%"
+
     _f("marca", marca, "marca")
     _f("estado_ficha_producto", estado, "estado")
 
