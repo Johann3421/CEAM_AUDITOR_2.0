@@ -61,6 +61,42 @@ def count_orders(db: Session) -> int:
     return db.query(func.count(PurchaseOrder.id)).scalar()
 
 
+def count_orders_filtered(
+    db: Session,
+    catalogo: Optional[str] = None,
+    categoria: Optional[str] = None,
+    estado_orden: Optional[str] = None,
+    search: Optional[str] = None,
+    entidad: Optional[str] = None,
+    proveedor: Optional[str] = None,
+) -> int:
+    """Return the total number of orders matching optional filters."""
+    from sqlalchemy import or_
+
+    q = db.query(func.count(PurchaseOrder.id))
+    if catalogo:
+        q = q.filter(PurchaseOrder.catalogo.ilike(f"%{catalogo}%"))
+    if categoria:
+        q = q.filter(PurchaseOrder.categoria.ilike(f"%{categoria}%"))
+    if estado_orden:
+        q = q.filter(PurchaseOrder.estado_orden == estado_orden)
+    if entidad:
+        q = q.filter(PurchaseOrder.nombre_entidad == entidad)
+    if proveedor:
+        q = q.filter(PurchaseOrder.nombre_proveedor == proveedor)
+    if search:
+        q = q.filter(
+            or_(
+                PurchaseOrder.nombre_entidad.ilike(f"%{search}%"),
+                PurchaseOrder.nombre_proveedor.ilike(f"%{search}%"),
+                PurchaseOrder.nro_orden_fisica.ilike(f"%{search}%"),
+                PurchaseOrder.orden_electronica.ilike(f"%{search}%"),
+                PurchaseOrder.nro_parte.ilike(f"%{search}%"),
+            )
+        )
+    return int(q.scalar() or 0)
+
+
 # ---------------------------------------------------------------------------
 # Write helpers
 # ---------------------------------------------------------------------------

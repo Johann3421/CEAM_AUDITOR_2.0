@@ -13,6 +13,7 @@ const Orders = () => {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [limit] = useState(25);
+  const [totalResults, setTotalResults] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [sort, setSort] = useState({ col: null, dir: 'desc' });
 
@@ -35,7 +36,7 @@ const Orders = () => {
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await purchaseOrdersApi.getAll({
+      const params = {
         skip: page * limit,
         limit,
         catalogo: catalogo || undefined,
@@ -43,8 +44,28 @@ const Orders = () => {
         estado_orden: estadoOrden || undefined,
         entidad: entidad || undefined,
         proveedor: proveedor || undefined,
-      });
-      setOrders(response.data);
+      };
+
+      const summaryParams = { ...params };
+      delete summaryParams.skip;
+      delete summaryParams.limit;
+
+      const [listRes, summaryRes] = await Promise.allSettled([
+        purchaseOrdersApi.getAll(params),
+        purchaseOrdersApi.getSummary(summaryParams),
+      ]);
+
+      if (listRes.status === 'fulfilled') {
+        setOrders(listRes.value.data);
+      } else {
+        console.error('Error fetching orders list:', listRes.reason);
+      }
+
+      if (summaryRes.status === 'fulfilled') {
+        setTotalResults(summaryRes.value.data?.total ?? null);
+      } else {
+        setTotalResults(null);
+      }
     } catch (error) {
       console.error('Error fetching orders:', error);
     } finally {
@@ -112,7 +133,7 @@ const Orders = () => {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1>Órdenes de Compra</h1>
-          <p>Historial completo de adquisiciones · {orders.length} resultados</p>
+          <p>Historial completo de adquisiciones · {totalResults != null ? totalResults : orders.length} resultados</p>
         </div>
         <button
           onClick={handleDeleteAll}

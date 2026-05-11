@@ -36,6 +36,29 @@ def list_orders(
     )
 
 
+@router.get("/summary")
+def get_orders_summary(
+    catalogo: Optional[str] = Query(None),
+    categoria: Optional[str] = Query(None),
+    estado_orden: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    entidad: Optional[str] = Query(None),
+    proveedor: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Return total count of purchase orders matching the provided filters."""
+    total = crud.count_orders_filtered(
+        db,
+        catalogo=catalogo,
+        categoria=categoria,
+        estado_orden=estado_orden,
+        search=search,
+        entidad=entidad,
+        proveedor=proveedor,
+    )
+    return {"total": total}
+
+
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db)):
     """Aggregated statistics for dashboard KPIs and charts."""

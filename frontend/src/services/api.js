@@ -9,6 +9,7 @@ const api = axios.create({
 
 export const purchaseOrdersApi = {
   getAll: (params) => api.get('/purchase-orders/', { params }),
+  getSummary: (params) => api.get('/purchase-orders/summary', { params }),
   getStats: () => api.get('/purchase-orders/stats'),
   getCatalogosFilter: () => api.get('/purchase-orders/catalogos-filter'),
   getColumnFilter: (col) => api.get(`/purchase-orders/filters/${col}`),
