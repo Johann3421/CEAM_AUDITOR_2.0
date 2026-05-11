@@ -4,7 +4,7 @@ import { preciosFichasApi, fichasProductoApi } from '../services/api';
 import {
   DollarSign, Zap, TrendingUp, AlertTriangle, CheckCircle,
   Loader2, RefreshCw, ChevronLeft, ChevronRight, Info, Search,
-  ArrowUp, ArrowDown, ChevronsUpDown
+  ArrowUp, ArrowDown, ChevronsUpDown, Filter
 } from 'lucide-react';
 import HeaderFilter from '../components/HeaderFilter';
 
@@ -20,13 +20,20 @@ const VolBadge = ({ vol }) => {
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
-const StatCard = ({ label, value, sub, icon: Icon, color }) => (
-  <div className="stat-card">
+const StatCard = ({ label, value, sub, icon: Icon, color, filtered }) => (
+  <div className="stat-card" style={filtered ? { outline: '2px solid rgba(37,99,235,0.18)', outlineOffset: 2 } : {}}>
     <div className="stat-icon" style={{ background: `${color}18`, color }}>
       <Icon size={20} />
     </div>
-    <div>
-      <div className="stat-value">{value}</div>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <div className="stat-value">{value}</div>
+        {filtered && (
+          <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 10,
+            background: 'rgba(37,99,235,0.12)', color: 'var(--c-brand)',
+            fontWeight: 700, letterSpacing: 0.4, whiteSpace: 'nowrap' }}>FILTRO</span>
+        )}
+      </div>
       <div className="stat-label">{label}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', marginTop: 2 }}>{sub}</div>}
     </div>
@@ -45,6 +52,7 @@ const PreciosFichas = () => {
   const [page, setPage]             = useState(0);
   const [soloConPrecio, setSoloConPrecio] = useState(false);
   const [sort, setSort]             = useState({ col: null, dir: 'desc' });
+  const [filteredStats, setFilteredStats] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentSearch, setCurrentSearch] = useState('');
   const [filters, setFilters] = useState({ 
@@ -65,20 +73,24 @@ const PreciosFichas = () => {
     setLoading(true);
     try {
       const params = { skip: page * limit, limit };
-      if (soloConPrecio) params.con_precio = true;
-      if (currentSearch) params.search = currentSearch;
-      if (filters.marca) params.marca = filters.marca;
-      if (filters.acuerdo_marco) params.acuerdo_marco = filters.acuerdo_marco;
-      if (filters.nro_parte) params.nro_parte = filters.nro_parte;
-      if (filters.precio_referencia) params.precio_referencia = filters.precio_referencia;
-      if (filters.precio_min) params.precio_min = filters.precio_min;
-      if (filters.precio_max) params.precio_max = filters.precio_max;
-      if (filters.volatilidad) params.volatilidad = filters.volatilidad;
-      if (filters.ordenes) params.ordenes = filters.ordenes;
-      
-      const r = await fichasProductoApi.getAll(params);
-      const data = r.data;
+      const summaryParams = {};
+      const addParam = (key, val) => { params[key] = val; summaryParams[key] = val; };
+      if (soloConPrecio) addParam('con_precio', true);
+      if (currentSearch) addParam('search', currentSearch);
+      if (filters.marca) addParam('marca', filters.marca);
+      if (filters.acuerdo_marco) addParam('acuerdo_marco', filters.acuerdo_marco);
+      if (filters.nro_parte) addParam('nro_parte', filters.nro_parte);
+      if (filters.precio_min) addParam('precio_min', filters.precio_min);
+      if (filters.precio_max) addParam('precio_max', filters.precio_max);
+      if (filters.volatilidad) addParam('volatilidad', filters.volatilidad);
+
+      const [fichasRes, summaryRes] = await Promise.all([
+        fichasProductoApi.getAll(params),
+        fichasProductoApi.getSummary(summaryParams),
+      ]);
+      const data = fichasRes.data;
       setFichas(Array.isArray(data) ? data : (data?.items || []));
+      setFilteredStats(summaryRes.data);
     } catch (_) {} finally {
       setLoading(false);
     }
@@ -100,11 +112,15 @@ const PreciosFichas = () => {
 
   const sorted = sort.col
     ? [...fichas].sort((a, b) => {
-        const va = a[sort.col] ?? -Infinity;
-        const vb = b[sort.col] ?? -Infinity;
+        const va = a[sort.col] ?? (sort.dir === 'desc' ? -Infinity : Infinity);
+        const vb = b[sort.col] ?? (sort.dir === 'desc' ? -Infinity : Infinity);
         return sort.dir === 'desc' ? vb - va : va - vb;
       })
     : fichas;
+
+  const hasFilters = soloConPrecio || !!currentSearch ||
+    Object.values(filters).some(v => !!v);
+  const displayStats = filteredStats || stats;
 
   const handleEnrich = async () => {
     setEnriching(true);
@@ -182,47 +198,52 @@ const PreciosFichas = () => {
       )}
 
       {/* KPI cards */}
-      {stats && (
-        <div className="stats-grid" style={{ marginBottom: 24 }}>
-          <StatCard
-            label="Total fichas"
-            value={stats.total.toLocaleString('es-PE')}
-            icon={DollarSign}
-            color="var(--c-brand)"
-          />
-          <StatCard
-            label="Con precio"
-            value={stats.con_precio.toLocaleString('es-PE')}
-            sub={`${stats.coverage_pct}% cobertura`}
-            icon={CheckCircle}
-            color="var(--c-success)"
-          />
-          <StatCard
-            label="Sin precio"
-            value={stats.sin_precio.toLocaleString('es-PE')}
-            sub="Sin match en órdenes"
-            icon={AlertTriangle}
-            color="var(--c-warning)"
-          />
-          <StatCard
-            label="Volatilidad alta"
-            value={(stats.volatilidad?.alta ?? 0).toLocaleString('es-PE')}
-            sub="Spread > 50%"
-            icon={TrendingUp}
-            color="var(--c-danger)"
-          />
-        </div>
+      {displayStats && (
+        <>
+          {hasFilters && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8,
+              fontSize: 12, color: 'var(--c-brand)', fontWeight: 500 }}>
+              <Filter size={13} />
+              Estadísticas actualizadas según filtros activos
+            </div>
+          )}
+          <div className="stats-grid" style={{ marginBottom: 24 }}>
+            <StatCard
+              label="Total fichas"
+              value={(displayStats.total ?? 0).toLocaleString('es-PE')}
+              icon={DollarSign} color="var(--c-brand)" filtered={hasFilters}
+            />
+            <StatCard
+              label="Con precio"
+              value={(displayStats.con_precio ?? 0).toLocaleString('es-PE')}
+              sub={`${displayStats.coverage_pct ?? 0}% cobertura`}
+              icon={CheckCircle} color="var(--c-success)" filtered={hasFilters}
+            />
+            <StatCard
+              label="Sin precio"
+              value={(displayStats.sin_precio ?? 0).toLocaleString('es-PE')}
+              sub="Sin match en órdenes"
+              icon={AlertTriangle} color="var(--c-warning)" filtered={hasFilters}
+            />
+            <StatCard
+              label="Volatilidad alta"
+              value={((displayStats.volatilidad?.alta) ?? 0).toLocaleString('es-PE')}
+              sub="Spread > 50%"
+              icon={TrendingUp} color="var(--c-danger)" filtered={hasFilters}
+            />
+          </div>
+        </>
       )}
 
       {/* Volatility distribution */}
-      {stats && stats.con_precio > 0 && (
+      {displayStats && (displayStats.con_precio ?? 0) > 0 && (
         <div className="card fade-up" style={{ marginBottom: 24, padding: '14px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', fontSize: 13 }}>
-            <strong style={{ color: 'var(--c-text)' }}>Distribución de volatilidad:</strong>
-            <span><span className="badge badge-success">Baja (&lt;20%)</span> {stats.volatilidad?.baja ?? 0} fichas</span>
-            <span><span className="badge badge-warning">Media (20–50%)</span> {stats.volatilidad?.media ?? 0} fichas</span>
-            <span><span className="badge badge-error">Alta (&gt;50%)</span> {stats.volatilidad?.alta ?? 0} fichas</span>
-            {stats.enriquecido_at && (
+            <strong style={{ color: 'var(--c-text)' }}>Distribución de volatilidad{hasFilters ? ' (filtrada)' : ''}:</strong>
+            <span><span className="badge badge-success">Baja (&lt;20%)</span> {displayStats.volatilidad?.baja ?? 0} fichas</span>
+            <span><span className="badge badge-warning">Media (20–50%)</span> {displayStats.volatilidad?.media ?? 0} fichas</span>
+            <span><span className="badge badge-error">Alta (&gt;50%)</span> {displayStats.volatilidad?.alta ?? 0} fichas</span>
+            {stats?.enriquecido_at && (
               <span style={{ color: 'var(--c-text-tertiary)', marginLeft: 'auto', fontSize: 11 }}>
                 Última actualización: {new Date(stats.enriquecido_at).toLocaleString('es-PE', { timeZone: 'America/Lima' })}
               </span>
@@ -274,6 +295,27 @@ const PreciosFichas = () => {
 
       {/* Table */}
       <div className="card fade-up" style={{ marginTop: 0 }}>
+        {/* Row count bar */}
+        {!loading && displayStats && (
+          <div style={{ padding: '10px 16px 0', fontSize: 12, color: 'var(--c-text-secondary)',
+            display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>
+              Mostrando <strong>{fichas.length}</strong> de{' '}
+              <strong>{(displayStats.total ?? 0).toLocaleString('es-PE')}</strong> fichas
+              {hasFilters && <span style={{ color: 'var(--c-brand)', marginLeft: 4 }}>(con filtros)</span>}
+            </span>
+            {sort.col && (
+              <span style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 10,
+                background: 'rgba(37,99,235,0.08)', color: 'var(--c-brand)', fontSize: 11 }}>
+                Ordenado por {sort.col === 'precio_referencia' ? 'P. Referencia'
+                  : sort.col === 'precio_min' ? 'P. Mínimo'
+                  : sort.col === 'precio_max' ? 'P. Máximo'
+                  : sort.col === 'precio_volatilidad' ? 'Volatilidad'
+                  : 'Órdenes'} {sort.dir === 'desc' ? '↓' : '↑'}
+              </span>
+            )}
+          </div>
+        )}
         <div className="table-wrap">
           <table className="data-table">
             <thead>
@@ -319,32 +361,38 @@ const PreciosFichas = () => {
                         : <ArrowUp size={12} style={{ color: 'var(--c-brand)' }} />}
                   </span>
                 </th>
-                <th style={{ textAlign: 'right' }}>
-                  <HeaderFilter 
-                    title="P. Mínimo" 
-                    column="precio_min" 
-                    currentFilter={filters.precio_min}
-                    onFilterChange={(v) => { setFilters(prev => ({...prev, precio_min: v})); setPage(0); }}
-                    apiCall={fichasProductoApi.getColumnFilter}
-                  />
+                <th style={{ textAlign: 'right', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                  onClick={() => toggleSort('precio_min')} title="Ordenar por precio mínimo">
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    P. Mínimo
+                    {sort.col !== 'precio_min'
+                      ? <ChevronsUpDown size={12} style={{ opacity: 0.35 }} />
+                      : sort.dir === 'desc'
+                        ? <ArrowDown size={12} style={{ color: 'var(--c-brand)' }} />
+                        : <ArrowUp size={12} style={{ color: 'var(--c-brand)' }} />}
+                  </span>
                 </th>
-                <th style={{ textAlign: 'right' }}>
-                  <HeaderFilter 
-                    title="P. Máximo" 
-                    column="precio_max" 
-                    currentFilter={filters.precio_max}
-                    onFilterChange={(v) => { setFilters(prev => ({...prev, precio_max: v})); setPage(0); }}
-                    apiCall={fichasProductoApi.getColumnFilter}
-                  />
+                <th style={{ textAlign: 'right', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                  onClick={() => toggleSort('precio_max')} title="Ordenar por precio máximo">
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    P. Máximo
+                    {sort.col !== 'precio_max'
+                      ? <ChevronsUpDown size={12} style={{ opacity: 0.35 }} />
+                      : sort.dir === 'desc'
+                        ? <ArrowDown size={12} style={{ color: 'var(--c-brand)' }} />
+                        : <ArrowUp size={12} style={{ color: 'var(--c-brand)' }} />}
+                  </span>
                 </th>
-                <th>
-                  <HeaderFilter 
-                    title="Volatilidad" 
-                    column="volatilidad" 
-                    currentFilter={filters.volatilidad}
-                    onFilterChange={(v) => { setFilters(prev => ({...prev, volatilidad: v})); setPage(0); }}
-                    apiCall={fichasProductoApi.getColumnFilter}
-                  />
+                <th style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                  onClick={() => toggleSort('precio_volatilidad')} title="Ordenar por volatilidad">
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    Volatilidad
+                    {sort.col !== 'precio_volatilidad'
+                      ? <ChevronsUpDown size={12} style={{ opacity: 0.35 }} />
+                      : sort.dir === 'desc'
+                        ? <ArrowDown size={12} style={{ color: 'var(--c-brand)' }} />
+                        : <ArrowUp size={12} style={{ color: 'var(--c-brand)' }} />}
+                  </span>
                 </th>
                 <th
                   style={{ textAlign: 'center', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}

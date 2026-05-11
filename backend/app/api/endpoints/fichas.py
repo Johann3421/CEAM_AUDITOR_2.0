@@ -29,6 +29,48 @@ def _safe_col(db: Session) -> list[str]:
         return []
 
 
+def _build_fichas_where(
+    col_set: set,
+    acuerdo_marco=None,
+    catalogo=None,
+    categoria=None,
+    marca=None,
+    estado=None,
+    search=None,
+    con_precio=None,
+) -> tuple:
+    """Build WHERE clause and params dict for fichas_producto queries."""
+    filters: list[str] = []
+    params: dict = {}
+
+    def _f(col: str, val, param: str):
+        if col in col_set and val:
+            filters.append(f'"{col}" ILIKE :{param}')
+            params[param] = f"%{val}%"
+
+    _f("acuerdo_marco", acuerdo_marco, "acuerdo")
+    _f("catálogo", catalogo, "catalogo")
+    _f("categoría", categoria, "categoria")
+    _f("marca", marca, "marca")
+    _f("estado_ficha_producto", estado, "estado")
+
+    if con_precio and "precio_referencia" in col_set:
+        filters.append('"precio_referencia" IS NOT NULL')
+
+    if search:
+        search_cols = []
+        for c in ("descripción_fichaproducto", "nro_parte_o_código_único_de_identificación",
+                  "descripcin_fichaproducto", "nro_parte_o_cdigo_nico_de_identificacin"):
+            if c in col_set:
+                search_cols.append(f'"{c}" ILIKE :search')
+        if search_cols:
+            filters.append("(" + " OR ".join(search_cols) + ")")
+            params["search"] = f"%{search}%"
+
+    where_clause = ("WHERE " + " AND ".join(filters)) if filters else ""
+    return filters, params, where_clause
+
+
 @router.get("/")
 def list_fichas(
     skip: int = Query(0, ge=0),
@@ -47,38 +89,12 @@ def list_fichas(
     if not cols:
         return []
 
-    filters = []
-    params: dict = {"skip": skip, "limit": limit}
-
-    # Normalised column names coming from the DB
     col_set = set(cols)
-
-    def _filter(col: str, val: str, param: str):
-        if col in col_set and val:
-            filters.append(f'"{col}" ILIKE :{param}')
-            params[param] = f"%{val}%"
-
-    _filter("acuerdo_marco", acuerdo_marco, "acuerdo")
-    _filter("catálogo", catalogo, "catalogo")
-    _filter("categoría", categoria, "categoria")
-    _filter("marca", marca, "marca")
-    _filter("estado_ficha_producto", estado, "estado")
-
-    if con_precio and "precio_referencia" in col_set:
-        filters.append('"precio_referencia" IS NOT NULL')
-
-    # Full-text search over description + nro_parte
-    if search:
-        search_cols = []
-        for c in ("descripción_fichaproducto", "nro_parte_o_código_único_de_identificación",
-                  "descripcin_fichaproducto", "nro_parte_o_cdigo_nico_de_identificacin"):
-            if c in col_set:
-                search_cols.append(f'"{c}" ILIKE :search')
-        if search_cols:
-            filters.append("(" + " OR ".join(search_cols) + ")")
-            params["search"] = f"%{search}%"
-
-    where_clause = ("WHERE " + " AND ".join(filters)) if filters else ""
+    _, params, where_clause = _build_fichas_where(
+        col_set, acuerdo_marco, catalogo, categoria, marca, estado, search, con_precio
+    )
+    params["skip"] = skip
+    params["limit"] = limit
     quoted_cols = ", ".join(f'"{c}"' for c in cols)
 
     # Total count with the same filters (without limit/skip)
@@ -102,6 +118,59 @@ def list_fichas(
         "total": total_count,
         "items": [dict(zip(cols, row)) for row in rows],
     }
+
+
+@router.get("/summary")
+def fichas_summary(
+    acuerdo_marco: Optional[str] = Query(None),
+    catalogo: Optional[str] = Query(None),
+    categoria: Optional[str] = Query(None),
+    marca: Optional[str] = Query(None),
+    estado: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    con_precio: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Filtered aggregate stats for KPI cards (total, con_precio, sin_precio, volatility)."""
+    cols = _safe_col(db)
+    col_set = set(cols)
+    _, params, where_clause = _build_fichas_where(
+        col_set, acuerdo_marco, catalogo, categoria, marca, estado, search, con_precio
+    )
+    has_ref = "precio_referencia" in col_set
+    has_vol = "precio_volatilidad" in col_set
+    try:
+        if has_ref and has_vol:
+            row = db.execute(text(
+                f"SELECT COUNT(*) as total, "
+                f"COUNT(precio_referencia) as con_precio, "
+                f"COUNT(*) FILTER (WHERE precio_volatilidad < 20) as vol_baja, "
+                f"COUNT(*) FILTER (WHERE precio_volatilidad BETWEEN 20 AND 50) as vol_media, "
+                f"COUNT(*) FILTER (WHERE precio_volatilidad > 50) as vol_alta "
+                f"FROM {_TABLE} {where_clause}"
+            ), params).fetchone()
+            total, con_p, v_baja, v_media, v_alta = [x or 0 for x in row]
+        elif has_ref:
+            row = db.execute(text(
+                f"SELECT COUNT(*), COUNT(precio_referencia) FROM {_TABLE} {where_clause}"
+            ), params).fetchone()
+            total, con_p = row[0] or 0, row[1] or 0
+            v_baja = v_media = v_alta = 0
+        else:
+            total = db.execute(text(f"SELECT COUNT(*) FROM {_TABLE} {where_clause}"), params).scalar() or 0
+            con_p = v_baja = v_media = v_alta = 0
+        return {
+            "total": total,
+            "con_precio": con_p,
+            "sin_precio": total - con_p,
+            "coverage_pct": round(con_p / total * 100, 1) if total > 0 else 0.0,
+            "volatilidad": {"baja": v_baja, "media": v_media, "alta": v_alta},
+        }
+    except Exception:
+        return {
+            "total": 0, "con_precio": 0, "sin_precio": 0, "coverage_pct": 0.0,
+            "volatilidad": {"baja": 0, "media": 0, "alta": 0},
+        }
 
 
 @router.get("/filters/{col_name}")
