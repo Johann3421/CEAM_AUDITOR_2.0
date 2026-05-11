@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { purchaseOrdersApi } from '../services/api';
 import OrderTable from '../components/orders/OrderTable';
-import { Search, ChevronLeft, ChevronRight, X, Trash2 } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, Trash2, SlidersHorizontal } from 'lucide-react';
 
 const Orders = () => {
   const location = useLocation();
@@ -112,6 +112,29 @@ const Orders = () => {
 
   const hasFilters = search || catalogo || estadoOrden || entidad || proveedor;
 
+  const activeFilters = [
+    catalogo && { key: 'catalogo', label: 'Catálogo', value: catalogo },
+    estadoOrden && { key: 'estado', label: 'Estado', value: estadoOrden },
+    entidad && { key: 'entidad', label: 'Entidad', value: entidad },
+    proveedor && { key: 'proveedor', label: 'Proveedor', value: proveedor },
+    search && { key: 'search', label: 'Búsqueda', value: search },
+  ].filter(Boolean);
+
+  const removeFilter = (key) => {
+    if (key === 'catalogo') setCatalogo('');
+    if (key === 'estado') setEstadoOrden('');
+    if (key === 'entidad') setEntidad('');
+    if (key === 'proveedor') setProveedor('');
+    if (key === 'search') setSearch('');
+    setPage(0);
+  };
+
+  const countLabel = loading
+    ? '…'
+    : totalResults !== null
+      ? `${orders.length} de ${totalResults.toLocaleString('es-PE')} órdenes${activeFilters.length ? ' (con filtros)' : ''}`
+      : `${orders.length} resultados en esta página`;
+
   const toggleSort = (col) => {
     setSort(prev =>
       prev.col === col
@@ -133,7 +156,9 @@ const Orders = () => {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1>Órdenes de Compra</h1>
-          <p>Historial completo de adquisiciones · {totalResults != null ? totalResults : orders.length} resultados</p>
+          <p>
+            Historial completo de adquisiciones · <strong>{countLabel}</strong>
+          </p>
         </div>
         <button
           onClick={handleDeleteAll}
@@ -159,6 +184,25 @@ const Orders = () => {
           {deleting ? 'Eliminando...' : 'Eliminar Todo'}
         </button>
       </div>
+
+      {activeFilters.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <span style={{ fontSize: 12, color: 'var(--c-text-tertiary)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <SlidersHorizontal size={13} /> Filtros activos:
+          </span>
+          {activeFilters.map(f => (
+            <span key={f.key} className="filter-chip">
+              <strong>{f.label}:</strong>&nbsp;{f.value}
+              <button onClick={() => removeFilter(f.key)} aria-label={`Quitar filtro ${f.label}`}>
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+          <button className="btn btn-sm" onClick={resetFilters} style={{ marginLeft: 4 }}>
+            <X size={12} /> Limpiar todo
+          </button>
+        </div>
+      )}
 
       <div className="toolbar fade-up">
         <form onSubmit={handleSearch} className="toolbar-search">
