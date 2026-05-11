@@ -75,7 +75,8 @@ const PreciosFichas = () => {
       if (filters.ordenes) params.ordenes = filters.ordenes;
       
       const r = await fichasProductoApi.getAll(params);
-      setFichas(r.data);
+      const data = r.data;
+      setFichas(Array.isArray(data) ? data : (data?.items || []));
     } catch (_) {} finally {
       setLoading(false);
     }
