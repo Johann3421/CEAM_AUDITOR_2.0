@@ -4,6 +4,15 @@ import {
   Play, Square, Loader2, CheckCircle, AlertCircle,
   Clock, Database, List, Info, FileSpreadsheet, Trash2,
 } from 'lucide-react';
+import ScraperProgressBar from '../components/scraper/ScraperProgressBar';
+
+const FICHAS_STEPS = [
+  { key: 'init',    label: 'Iniciando',          description: 'Iniciando tarea…',                          minPct: 0  },
+  { key: 'dl',      label: 'Descargando Excel',  description: 'Descargando catálogo desde Perú Compras…',  minPct: 12 },
+  { key: 'parse',   label: 'Procesando fichas',  description: 'Leyendo y normalizando filas…',             minPct: 52 },
+  { key: 'upsert',  label: 'Guardando en BD',    description: 'Actualizando base de datos…',               minPct: 80 },
+  { key: 'done',    label: 'Completado',          description: '¡Fichas actualizadas!',                      minPct: 100 },
+];
 
 const FichasControl = () => {
   const [taskId, setTaskId]           = useState(null);
@@ -11,6 +20,7 @@ const FichasControl = () => {
   const [acuerdos, setAcuerdos]       = useState([]);
   const [agreementCode, setAgreementCode] = useState('');
   const [polling, setPolling]         = useState(false);
+  const [progress, setProgress]       = useState(0);
 
   // Load acuerdos marco list from backend on mount
   useEffect(() => {
@@ -49,6 +59,28 @@ const FichasControl = () => {
     }
     return () => clearInterval(interval);
   }, [polling, taskId]);
+
+  // ── Progress simulation ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!polling) return;
+    const id = setInterval(() => {
+      setProgress(prev => {
+        const isStarted = status?.status === 'STARTED';
+        // Fichas scraper has a long download phase — ramp slowly to 50 then faster
+        const target = isStarted ? 86 : 10;
+        const speed  = isStarted
+          ? (prev < 50 ? 0.7 : 1.6)  // slow during download, faster during DB write
+          : 0.3;
+        if (prev >= target) return prev;
+        return Math.min(prev + speed + Math.random() * 0.4, target);
+      });
+    }, 900);
+    return () => clearInterval(id);
+  }, [polling, status?.status]);
+
+  useEffect(() => { if (status?.status === 'SUCCESS') setProgress(100); }, [status?.status]);
+  useEffect(() => { if (!taskId) setProgress(0); }, [taskId]);
+  // ─────────────────────────────────────────────────────────────────────────
 
   const startScrape = async () => {
     try {
@@ -221,41 +253,57 @@ const FichasControl = () => {
                 </p>
               </div>
             ) : (
-              <div className="scraper-status-center">
-                {polling ? (
-                  <Loader2 size={48} className="spin" style={{ color: 'var(--c-brand)', marginBottom: 16 }} />
-                ) : status.status === 'SUCCESS' ? (
-                  <CheckCircle size={48} style={{ color: 'var(--c-success)', marginBottom: 16 }} />
-                ) : (
-                  <AlertCircle size={48} style={{ color: 'var(--c-danger)', marginBottom: 16 }} />
-                )}
+              <div style={{ width: '100%' }}>
 
-                <span className={`badge ${getStatusBadge(status.status)}`} style={{ fontSize: 13, padding: '4px 16px', marginBottom: 8 }}>
-                  {status.status}
-                </span>
+                {/* ── Icon + badge row ── */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
+                  {polling ? (
+                    <Loader2 size={36} className="spin" style={{ color: 'var(--c-brand)', flexShrink: 0 }} />
+                  ) : status.status === 'SUCCESS' ? (
+                    <CheckCircle size={36} style={{ color: 'var(--c-success)', flexShrink: 0 }} />
+                  ) : (
+                    <AlertCircle size={36} style={{ color: 'var(--c-danger)', flexShrink: 0 }} />
+                  )}
+                  <div>
+                    <span className={`badge ${getStatusBadge(status.status)}`}
+                      style={{ fontSize: 12, padding: '3px 12px', display: 'inline-block', marginBottom: 4 }}>
+                      {status.status === 'PENDING' ? 'EN COLA' :
+                       status.status === 'STARTED' ? 'EN EJECUCIÓN' :
+                       status.status === 'SUCCESS' ? 'COMPLETADO' :
+                       status.status === 'FAILURE' ? 'ERROR' :
+                       status.status === 'REVOKED' ? 'CANCELADO' : status.status}
+                    </span>
+                    {taskId && (
+                      <p style={{ fontSize: 10, color: 'var(--c-text-tertiary)', fontFamily: 'monospace', margin: 0 }}>
+                        ID: {taskId.slice(0, 16)}…
+                      </p>
+                    )}
+                  </div>
+                </div>
 
-                {taskId && (
-                  <p style={{ fontSize: 11, color: 'var(--c-text-tertiary)', fontFamily: 'monospace', marginTop: 4 }}>
-                    ID: {taskId}
-                  </p>
-                )}
+                {/* ── Progress bar + steps ── */}
+                <ScraperProgressBar
+                  pct={progress}
+                  done={status.status === 'SUCCESS'}
+                  failed={['FAILURE', 'REVOKED'].includes(status.status)}
+                  steps={FICHAS_STEPS}
+                />
 
-                {/* Agreement label */}
+                {/* ── Config summary ── */}
                 {polling && (
-                  <div style={{ width: '100%', marginTop: 12, padding: '10px 14px', background: 'var(--c-bg)', borderRadius: 8, fontSize: 12, color: 'var(--c-text-secondary)', textAlign: 'left' }}>
+                  <div style={{ marginTop: 16, padding: '10px 14px', background: 'var(--c-bg)',
+                    borderRadius: 8, fontSize: 12, color: 'var(--c-text-secondary)', textAlign: 'left' }}>
                     <strong>Acuerdo:</strong> {selectedLabel}
+                    <p style={{ margin: '6px 0 0', color: 'var(--c-text-tertiary)', fontSize: 11 }}>
+                      La descarga del Excel puede tomar hasta 5 minutos.
+                    </p>
                   </div>
                 )}
 
-                {status.status === 'STARTED' && (
-                  <p style={{ fontSize: 12, color: 'var(--c-text-tertiary)', marginTop: 12, textAlign: 'center' }}>
-                    Descargando Excel desde el servidor de Perú Compras...
-                    <br />Este proceso puede demorar hasta 5 minutos.
-                  </p>
-                )}
-
+                {/* ── Result summary ── */}
                 {status.result && (
-                  <div style={{ width: '100%', marginTop: 16, padding: '16px', background: 'var(--c-bg)', borderRadius: 8 }}>
+                  <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(34,197,94,0.06)',
+                    border: '1px solid rgba(34,197,94,0.25)', borderRadius: 8 }}>
                     <div className="scraper-result-row">
                       <span style={{ color: 'var(--c-text-secondary)' }}>Fichas procesadas</span>
                       <strong style={{ color: 'var(--c-text)' }}>{status.result.rows_processed ?? '—'}</strong>
@@ -268,7 +316,7 @@ const FichasControl = () => {
                       <span style={{ color: 'var(--c-text-secondary)' }}>Fichas actualizadas</span>
                       <strong style={{ color: 'var(--c-brand)' }}>{status.result.updated}</strong>
                     </div>
-                    {status.result.errors > 0 && (
+                    {(status.result.errors ?? 0) > 0 && (
                       <div className="scraper-result-row">
                         <span style={{ color: 'var(--c-text-secondary)' }}>Filas con error</span>
                         <strong style={{ color: 'var(--c-warning)' }}>{status.result.errors}</strong>
@@ -277,9 +325,13 @@ const FichasControl = () => {
                   </div>
                 )}
 
+                {/* ── Error ── */}
                 {status.error && (
-                  <div style={{ width: '100%', marginTop: 16, padding: '14px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 8 }}>
-                    <p style={{ color: 'var(--c-danger)', fontSize: 13, margin: 0, lineHeight: 1.5, wordBreak: 'break-word' }}>
+                  <div style={{ marginTop: 14, padding: '12px 14px',
+                    background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.3)',
+                    borderRadius: 8 }}>
+                    <p style={{ color: 'var(--c-danger)', fontSize: 12, margin: 0,
+                      lineHeight: 1.5, wordBreak: 'break-word' }}>
                       <strong>Error:</strong> {status.error}
                     </p>
                   </div>

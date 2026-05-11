@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { scraperApi } from '../services/api';
 import { Play, Square, Loader2, CheckCircle, AlertCircle, Clock, Activity, Calendar, List } from 'lucide-react';
+import ScraperProgressBar from '../components/scraper/ScraperProgressBar';
+
+const ORDERS_STEPS = [
+  { key: 'init',    label: 'Iniciando',     description: 'Conectando al portal Perú Compras…', minPct: 0 },
+  { key: 'fetch',   label: 'Extrayendo',    description: 'Descargando órdenes de compra…',      minPct: 14 },
+  { key: 'save',    label: 'Guardando',     description: 'Guardando registros en la BD…',      minPct: 76 },
+  { key: 'done',    label: 'Completado',    description: '¡Proceso finalizado!',               minPct: 100 },
+];
 
 // Default date range: first day of current year → today
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -15,6 +23,7 @@ const ScraperControl = () => {
   const [fechaInicio, setFechaInicio] = useState(firstDayOfYearISO());
   const [fechaFin, setFechaFin]       = useState(todayISO());
   const [polling, setPolling]     = useState(false);
+  const [progress, setProgress]   = useState(0);
 
   // Load catalog list from backend on mount
   useEffect(() => {
@@ -57,6 +66,25 @@ const ScraperControl = () => {
     }
     return () => clearInterval(interval);
   }, [polling, taskId]);
+
+  // ── Progress simulation ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!polling) return;
+    const id = setInterval(() => {
+      setProgress(prev => {
+        const isStarted = status?.status === 'STARTED';
+        const target = isStarted ? 88 : 12;
+        const speed  = isStarted ? 1.4 : 0.35;
+        if (prev >= target) return prev;
+        return Math.min(prev + speed + Math.random() * 0.6, target);
+      });
+    }, 900);
+    return () => clearInterval(id);
+  }, [polling, status?.status]);
+
+  useEffect(() => { if (status?.status === 'SUCCESS') setProgress(100); }, [status?.status]);
+  useEffect(() => { if (!taskId) setProgress(0); }, [taskId]);
+  // ─────────────────────────────────────────────────────────────────────────
 
   const startScrape = async () => {
     try {
@@ -216,35 +244,55 @@ const ScraperControl = () => {
                 </p>
               </div>
             ) : (
-              <div className="scraper-status-center">
-                {polling ? (
-                  <Loader2 size={48} className="spin" style={{ color: 'var(--c-brand)', marginBottom: 16 }} />
-                ) : status.status === 'SUCCESS' ? (
-                  <CheckCircle size={48} style={{ color: 'var(--c-success)', marginBottom: 16 }} />
-                ) : (
-                  <AlertCircle size={48} style={{ color: 'var(--c-danger)', marginBottom: 16 }} />
-                )}
+              <div style={{ width: '100%' }}>
 
-                <span className={`badge ${getStatusBadge(status.status)}`} style={{ fontSize: 13, padding: '4px 16px', marginBottom: 8 }}>
-                  {status.status}
-                </span>
+                {/* ── Icon + badge row ── */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
+                  {polling ? (
+                    <Loader2 size={36} className="spin" style={{ color: 'var(--c-brand)', flexShrink: 0 }} />
+                  ) : status.status === 'SUCCESS' ? (
+                    <CheckCircle size={36} style={{ color: 'var(--c-success)', flexShrink: 0 }} />
+                  ) : (
+                    <AlertCircle size={36} style={{ color: 'var(--c-danger)', flexShrink: 0 }} />
+                  )}
+                  <div>
+                    <span className={`badge ${getStatusBadge(status.status)}`}
+                      style={{ fontSize: 12, padding: '3px 12px', display: 'inline-block', marginBottom: 4 }}>
+                      {status.status === 'PENDING' ? 'EN COLA' :
+                       status.status === 'STARTED' ? 'EN EJECUCIÓN' :
+                       status.status === 'SUCCESS' ? 'COMPLETADO' :
+                       status.status === 'FAILURE' ? 'ERROR' :
+                       status.status === 'REVOKED' ? 'CANCELADO' : status.status}
+                    </span>
+                    {taskId && (
+                      <p style={{ fontSize: 10, color: 'var(--c-text-tertiary)', fontFamily: 'monospace', margin: 0 }}>
+                        ID: {taskId.slice(0, 16)}…
+                      </p>
+                    )}
+                  </div>
+                </div>
 
-                {taskId && (
-                  <p style={{ fontSize: 11, color: 'var(--c-text-tertiary)', fontFamily: 'monospace', marginTop: 4 }}>
-                    ID: {taskId}
-                  </p>
-                )}
+                {/* ── Progress bar + steps ── */}
+                <ScraperProgressBar
+                  pct={progress}
+                  done={status.status === 'SUCCESS'}
+                  failed={['FAILURE', 'REVOKED'].includes(status.status)}
+                  steps={ORDERS_STEPS}
+                />
 
-                {/* Params summary */}
-                {(catalogo || fechaInicio) && status.status !== 'PENDING' && (
-                  <div style={{ width: '100%', marginTop: 12, padding: '10px 14px', background: 'var(--c-bg)', borderRadius: 8, fontSize: 12, color: 'var(--c-text-secondary)' }}>
+                {/* ── Config summary ── */}
+                {catalogo && (
+                  <div style={{ marginTop: 16, padding: '10px 14px', background: 'var(--c-bg)',
+                    borderRadius: 8, fontSize: 12, color: 'var(--c-text-secondary)' }}>
                     <div style={{ marginBottom: 4 }}><strong>Catálogo:</strong> {catalogo}</div>
                     <div><strong>Rango:</strong> {fechaInicio} → {fechaFin}</div>
                   </div>
                 )}
 
+                {/* ── Result summary ── */}
                 {status.result && (
-                  <div style={{ width: '100%', marginTop: 16, padding: '16px', background: 'var(--c-bg)', borderRadius: 8 }}>
+                  <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(34,197,94,0.06)',
+                    border: '1px solid rgba(34,197,94,0.25)', borderRadius: 8 }}>
                     <div className="scraper-result-row">
                       <span style={{ color: 'var(--c-text-secondary)' }}>Registros insertados</span>
                       <strong style={{ color: 'var(--c-success)' }}>{status.result.inserted}</strong>
@@ -256,9 +304,13 @@ const ScraperControl = () => {
                   </div>
                 )}
 
+                {/* ── Error ── */}
                 {status.error && (
-                  <div style={{ width: '100%', marginTop: 16, padding: '14px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 8 }}>
-                    <p style={{ color: 'var(--c-danger)', fontSize: 13, margin: 0, lineHeight: 1.5, wordBreak: 'break-word' }}>
+                  <div style={{ marginTop: 14, padding: '12px 14px',
+                    background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.3)',
+                    borderRadius: 8 }}>
+                    <p style={{ color: 'var(--c-danger)', fontSize: 12, margin: 0,
+                      lineHeight: 1.5, wordBreak: 'break-word' }}>
                       <strong>Error:</strong> {status.error}
                     </p>
                   </div>
