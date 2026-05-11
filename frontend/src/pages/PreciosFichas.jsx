@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { preciosFichasApi, fichasProductoApi } from '../services/api';
 import {
   DollarSign, Zap, TrendingUp, AlertTriangle, CheckCircle,
-  Loader2, RefreshCw, ChevronLeft, ChevronRight, Info, Search
+  Loader2, RefreshCw, ChevronLeft, ChevronRight, Info, Search,
+  ArrowUp, ArrowDown, ChevronsUpDown
 } from 'lucide-react';
 import HeaderFilter from '../components/HeaderFilter';
 
@@ -43,6 +44,7 @@ const PreciosFichas = () => {
   const [enrichResult, setEnrichResult] = useState(null);
   const [page, setPage]             = useState(0);
   const [soloConPrecio, setSoloConPrecio] = useState(false);
+  const [sort, setSort]             = useState({ col: null, dir: 'desc' });
   const [searchTerm, setSearchTerm] = useState('');
   const [currentSearch, setCurrentSearch] = useState('');
   const [filters, setFilters] = useState({ 
@@ -85,8 +87,24 @@ const PreciosFichas = () => {
   useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => { fetchFichas(); }, [fetchFichas]);
   
-  // Reset page to 0 when toggle changes to avoid empty pagination pages
+  // Reset page to 0 when toggle changes
   useEffect(() => { setPage(0); }, [soloConPrecio]);
+
+  const toggleSort = (col) => {
+    setSort(prev =>
+      prev.col === col
+        ? { col, dir: prev.dir === 'desc' ? 'asc' : 'desc' }
+        : { col, dir: 'desc' }
+    );
+  };
+
+  const sorted = sort.col
+    ? [...fichas].sort((a, b) => {
+        const va = a[sort.col] ?? -Infinity;
+        const vb = b[sort.col] ?? -Infinity;
+        return sort.dir === 'desc' ? vb - va : va - vb;
+      })
+    : fichas;
 
   const handleEnrich = async () => {
     setEnriching(true);
@@ -229,18 +247,29 @@ const PreciosFichas = () => {
           <button type="submit" className="btn btn-primary" style={{ padding: '8px 16px' }}>Buscar</button>
         </form>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer',
+          padding: '7px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--c-border)',
+          background: soloConPrecio ? 'rgba(34,197,94,0.08)' : 'var(--c-surface)',
+          transition: 'background 0.15s' }}>
           <input
             type="checkbox"
             checked={soloConPrecio}
             onChange={(e) => setSoloConPrecio(e.target.checked)}
+            style={{ accentColor: 'var(--c-success)', width: 15, height: 15 }}
           />
-          Solo fichas con precio
+          <span style={{ color: soloConPrecio ? 'var(--c-success)' : 'var(--c-text-secondary)', fontWeight: soloConPrecio ? 600 : 400 }}>
+            Solo fichas con precio
+          </span>
         </label>
         <button className="btn" onClick={fetchFichas} disabled={loading} title="Recargar" style={{ padding: '8px 16px' }}>
           <RefreshCw size={14} className={loading ? 'spin' : ''} />
           Recargar
         </button>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--c-text-tertiary)',
+          padding: '6px 12px', borderRadius: 'var(--radius)', background: 'rgba(234,179,8,0.08)',
+          border: '1px solid rgba(234,179,8,0.25)' }}>
+          ℹ️ Precios <strong style={{ color: 'var(--c-warning)' }}>sin IGV</strong>
+        </span>
       </div>
 
       {/* Table */}
@@ -276,14 +305,19 @@ const PreciosFichas = () => {
                     apiCall={fichasProductoApi.getColumnFilter}
                   />
                 </th>
-                <th style={{ textAlign: 'right' }}>
-                  <HeaderFilter 
-                    title="P. Referencia" 
-                    column="precio_referencia" 
-                    currentFilter={filters.precio_referencia}
-                    onFilterChange={(v) => { setFilters(prev => ({...prev, precio_referencia: v})); setPage(0); }}
-                    apiCall={fichasProductoApi.getColumnFilter}
-                  />
+                <th
+                  style={{ textAlign: 'right', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                  onClick={() => toggleSort('precio_referencia')}
+                  title="Ordenar por precio de referencia"
+                >
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    P. Referencia
+                    {sort.col !== 'precio_referencia'
+                      ? <ChevronsUpDown size={12} style={{ opacity: 0.35 }} />
+                      : sort.dir === 'desc'
+                        ? <ArrowDown size={12} style={{ color: 'var(--c-brand)' }} />
+                        : <ArrowUp size={12} style={{ color: 'var(--c-brand)' }} />}
+                  </span>
                 </th>
                 <th style={{ textAlign: 'right' }}>
                   <HeaderFilter 
@@ -312,14 +346,19 @@ const PreciosFichas = () => {
                     apiCall={fichasProductoApi.getColumnFilter}
                   />
                 </th>
-                <th style={{ textAlign: 'center' }}>
-                  <HeaderFilter 
-                    title="Órdenes" 
-                    column="ordenes" 
-                    currentFilter={filters.ordenes}
-                    onFilterChange={(v) => { setFilters(prev => ({...prev, ordenes: v})); setPage(0); }}
-                    apiCall={fichasProductoApi.getColumnFilter}
-                  />
+                <th
+                  style={{ textAlign: 'center', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                  onClick={() => toggleSort('n_ordenes_precio')}
+                  title="Ordenar por número de órdenes"
+                >
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    Órdenes
+                    {sort.col !== 'n_ordenes_precio'
+                      ? <ChevronsUpDown size={12} style={{ opacity: 0.35 }} />
+                      : sort.dir === 'desc'
+                        ? <ArrowDown size={12} style={{ color: 'var(--c-brand)' }} />
+                        : <ArrowUp size={12} style={{ color: 'var(--c-brand)' }} />}
+                  </span>
                 </th>
               </tr>
             </thead>
@@ -339,7 +378,7 @@ const PreciosFichas = () => {
                   </td>
                 </tr>
               ) : (
-                fichas.map((f, idx) => {
+                sorted.map((f, idx) => {
                   const nroParte = f.nro_parte_o_cdigo_nico_de_identificacin
                     || f['nro_parte_o_código_único_de_identificación']
                     || f.nro_parte || '—';
