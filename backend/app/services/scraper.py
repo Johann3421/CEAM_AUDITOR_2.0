@@ -13,6 +13,7 @@ Tested flow (verified manually on 2026-04-10):
   8. Process the Excel: skip 5 header rows, merge by Nro Orden Física.
   9. Upsert into PostgreSQL.
 """
+import json
 import logging
 import asyncio
 import os
@@ -208,8 +209,6 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
         # Sobrescribimos el valor de la orden electrónica para que sea el código base unificado
         row[elec_col] = group.name
         
-        import json
-        
         # Eliminar precio_unitario de las funciones numéricas y nro_parte de concatenación normal
         # 1. Operación de Monoide Libre (Concatenación sin repetición) para textos múltiples
         for field_key in ["detalle_producto", "logistica_entrega"]:
@@ -280,7 +279,13 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
         return row
 
     merged = df.groupby('_base_elec', sort=False).apply(_merge_group).reset_index(drop=True)
-    
+
+    # After reset_index the groupby key '_base_elec' is gone from the frame;
+    # _merge_group already wrote group.name into row[elec_col] so elec_col is
+    # preserved correctly. Clean up the helper column if it leaked through.
+    if '_base_elec' in merged.columns and '_base_elec' != elec_col:
+        merged = merged.drop(columns=['_base_elec'], errors='ignore')
+
     logger.info("Merged %d raw rows → %d unique base orders. Columns: %s", len(df), len(merged), list(merged.columns))
 
     # ── Convert to PurchaseOrderCreate ────────────────────────────────────

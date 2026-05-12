@@ -468,7 +468,7 @@ async def get_alertas_suspendidas(
                 datos[marca] = []
             datos[marca].append({
                 "nro_parte": d["nro_parte"],
-                "descripcion": d["descripcion"],
+                "descripcion": d.get("descripcion", ""),
                 "anterior": d["anterior"],
                 "actual": d["actual"]
             })

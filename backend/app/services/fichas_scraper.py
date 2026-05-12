@@ -21,6 +21,7 @@ Uso dentro del sistema CEAM:
 import asyncio
 import logging
 import re
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -57,10 +58,6 @@ AGREEMENT_SELECTOR = 'div[data-agreement*="EXT-CE-2022-5"]'
 
 DOWNLOAD_BTN_SELECTOR = "a.btn-download.text-purple.text-bold"
 
-# /tmp/catalogos/ is writable inside Docker containers and local Linux/Mac.
-DOWNLOAD_DIR = Path("/tmp/catalogos")
-
-# Server-side Excel generation can take up to 5 minutes for large catalogs.
 DOWNLOAD_TIMEOUT_MS = 300_000
 PAGE_LOAD_TIMEOUT_MS = 60_000
 
@@ -162,10 +159,11 @@ async def navigate_and_download(
 
     Never invert this order.
     """
-    DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    # Create a fresh temp directory per attempt so retries don't conflict.
+    download_dir = Path(tempfile.mkdtemp(prefix="ceam_fichas_"))
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest_filename = f"fichas_{agreement_code}_{timestamp}.xlsx"
-    dest_path = DOWNLOAD_DIR / dest_filename
+    dest_path = download_dir / dest_filename
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -588,6 +586,7 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
                         deltas_suspendidas.append({
                             "marca": str(clean_row.get("marca", "")).strip(),
                             "nro_parte": key_str,
+                            "descripcion": desc,
                             "acuerdo_marco": str(clean_row.get("acuerdo_marco", "")).strip(),
                             "ficha_url": ficha_url,
                             "anterior": existing.get("estado_ficha_producto"),
