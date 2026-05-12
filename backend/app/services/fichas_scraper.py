@@ -352,15 +352,23 @@ def process_catalog_excel(filepath: str) -> pd.DataFrame:
     )
     for col in df.columns:
         if price_re.search(col):
-            df[col] = (
-                df[col]
-                .astype(str)
-                .str.replace(r"\.", "", regex=True)       # strip thousands dot
-                .str.replace(",", ".", regex=False)        # decimal comma → period
-                .str.replace(r"[^0-9.\-]", "", regex=True)
-            )
-            df[col] = pd.to_numeric(df[col], errors="coerce").astype("float64")
-            logger.info("  → float64: %s", col)
+            # Peruvian format: thousands=DOT, decimal=COMMA  →  1.234,56
+            # Standard format: thousands=COMMA, decimal=DOT  →  1,234.56
+            # Strategy: if the column contains commas used as decimal, strip dots first
+            # then swap comma→dot. Otherwise just strip commas and keep dots.
+            series = df[col].astype(str).str.strip()
+            # Detect Peruvian format: has a comma followed by exactly 2 digits at end
+            peru_fmt = series.str.match(r".*,\d{2}$").any()
+            if peru_fmt:
+                series = (
+                    series
+                    .str.replace(r"\.", "", regex=True)   # strip thousands dot
+                    .str.replace(",", ".", regex=False)    # decimal comma → period
+                )
+            else:
+                series = series.str.replace(",", "", regex=False)  # strip thousands comma only
+            df[col] = pd.to_numeric(series.str.replace(r"[^0-9.\-]", "", regex=True), errors="coerce").astype("float64")
+            logger.info("  → float64 (%s fmt): %s", "PE" if peru_fmt else "std", col)
 
     # ── Date columns → datetime ───────────────────────────────────────────
     date_re = re.compile(r"fecha", re.I)

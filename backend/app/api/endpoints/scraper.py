@@ -246,3 +246,76 @@ def start_fichas_scrape(
         agreement_selector=acuerdo["selector"],
     )
     return {"task_id": task.id, "status": "queued", "agreement_code": agreement_code}
+
+
+@router.get("/test-fichas-download")
+async def test_fichas_download(
+    agreement_code: str = Query("EXT-CE-2022-5", description="Acuerdo marco code"),
+):
+    """
+    Run the fichas-producto Playwright download directly in the API process (no Celery).
+    Returns full error details as JSON so failures are visible in Swagger /docs.
+    WARNING: blocks for up to 5 minutes while the portal generates the Excel.
+    """
+    import traceback
+    from app.db.database import engine as app_engine
+    from app.services.fichas_scraper import navigate_and_download, process_catalog_excel, upsert_fichas
+
+    selector = f'div[data-agreement*="{agreement_code}"]'
+
+    # ── Step 1: Download via Playwright ───────────────────────────────────
+    try:
+        filepath = await navigate_and_download(
+            agreement_selector=selector,
+            agreement_code=agreement_code,
+        )
+    except Exception as exc:
+        return {
+            "status": "error",
+            "phase": "playwright_download",
+            "error": str(exc),
+            "trace": traceback.format_exc(),
+        }
+
+    # ── Step 2: ETL ───────────────────────────────────────────────────────
+    try:
+        df = process_catalog_excel(filepath)
+        sample_cols = list(df.columns[:10])
+        sample_row = df.iloc[0].to_dict() if len(df) > 0 else {}
+        # Convert non-serializable types
+        sample_row = {k: str(v) for k, v in sample_row.items()}
+    except Exception as exc:
+        return {
+            "status": "error",
+            "phase": "excel_etl",
+            "filepath": filepath,
+            "error": str(exc),
+            "trace": traceback.format_exc(),
+        }
+
+    # ── Step 3: Upsert ────────────────────────────────────────────────────
+    try:
+        result = upsert_fichas(df, app_engine)
+    except Exception as exc:
+        return {
+            "status": "error",
+            "phase": "db_upsert",
+            "filepath": filepath,
+            "rows_processed": len(df),
+            "error": str(exc),
+            "trace": traceback.format_exc(),
+        }
+
+    return {
+        "status": "ok",
+        "filepath": filepath,
+        "rows_processed": len(df),
+        "inserted": result.get("inserted", 0),
+        "updated": result.get("updated", 0),
+        "errors": result.get("errors", 0),
+        "debug_info": {
+            "columns_sample": sample_cols,
+            "first_row_sample": sample_row,
+            "agreement_selector": selector,
+        },
+    }
