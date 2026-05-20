@@ -1,0 +1,134 @@
+{
+    "url_after_login": "https://www.kenya.com.pe/home",
+    "sidebar_links": [
+        {
+            "text": "Inicio",
+            "href": "https://www.kenya.com.pe/home"
+        },
+        {
+            "text": "Servicio Técnico",
+            "href": "https://www.kenya.com.pe/home#"
+        },
+        {
+            "text": "Soporte Técnico",
+            "href": "https://www.kenya.com.pe/soporte"
+        },
+        {
+            "text": "Pedidos",
+            "href": "https://www.kenya.com.pe/pedidos"
+        },
+        {
+            "text": "Productos",
+            "href": "https://www.kenya.com.pe/producto"
+        },
+        {
+            "text": "Drivers",
+            "href": "https://www.kenya.com.pe/producto/drivers"
+        },
+        {
+            "text": "Links",
+            "href": "https://www.kenya.com.pe/producto/drivers_ruta"
+        },
+        {
+            "text": "Manuales",
+            "href": "https://www.kenya.com.pe/producto/manuales"
+        },
+        {
+            "text": "Fichas Vendidas",
+            "href": "https://www.kenya.com.pe/producto/garantias"
+        },
+        {
+            "text": "Clientes",
+            "href": "https://www.kenya.com.pe/clientes"
+        },
+        {
+            "text": "Categorias",
+            "href": "https://www.kenya.com.pe/producto/categorias"
+        },
+        {
+            "text": "Modelos",
+            "href": "https://www.kenya.com.pe/producto/modelos"
+        },
+        {
+            "text": "Filtros Avanzados",
+            "href": "https://www.kenya.com.pe/sistema/aside"
+        },
+        {
+            "text": "Perfiles",
+            "href": "https://www.kenya.com.pe/home#"
+        },
+        {
+            "text": "Permisos",
+            "href": "https://www.kenya.com.pe/permisos"
+        },
+        {
+            "text": "Roles",
+            "href": "https://www.kenya.com.pe/roles"
+        },
+        {
+            "text": "Usuarios",
+            "href": "https://www.kenya.com.pe/usuarios"
+        },
+        {
+            "text": "Página Web",
+            "href": "https://www.kenya.com.pe/home#"
+        },
+        {
+            "text": "Banners",
+            "href": "https://www.kenya.com.pe/web/banners"
+        },
+        {
+            "text": "Configuración",
+            "href": "https://www.kenya.com.pe/configuracion"
+        },
+        {
+            "text": "Control de Rutas",
+            "href": "https://www.kenya.com.pe/paginas/admin"
+        },
+        {
+            "text": "Perfil",
+            "href": "https://www.kenya.com.pe/perfil"
+        },
+        {
+            "text": "Cerrar Sesi��n",
+            "href": "https://www.kenya.com.pe/logout"
+        },
+        {
+            "text": "Servicio Técnico",
+            "href": "https://www.kenya.com.pe/home#!"
+        }
+    ],
+    "edit_url": "https://www.kenya.com.pe/producto",
+    "product_fields": [
+        {
+            "name": "unknown",
+            "type": "text",
+            "label": "",
+            "value": ""
+        },
+        {
+            "name": "_token",
+            "type": "hidden",
+            "label": "",
+            "value": "DgbLhMWAeFfVies6KvNOxgBYL0yY7HKV8FakXZ32"
+        },
+        {
+            "name": "unknown",
+            "type": "file",
+            "label": "",
+            "value": ""
+        },
+        {
+            "name": "h-chat-text",
+            "type": "text",
+            "label": "",
+            "value": ""
+        },
+        {
+            "name": "search",
+            "type": "text",
+            "label": "",
+            "value": ""
+        }
+    ]
+}

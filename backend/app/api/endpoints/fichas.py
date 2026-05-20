@@ -582,22 +582,6 @@ def fichas_video_specs():
     }
 
 
-@router.post("/video-specs/refresh", status_code=202)
-def fichas_video_specs_refresh():
-    """
-    Dispara la tarea Celery de extracción de specs de video en background.
-    El resultado queda disponible en GET /fichas/video-specs al terminar (~15 min).
-    """
-    from app.worker.tasks import refresh_video_specs_task
-
-    task = refresh_video_specs_task.delay()
-    return {
-        "task_id": task.id,
-        "status": "queued",
-        "message": "Extracción iniciada. Consulta GET /fichas/video-specs cuando termine.",
-    }
-
-
 @router.get("/summary")
 def fichas_summary(
     acuerdo_marco: Optional[str] = Query(None),
