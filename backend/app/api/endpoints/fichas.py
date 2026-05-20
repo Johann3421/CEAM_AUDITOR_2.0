@@ -545,6 +545,43 @@ def get_catalog_api(
     }
 
 
+# ---------------------------------------------------------------------------
+# GET /fichas/video-specs
+# ---------------------------------------------------------------------------
+@router.get("/video-specs")
+def fichas_video_specs():
+    """
+    Devuelve los specs de video/gráficos extraídos de las fichas técnicas PDF
+    de Kenya Technology.
+
+    Los datos son generados por scripts/extract_video_specs.py y almacenados
+    en backend/app/data/kenya_video_specs.json.
+    """
+    import json
+    from pathlib import Path
+
+    data_file = Path(__file__).parent.parent.parent / "data" / "kenya_video_specs.json"
+
+    if not data_file.exists():
+        return {
+            "detail": "No hay datos. Ejecuta el script scripts/extract_video_specs.py primero.",
+            "marca": "KENYA TECHNOLOGY",
+            "total": 0,
+            "items": [],
+        }
+
+    try:
+        items = json.loads(data_file.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error leyendo datos: {exc}")
+
+    return {
+        "marca": "KENYA TECHNOLOGY",
+        "total": len(items),
+        "items": items,
+    }
+
+
 @router.get("/summary")
 def fichas_summary(
     acuerdo_marco: Optional[str] = Query(None),
