@@ -163,7 +163,10 @@ def export_fichas_excel(
         f" ORDER BY fecha_extraccion DESC NULLS LAST"
         f" LIMIT :limit OFFSET :skip"
     )
-    rows = db.execute(sql, params).fetchall()
+    try:
+        rows = db.execute(sql, params).fetchall()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al consultar fichas: {e}")
 
     # ── Friendly column labels ─────────────────────────────────────────────
     COL_LABELS = {
@@ -267,10 +270,22 @@ def export_fichas_excel(
     ws.row_dimensions[2].height = 22
 
     # ── Data rows ─────────────────────────────────────────────────────────
+    import decimal as _decimal
+    def _safe_val(v):
+        """Normalize PostgreSQL types to values openpyxl can handle."""
+        if v is None:
+            return None
+        if isinstance(v, _decimal.Decimal):
+            return float(v)
+        # strip timezone from datetime so openpyxl doesn't choke
+        if hasattr(v, 'tzinfo') and hasattr(v, 'replace') and v.tzinfo is not None:
+            return v.replace(tzinfo=None)
+        return v
+
     for ri, row in enumerate(rows, start=3):
         is_alt = ri % 2 == 0
         for ci, (val, label) in enumerate(zip(row, display_cols), start=1):
-            cell = ws.cell(row=ri, column=ci, value=val)
+            cell = ws.cell(row=ri, column=ci, value=_safe_val(val))
             if is_alt:
                 cell.fill = ALT_FILL
             cell.border = BORDER
@@ -289,9 +304,12 @@ def export_fichas_excel(
     ws.freeze_panes = "A3"
     ws.auto_filter.ref = f"A2:{get_column_letter(ncols)}2"
 
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
+    try:
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al generar Excel: {e}")
 
     parts = [x[:20].replace(" ", "_") for x in [marca, categoria] if x]
     slug = "_".join(parts) if parts else "todas"
