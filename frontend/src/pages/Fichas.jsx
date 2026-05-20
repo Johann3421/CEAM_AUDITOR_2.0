@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { fichasProductoApi } from '../services/api';
 import FichasTable from '../components/fichas/FichasTable';
-import { Search, ChevronLeft, ChevronRight, X, SlidersHorizontal } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, SlidersHorizontal, FileDown } from 'lucide-react';
 
 const Fichas = () => {
   const [searchParams] = useSearchParams();
@@ -18,6 +18,7 @@ const Fichas = () => {
   const [total,   setTotal]   = useState(null);   // total count from backend
   const [loading, setLoading] = useState(true);
   const [page,    setPage]    = useState(0);
+  const [exporting, setExporting] = useState(false);
   const limit = 25;
 
   // ── Fetch ──────────────────────────────────────────────────
@@ -91,6 +92,33 @@ const Fichas = () => {
     if (col === 'categoria') { setCategoria(value); setPage(0); }
   };
 
+  // ── Excel export ──────────────────────────────────────────
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await fichasProductoApi.exportExcel({
+        search:    search    || undefined,
+        estado:    estado    || undefined,
+        marca:     marca     || undefined,
+        categoria: categoria || undefined,
+      });
+      const url  = window.URL.createObjectURL(new Blob([res.data]));
+      const a    = document.createElement('a');
+      a.href     = url;
+      const parts = [marca, categoria].filter(Boolean).map(v => v.slice(0, 20).replace(/\s+/g, '_'));
+      a.download = `fichas_${parts.length ? parts.join('_') : 'todas'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed', err);
+      alert('Error al exportar. Intenta de nuevo.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // ── Count label ────────────────────────────────────────────
   const countLabel = loading
     ? '…'
@@ -108,6 +136,37 @@ const Fichas = () => {
             Catálogo de fichas técnicas · <strong>{countLabel}</strong>
           </p>
         </div>
+        <button
+          onClick={handleExport}
+          disabled={exporting || loading}
+          title={activeFilters.length > 0 ? `Exportar ${total?.toLocaleString('es-PE') || ''} fichas con filtros activos` : 'Exportar todas las fichas'}
+          style={{
+            background: exporting
+              ? 'linear-gradient(135deg, #6b7280, #4b5563)'
+              : 'linear-gradient(135deg, #059669, #047857)',
+            color: '#fff',
+            border: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '10px 18px',
+            borderRadius: 10,
+            fontWeight: 600,
+            fontSize: '0.85rem',
+            cursor: exporting ? 'wait' : 'pointer',
+            opacity: loading ? 0.6 : 1,
+            boxShadow: '0 4px 12px rgba(5, 150, 105, 0.25)',
+            transition: 'all .2s',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <FileDown size={16} />
+          {exporting
+            ? 'Exportando…'
+            : activeFilters.length > 0
+              ? `Exportar ${total != null ? total.toLocaleString('es-PE') + ' ' : ''}fichas`
+              : 'Exportar todo'}
+        </button>
       </div>
 
       {/* ── Active filter chips ─────────────────────────────── */}

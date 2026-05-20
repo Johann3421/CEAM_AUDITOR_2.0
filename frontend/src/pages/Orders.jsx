@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { purchaseOrdersApi } from '../services/api';
 import OrderTable from '../components/orders/OrderTable';
-import { Search, ChevronLeft, ChevronRight, X, Trash2, SlidersHorizontal } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, Trash2, SlidersHorizontal, FileDown } from 'lucide-react';
 
 const Orders = () => {
   const location = useLocation();
@@ -19,6 +19,7 @@ const Orders = () => {
   const [limit] = useState(25);
   const [totalResults, setTotalResults] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [sort, setSort] = useState({ col: null, dir: 'desc' });
 
   const [search, setSearch] = useState(initialSearch);
@@ -96,6 +97,33 @@ const Orders = () => {
     setPage(0);
   };
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await purchaseOrdersApi.exportExcel({
+        catalogo:     catalogo     || undefined,
+        search:       search       || undefined,
+        estado_orden: estadoOrden  || undefined,
+        entidad:      entidad      || undefined,
+        proveedor:    proveedor    || undefined,
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a   = document.createElement('a');
+      a.href    = url;
+      const parts = [proveedor, entidad, catalogo].filter(Boolean).map(v => v.slice(0, 18).replace(/\s+/g, '_'));
+      a.download = `ordenes_${parts.length ? parts.join('_') : 'todas'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed', err);
+      alert('Error al exportar. Intenta de nuevo.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleDeleteAll = async () => {
     if (!window.confirm('⚠️ ¿Estás seguro de que deseas eliminar TODAS las órdenes de compra?\n\nEsta acción no se puede deshacer. Deberás volver a scrapear los datos.')) {
       return;
@@ -164,29 +192,61 @@ const Orders = () => {
             Historial completo de adquisiciones · <strong>{countLabel}</strong>
           </p>
         </div>
-        <button
-          onClick={handleDeleteAll}
-          disabled={deleting || loading}
-          className="btn"
-          style={{
-            background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-            color: '#fff',
-            border: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '10px 18px',
-            borderRadius: '10px',
-            fontWeight: 600,
-            fontSize: '0.85rem',
-            cursor: deleting ? 'wait' : 'pointer',
-            opacity: deleting ? 0.6 : 1,
-            boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)'
-          }}
-        >
-          <Trash2 size={16} />
-          {deleting ? 'Eliminando...' : 'Eliminar Todo'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <button
+            onClick={handleExport}
+            disabled={exporting || loading}
+            title={activeFilters.length > 0 ? `Exportar ${totalResults?.toLocaleString('es-PE') || ''} órdenes con filtros activos` : 'Exportar todas las órdenes'}
+            style={{
+              background: exporting
+                ? 'linear-gradient(135deg, #6b7280, #4b5563)'
+                : 'linear-gradient(135deg, #059669, #047857)',
+              color: '#fff',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '10px 18px',
+              borderRadius: 10,
+              fontWeight: 600,
+              fontSize: '0.85rem',
+              cursor: exporting ? 'wait' : 'pointer',
+              opacity: loading ? 0.6 : 1,
+              boxShadow: '0 4px 12px rgba(5, 150, 105, 0.25)',
+              transition: 'all .2s',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <FileDown size={16} />
+            {exporting
+              ? 'Exportando…'
+              : activeFilters.length > 0
+                ? `Exportar ${totalResults != null ? totalResults.toLocaleString('es-PE') + ' ' : ''}órdenes`
+                : 'Exportar todo'}
+          </button>
+          <button
+            onClick={handleDeleteAll}
+            disabled={deleting || loading}
+            style={{
+              background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+              color: '#fff',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '10px 18px',
+              borderRadius: '10px',
+              fontWeight: 600,
+              fontSize: '0.85rem',
+              cursor: deleting ? 'wait' : 'pointer',
+              opacity: deleting ? 0.6 : 1,
+              boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)',
+            }}
+          >
+            <Trash2 size={16} />
+            {deleting ? 'Eliminando...' : 'Eliminar Todo'}
+          </button>
+        </div>
       </div>
 
       {activeFilters.length > 0 && (

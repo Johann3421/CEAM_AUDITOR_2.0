@@ -17,6 +17,7 @@ export const purchaseOrdersApi = {
   deleteAll: () => api.delete('/purchase-orders/all'),
   getProviders: () => api.get('/purchase-orders/providers'),
   export: (params) => api.get('/purchase-orders/export', { params, responseType: 'blob' }),
+  exportExcel: (params) => api.get('/purchase-orders/export-excel', { params, responseType: 'blob' }),
 };
 
 export const scraperApi = {
@@ -39,6 +40,7 @@ export const fichasProductoApi = {
   getSummary: (params) => api.get('/fichas/summary', { params }),
   getColumnFilter: (col) => api.get(`/fichas/filters/${col}`),
   deleteAll: () => api.delete('/fichas/all'),
+  exportExcel: (params) => api.get('/fichas/export', { params, responseType: 'blob' }),
 };
 
 export const preciosFichasApi = {

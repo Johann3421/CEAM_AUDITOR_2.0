@@ -170,6 +170,162 @@ def export_orders_csv(
     )
 
 
+@router.get("/export-excel")
+def export_orders_excel(
+    catalogo: Optional[str] = Query(None),
+    categoria: Optional[str] = Query(None),
+    estado_orden: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    entidad: Optional[str] = Query(None),
+    proveedor: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Export purchase orders as a styled Excel file respecting all active filters."""
+    import io
+    import json as _json
+    from datetime import datetime
+    from fastapi.responses import StreamingResponse
+    from openpyxl import Workbook
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    orders = crud.get_orders(
+        db, skip=0, limit=100_000,
+        catalogo=catalogo, categoria=categoria,
+        estado_orden=estado_orden, search=search,
+        entidad=entidad, proveedor=proveedor,
+    )
+
+    # ── Column definitions: (display label, model attr, column width) ────
+    COLS = [
+        ("Orden Electrónica",        "orden_electronica",    24),
+        ("Nro. Orden Física",         "nro_orden_fisica",     20),
+        ("Fecha Publicación",         "fecha_publicacion",    18),
+        ("Entidad",                   "nombre_entidad",       40),
+        ("Proveedor",                 "nombre_proveedor",     40),
+        ("Catálogo",                  "catalogo",             22),
+        ("Categoría",                 "categoria",            26),
+        ("Estado",                    "estado_orden",         14),
+        ("Total con IGV (S/)",        "monto_total",          19),
+        ("Productos  (P/N · Precio unit. · Subtotal s/IGV)", "nro_parte", 60),
+    ]
+
+    # ── Styles ─────────────────────────────────────────────────────────────
+    HDR_FILL   = PatternFill("solid", fgColor="1E3A8A")
+    TITLE_FILL = PatternFill("solid", fgColor="0F172A")
+    ALT_FILL   = PatternFill("solid", fgColor="EFF6FF")
+    HDR_FONT   = Font(bold=True, color="FFFFFF", size=10, name="Calibri")
+    TITLE_FONT = Font(bold=True, color="FFFFFF", size=11, name="Calibri")
+    BOLD_GREEN = Font(bold=True, color="065F46", name="Calibri", size=9)
+    BASE_FONT  = Font(name="Calibri", size=9)
+    thin       = Side(style="thin", color="CBD5E1")
+    BORDER     = Border(left=thin, right=thin, top=thin, bottom=thin)
+    CENTER     = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    WRAP       = Alignment(wrap_text=True, vertical="top")
+    TOP        = Alignment(vertical="top")
+    R_TOP      = Alignment(horizontal="right", vertical="top")
+    MONEY_FMT  = "S/ #,##0.00"
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Órdenes de Compra"
+
+    # ── Title ────────────────────────────────────────────────────────────
+    filters_info = []
+    if proveedor:    filters_info.append(f"Proveedor: {proveedor}")
+    if entidad:      filters_info.append(f"Entidad: {entidad}")
+    if catalogo:     filters_info.append(f"Catálogo: {catalogo}")
+    if estado_orden: filters_info.append(f"Estado: {estado_orden}")
+    if search:       filters_info.append(f"Búsqueda: {search}")
+
+    title_txt = "Órdenes de Compra — CEAM AUDITOR"
+    if filters_info:
+        title_txt += f"  |  Filtros: {' · '.join(filters_info)}"
+    title_txt += f"  |  {len(orders):,} registros  |  Exportado: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+
+    ncols = len(COLS)
+    ws.merge_cells(f"A1:{get_column_letter(ncols)}1")
+    tc = ws["A1"]
+    tc.value = title_txt
+    tc.fill = TITLE_FILL
+    tc.font = TITLE_FONT
+    tc.alignment = CENTER
+    ws.row_dimensions[1].height = 24
+
+    # ── Headers ──────────────────────────────────────────────────────────
+    for ci, (label, _, width) in enumerate(COLS, start=1):
+        cell = ws.cell(row=2, column=ci, value=label)
+        cell.fill = HDR_FILL
+        cell.font = HDR_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+        ws.column_dimensions[get_column_letter(ci)].width = width
+    ws.row_dimensions[2].height = 28
+
+    # ── Data ─────────────────────────────────────────────────────────────
+    for ri, order in enumerate(orders, start=3):
+        is_alt = ri % 2 == 0
+        for ci, (label, field, _) in enumerate(COLS, start=1):
+            raw = getattr(order, field, None)
+
+            if field == "nro_parte":
+                try:
+                    prods = _json.loads(raw or "[]")
+                    if isinstance(prods, list) and prods:
+                        lines = []
+                        for p in prods:
+                            nro = p.get("nro_parte") or "—"
+                            pu  = p.get("precio_unitario")
+                            pt  = p.get("total")
+                            pu_s = f"S/ {float(pu):,.2f}" if pu is not None else "—"
+                            pt_s = f"S/ {float(pt):,.2f}" if pt is not None else "—"
+                            lines.append(f"• {nro}   unit.: {pu_s}   sub s/IGV: {pt_s}")
+                        val = "\n".join(lines)
+                    else:
+                        val = str(raw) if raw else "—"
+                except Exception:
+                    val = str(raw) if raw else "—"
+            elif field == "monto_total" and raw is not None:
+                val = float(raw)
+            elif field == "fecha_publicacion" and raw is not None:
+                val = str(raw)
+            else:
+                val = raw
+
+            cell = ws.cell(row=ri, column=ci, value=val)
+            if is_alt:
+                cell.fill = ALT_FILL
+            cell.border = BORDER
+
+            if field == "monto_total":
+                cell.font = BOLD_GREEN
+                cell.number_format = MONEY_FMT
+                cell.alignment = R_TOP
+            elif field == "nro_parte":
+                cell.font = BASE_FONT
+                cell.alignment = WRAP
+            else:
+                cell.font = BASE_FONT
+                cell.alignment = TOP
+
+    ws.freeze_panes = "A3"
+    ws.auto_filter.ref = f"A2:{get_column_letter(ncols)}2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    parts = [x[:20].replace(" ", "_") for x in [proveedor, entidad] if x]
+    slug  = "_".join(parts) if parts else "todas"
+    fname = f"ordenes_{slug}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 @router.get("/{order_id}", response_model=PurchaseOrderResponse)
 def get_order(order_id: int, db: Session = Depends(get_db)):
     order = crud.get_order(db, order_id)

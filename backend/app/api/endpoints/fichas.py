@@ -127,6 +127,183 @@ def list_fichas(
     }
 
 
+@router.get("/export")
+def export_fichas_excel(
+    acuerdo_marco: Optional[str] = Query(None),
+    catalogo: Optional[str] = Query(None),
+    categoria: Optional[str] = Query(None),
+    marca: Optional[str] = Query(None),
+    estado: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    con_precio: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Export fichas producto as a styled Excel file respecting active filters."""
+    import io
+    from datetime import datetime
+    from fastapi.responses import StreamingResponse
+    from openpyxl import Workbook
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    cols = _safe_col(db)
+    if not cols:
+        raise HTTPException(status_code=404, detail="No hay datos de fichas")
+
+    col_set = set(cols)
+    _, params, where_clause = _build_fichas_where(
+        col_set, acuerdo_marco, catalogo, categoria, marca, estado, search, con_precio
+    )
+    params["limit"] = 100_000
+    params["skip"] = 0
+
+    quoted_cols = ", ".join(f'"{c}"' for c in cols)
+    sql = text(
+        f"SELECT {quoted_cols} FROM {_TABLE} {where_clause}"
+        f" ORDER BY fecha_extraccion DESC NULLS LAST"
+        f" LIMIT :limit OFFSET :skip"
+    )
+    rows = db.execute(sql, params).fetchall()
+
+    # ── Friendly column labels ─────────────────────────────────────────────
+    COL_LABELS = {
+        "nro_parte_o_código_único_de_identificación": "Nro. Parte / Código",
+        "nro_parte_o_cdigo_nico_de_identificacin":   "Nro. Parte / Código",
+        "descripción_fichaproducto":  "Descripción",
+        "descripcin_fichaproducto":   "Descripción",
+        "marca":                      "Marca",
+        "categoría":                  "Categoría",
+        "categora":                   "Categoría",
+        "estado_ficha_producto":      "Estado",
+        "acuerdo_marco":              "Acuerdo Marco",
+        "catálogo":                   "Catálogo",
+        "catalogo":                   "Catálogo",
+        "precio_referencia":          "Precio Ref. (S/)",
+        "precio_min":                 "Precio Mín. (S/)",
+        "precio_max":                 "Precio Máx. (S/)",
+        "precio_mediana":             "Precio Mediana (S/)",
+        "precio_volatilidad":         "Volatilidad (%)",
+        "n_ordenes_precio":           "Nro. Órdenes",
+        "ficha_tcnica":               "Ficha Técnica (URL)",
+        "ficha_técnica":              "Ficha Técnica (URL)",
+        "imagen":                     "Imagen (URL)",
+        "fecha_extraccion":           "Fecha Extracción",
+        "fecha_primera_carga":        "Fecha Primera Carga",
+        "precio_actualizado_at":      "Precios actualizados",
+    }
+    COL_WIDTHS = {
+        "Nro. Parte / Código":  24,
+        "Descripción":          52,
+        "Marca":                22,
+        "Categoría":            32,
+        "Estado":               14,
+        "Acuerdo Marco":        28,
+        "Catálogo":             20,
+        "Precio Ref. (S/)":     17,
+        "Precio Mín. (S/)":     17,
+        "Precio Máx. (S/)":     17,
+        "Precio Mediana (S/)":  17,
+        "Volatilidad (%)":      16,
+        "Nro. Órdenes":         14,
+        "Ficha Técnica (URL)":  14,
+        "Imagen (URL)":         14,
+    }
+    MONEY_COLS = {"Precio Ref. (S/)", "Precio Mín. (S/)", "Precio Máx. (S/)", "Precio Mediana (S/)"}
+    PCT_COLS   = {"Volatilidad (%)"}
+
+    display_cols = [COL_LABELS.get(c, c.replace("_", " ").title()) for c in cols]
+
+    # ── Styles ─────────────────────────────────────────────────────────────
+    HDR_FILL   = PatternFill("solid", fgColor="1E3A8A")
+    TITLE_FILL = PatternFill("solid", fgColor="0F172A")
+    ALT_FILL   = PatternFill("solid", fgColor="EFF6FF")
+    HDR_FONT   = Font(bold=True, color="FFFFFF", size=10, name="Calibri")
+    TITLE_FONT = Font(bold=True, color="FFFFFF", size=11, name="Calibri")
+    BOLD       = Font(bold=True, name="Calibri")
+    BASE_FONT  = Font(name="Calibri", size=9)
+    thin       = Side(style="thin", color="CBD5E1")
+    BORDER     = Border(left=thin, right=thin, top=thin, bottom=thin)
+    CENTER     = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    WRAP       = Alignment(wrap_text=True, vertical="top")
+    TOP        = Alignment(vertical="top")
+    MONEY_FMT  = '#,##0.00'
+    PCT_FMT    = '0.00"%"'
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Fichas Producto"
+
+    # ── Title row ─────────────────────────────────────────────────────────
+    active_filters_info = []
+    if marca:        active_filters_info.append(f"Marca: {marca}")
+    if categoria:    active_filters_info.append(f"Categoría: {categoria}")
+    if estado:       active_filters_info.append(f"Estado: {estado}")
+    if search:       active_filters_info.append(f"Búsqueda: {search}")
+    if acuerdo_marco:active_filters_info.append(f"Acuerdo Marco: {acuerdo_marco}")
+    if con_precio:   active_filters_info.append("Solo con precio")
+
+    title_txt = "Fichas Producto — CEAM AUDITOR"
+    if active_filters_info:
+        title_txt += f"  |  Filtros: {' · '.join(active_filters_info)}"
+    title_txt += f"  |  {len(rows):,} registros  |  Exportado: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+
+    ncols = len(cols)
+    ws.merge_cells(f"A1:{get_column_letter(ncols)}1")
+    tc = ws["A1"]
+    tc.value = title_txt
+    tc.fill = TITLE_FILL
+    tc.font = TITLE_FONT
+    tc.alignment = CENTER
+    ws.row_dimensions[1].height = 24
+
+    # ── Header row ────────────────────────────────────────────────────────
+    for ci, label in enumerate(display_cols, start=1):
+        cell = ws.cell(row=2, column=ci, value=label)
+        cell.fill = HDR_FILL
+        cell.font = HDR_FONT
+        cell.alignment = CENTER
+        cell.border = BORDER
+        ws.column_dimensions[get_column_letter(ci)].width = COL_WIDTHS.get(label, 18)
+    ws.row_dimensions[2].height = 22
+
+    # ── Data rows ─────────────────────────────────────────────────────────
+    for ri, row in enumerate(rows, start=3):
+        is_alt = ri % 2 == 0
+        for ci, (val, label) in enumerate(zip(row, display_cols), start=1):
+            cell = ws.cell(row=ri, column=ci, value=val)
+            if is_alt:
+                cell.fill = ALT_FILL
+            cell.border = BORDER
+            cell.font = BASE_FONT
+            if label in MONEY_COLS:
+                cell.number_format = MONEY_FMT
+                cell.alignment = Alignment(horizontal="right", vertical="top")
+            elif label in PCT_COLS:
+                cell.number_format = '0.00'
+                cell.alignment = Alignment(horizontal="right", vertical="top")
+            elif label in ("Descripción", "Acuerdo Marco"):
+                cell.alignment = WRAP
+            else:
+                cell.alignment = TOP
+
+    ws.freeze_panes = "A3"
+    ws.auto_filter.ref = f"A2:{get_column_letter(ncols)}2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    parts = [x[:20].replace(" ", "_") for x in [marca, categoria] if x]
+    slug = "_".join(parts) if parts else "todas"
+    fname = f"fichas_{slug}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 @router.get("/summary")
 def fichas_summary(
     acuerdo_marco: Optional[str] = Query(None),
@@ -468,7 +645,7 @@ async def get_alertas_suspendidas(
                 datos[marca] = []
             datos[marca].append({
                 "nro_parte": d["nro_parte"],
-                "descripcion": d.get("descripcion", ""),
+                "descripcion": d["descripcion"],
                 "anterior": d["anterior"],
                 "actual": d["actual"]
             })
