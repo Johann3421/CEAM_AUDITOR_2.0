@@ -41,6 +41,7 @@ export const fichasProductoApi = {
   getColumnFilter: (col) => api.get(`/fichas/filters/${col}`),
   deleteAll: () => api.delete('/fichas/all'),
   exportExcel: (params) => api.get('/fichas/export', { params, responseType: 'blob' }),
+  getCatalog: (params) => api.get('/fichas/catalog', { params }),
 };
 
 export const preciosFichasApi = {
