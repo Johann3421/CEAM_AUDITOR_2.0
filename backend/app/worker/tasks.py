@@ -107,3 +107,29 @@ def scrape_fichas_task(
     finally:
         loop.close()
         asyncio.set_event_loop(None)
+
+
+@celery_app.task(bind=True, name="tasks.refresh_video_specs")
+def refresh_video_specs_task(self) -> dict:
+    """
+    Descarga los PDFs de ficha técnica de Kenya Technology y extrae el campo
+    de video/gráficos. Guarda el resultado en app/data/kenya_video_specs.json.
+
+    Programada: cada lunes a las 06:00 America/Lima.
+    También puede ejecutarse manualmente vía POST /fichas/video-specs/refresh.
+    """
+    from app.services.video_specs import run_extraction
+
+    logger.info("Starting refresh_video_specs task [id=%s]", self.request.id)
+    self.update_state(state="STARTED", meta={"progress": 0})
+
+    db = SessionLocal()
+    try:
+        result = run_extraction(db)
+        logger.info("refresh_video_specs completed: %s", result)
+        return result
+    except Exception as exc:
+        logger.exception("refresh_video_specs task failed")
+        raise RuntimeError(str(exc)) from None
+    finally:
+        db.close()
