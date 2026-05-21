@@ -522,11 +522,67 @@ def get_catalog_api(
             col_spec_keys[col] = key
             seen_spec_keys.add(key)
 
+    # ── Monitor specs lookup (pre-computed from PDF extraction) ──────────
+    import json as _json
+    from pathlib import Path as _Path
+
+    _monitor_specs: dict = {}
+    _monitor_data_file = _Path(__file__).parent.parent.parent / "data" / "kenya_monitor_specs_dict.json"
+    if _monitor_data_file.exists():
+        try:
+            _monitor_specs = _json.loads(_monitor_data_file.read_text(encoding="utf-8"))
+        except Exception:
+            _monitor_specs = {}
+
+    # Campos de monitors con valor negativo que se omiten si dicen "No"
+    _MONITOR_CONNECTIVITY = {"hdmi", "displayport", "vga", "usb", "lan", "wlan"}
+
+    def build_monitor_specs(nro_parte: str | None, desc_raw: str | None) -> dict:
+        """
+        Para monitores: devuelve specs desde el JSON pre-computado o, como
+        fallback, parsea el campo descripción. Omite conectividad con valor 'No'.
+        """
+        key = (nro_parte or "").upper().strip()
+        if key and key in _monitor_specs:
+            raw = _monitor_specs[key]
+            return {
+                k: v for k, v in raw.items()
+                if k not in ("nro_parte", "modelo", "ficha_tecnica_url")
+                and v is not None
+                and not (k in _MONITOR_CONNECTIVITY and str(v).strip().upper() == "NO")
+            }
+        # Fallback: parsear descripción básica
+        import re as _re2
+        specs: dict = {}
+        desc = (desc_raw or "").upper()
+        size_m = _re2.search(r'(\d+(?:\.\d+)?)"', desc)
+        if size_m:
+            specs["tamano_pantalla"] = f'{size_m.group(1)} Pulgadas'
+        res_m = _re2.search(r'(\d{3,4})[Xx](\d{3,4})\s*PIXELES', desc)
+        if res_m:
+            specs["resolucion"] = f'{res_m.group(1)} x {res_m.group(2)} Pixeles'
+        if "IPS" in desc:
+            specs["panel"] = "IPS"
+        elif " VA" in desc or desc.startswith("VA"):
+            specs["panel"] = "VA"
+        if "LCD" in desc and "LED" in desc:
+            specs["tecnologia_pantalla"] = "LCD con Retroiluminación LED"
+        return specs
+
     # ── Build response items ──────────────────────────────────────────────
     items = []
     for row in rows:
         d = dict(zip(cols, row))
-        specs = {skey: clean_text(d.get(col)) for col, skey in col_spec_keys.items()}
+        cat_val = (clean_text(d.get(CAT_COL)) or "") if CAT_COL else ""
+        is_monitor = "MONITOR" in cat_val.upper()
+
+        if is_monitor:
+            nro = clean_text(d.get(NRO_PARTE_COL)) if NRO_PARTE_COL else None
+            desc_raw = d.get(DESC_COL) if DESC_COL else None
+            specs = build_monitor_specs(nro, str(desc_raw) if desc_raw else None)
+        else:
+            specs = {skey: clean_text(d.get(col)) for col, skey in col_spec_keys.items()}
+
         items.append({
             "nro_parte":         clean_text(d.get(NRO_PARTE_COL)) if NRO_PARTE_COL else None,
             "modelo":            clean_text(d.get(MODEL_SRC))      if MODEL_SRC     else None,
