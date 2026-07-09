@@ -114,6 +114,15 @@ const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, 
                   apiCall={purchaseOrdersApi.getColumnFilter}
                 />
               </th>
+              <th>
+                <HeaderFilter 
+                  title="Marca" 
+                  column="marca" 
+                  currentFilter={filters.marca} 
+                  onFilterChange={(v) => onFilterChange({ marca: v })}
+                  apiCall={purchaseOrdersApi.getColumnFilter}
+                />
+              </th>
               <th style={{ width: 90 }}>Publicación</th>
               <th style={{ minWidth: 260 }}>
                 <div>Productos</div>
@@ -173,6 +182,11 @@ const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, 
                       {order.nombre_proveedor}
                     </span>
                   </div>
+                </td>
+                <td>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--c-text-secondary)' }}>
+                    {order.marca || '—'}
+                  </span>
                 </td>
                 <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--c-text-secondary)', fontSize: 11 }}>

@@ -146,6 +146,8 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
         elif "orden" in cl and "electr" in cl and "estado" not in cl and "sub" not in cl and "igv" not in cl and "total" not in cl:
             if "orden_electronica" not in col_map:
                 col_map["orden_electronica"] = col
+        elif "marca" in cl:
+            col_map["marca"] = col
 
     logger.info("Column mapping: %s", col_map)
 
@@ -362,6 +364,7 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
                 orden_digitalizada=str(_get("orden_digitalizada")).strip() or None,
                 nro_parte=str(_get("nro_parte")).strip() or None,
                 precio_unitario=_get_decimal("precio_unitario"),
+                marca=str(_get("marca")).strip() or None,
             )
             orders.append(order)
         except Exception as exc:

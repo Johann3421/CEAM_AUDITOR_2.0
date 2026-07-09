@@ -16,6 +16,7 @@ _NEW_COLS = [
     ("purchase_orders", "nro_parte",          "TEXT"),
     ("purchase_orders", "precio_unitario",     "NUMERIC(14,4)"),
     ("purchase_orders", "orden_electronica",   "TEXT UNIQUE"),
+    ("purchase_orders", "marca",               "TEXT"),
 ]
 try:
     with engine.begin() as _c:

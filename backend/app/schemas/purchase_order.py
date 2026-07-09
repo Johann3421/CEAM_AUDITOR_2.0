@@ -28,6 +28,7 @@ class PurchaseOrderBase(BaseModel):
     orden_digitalizada: Optional[str] = None
     nro_parte: Optional[str] = None
     precio_unitario: Optional[Decimal] = None
+    marca: Optional[str] = None
 
 class PurchaseOrderCreate(PurchaseOrderBase):
     pass

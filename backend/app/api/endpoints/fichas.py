@@ -322,6 +322,57 @@ def export_fichas_excel(
     )
 
 
+@router.get("/export-json")
+def export_fichas_json(
+    acuerdo_marco: Optional[str] = Query(None),
+    catalogo: Optional[str] = Query(None),
+    categoria: Optional[str] = Query(None),
+    marca: Optional[str] = Query(None),
+    estado: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    con_precio: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Export fichas producto as a JSON file respecting active filters."""
+    cols = _safe_col(db)
+    if not cols:
+        raise HTTPException(status_code=404, detail="No hay datos de fichas")
+
+    col_set = set(cols)
+    _, params, where_clause = _build_fichas_where(
+        col_set, acuerdo_marco, catalogo, categoria, marca, estado, search, con_precio
+    )
+    params["limit"] = 100_000
+    params["skip"] = 0
+
+    quoted_cols = ", ".join(f'"{c}"' for c in cols)
+    sql = text(
+        f"SELECT {quoted_cols} FROM {_TABLE} {where_clause}"
+        f" ORDER BY fecha_extraccion DESC NULLS LAST"
+        f" LIMIT :limit OFFSET :skip"
+    )
+    try:
+        rows = db.execute(sql, params).fetchall()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al consultar fichas: {e}")
+
+    items = []
+    for row in rows:
+        d = dict(zip(cols, row))
+        # Convert datetime/decimal types to JSON serializable formats
+        import decimal
+        from datetime import datetime
+        for k, v in d.items():
+            if isinstance(v, decimal.Decimal):
+                d[k] = float(v)
+            elif isinstance(v, datetime):
+                d[k] = v.isoformat()
+        items.append(d)
+
+    return items
+
+
+
 @router.get("/catalog")
 def get_catalog_api(
     marca: Optional[str] = Query(None, description="Filter by brand, e.g. 'KENYA TECHNOLOGY'"),
