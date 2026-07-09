@@ -31,6 +31,7 @@ def get_orders(
     search: Optional[str] = None,
     entidad: Optional[str] = None,
     proveedor: Optional[str] = None,
+    marca: Optional[str] = None,
 ) -> List[PurchaseOrder]:
     from sqlalchemy import or_
     q = db.query(PurchaseOrder)
@@ -44,6 +45,8 @@ def get_orders(
         q = q.filter(PurchaseOrder.nombre_entidad == entidad)
     if proveedor:
         q = q.filter(PurchaseOrder.nombre_proveedor == proveedor)
+    if marca:
+        q = q.filter(PurchaseOrder.marca == marca)
     if search:
         q = q.filter(
             or_(

@@ -20,6 +20,7 @@ def list_orders(
     search: Optional[str] = Query(None),
     entidad: Optional[str] = Query(None),
     proveedor: Optional[str] = Query(None),
+    marca: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     """List purchase orders with optional filters and pagination."""
@@ -33,6 +34,7 @@ def list_orders(
         search=search,
         entidad=entidad,
         proveedor=proveedor,
+        marca=marca,
     )
 
 
@@ -87,6 +89,7 @@ def get_column_filters(column_name: str, db: Session = Depends(get_db)):
         "entidad": PurchaseOrder.nombre_entidad,
         "proveedor": PurchaseOrder.nombre_proveedor,
         "estado": PurchaseOrder.estado_orden,
+        "marca": PurchaseOrder.marca,
     }
     if column_name not in valid_columns:
         raise HTTPException(status_code=400, detail="Columna no permitida para filtros")
