@@ -48,13 +48,13 @@ const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, 
         >
           <colgroup>
             <col style={{ width: 50 }} />   {/* Expand/Collapse Chevron */}
-            <col style={{ width: 180 }} />  {/* Nro. Orden */}
-            <col style={{ width: 280 }} />  {/* Entidad */}
-            <col style={{ width: 280 }} />  {/* Proveedor / Marca */}
+            <col style={{ width: 150 }} />  {/* Nro. Orden */}
+            <col />                         {/* Entidad — flexible, fills remaining space */}
+            <col style={{ width: 250 }} />  {/* Proveedor / Marca */}
             <col style={{ width: 110 }} />  {/* Publicación */}
-            <col style={{ width: 200 }} />  {/* Productos (Resumen) */}
-            <col style={{ width: 130 }} />  {/* Total */}
-            <col style={{ width: 200 }} />  {/* Estado */}
+            <col style={{ width: 220 }} />  {/* Productos (Resumen) */}
+            <col style={{ width: 120 }} />  {/* Total */}
+            <col style={{ width: 170 }} />  {/* Estado */}
             <col style={{ width: 60 }} />   {/* Doc */}
           </colgroup>
           <thead>
