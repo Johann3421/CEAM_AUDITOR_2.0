@@ -1,5 +1,5 @@
-import React from 'react';
-import { ExternalLink, FileText, Building2, User, Calendar, Download, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
+import React, { useState } from 'react';
+import { ExternalLink, FileText, Building2, User, Calendar, Download, ArrowUp, ArrowDown, ChevronsUpDown, ChevronDown, ChevronUp, Package, MapPin, ClipboardList, Info } from 'lucide-react';
 import { purchaseOrdersApi } from '../../services/api';
 import HeaderFilter from '../HeaderFilter';
 
@@ -7,6 +7,15 @@ const fmt = (n) =>
   n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, sort, onSort }) => {
+  const [expandedRows, setExpandedRows] = useState({});
+
+  const toggleRow = (id) => {
+    setExpandedRows((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  };
+
   if (loading) {
     return (
       <div className="card" style={{ marginTop: 16 }}>
@@ -30,56 +39,6 @@ const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, 
     );
   }
 
-  const renderProductos = (nro_parte_str) => {
-    try {
-      const prods = JSON.parse(nro_parte_str);
-      if (Array.isArray(prods)) {
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            {prods.map((p, idx) => (
-              <div key={idx} style={{
-                fontSize: 11, background: 'var(--c-bg)',
-                border: '1px solid var(--c-border)',
-                borderRadius: 7, overflow: 'hidden',
-              }}>
-                {/* P/N row */}
-                <div style={{
-                  padding: '4px 8px',
-                  borderBottom: '1px solid var(--c-border)',
-                  display: 'flex', alignItems: 'center', gap: 5,
-                }}>
-                  <span style={{
-                    fontSize: 9, padding: '1px 5px', borderRadius: 3,
-                    background: 'rgba(37,99,235,0.1)', color: 'var(--c-brand)',
-                    fontWeight: 700, letterSpacing: 0.4, flexShrink: 0,
-                  }}>P/N</span>
-                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--c-text)', letterSpacing: 0.3 }}>
-                    {p.nro_parte || '—'}
-                  </span>
-                </div>
-                {/* Price row */}
-                <div style={{
-                  padding: '4px 8px',
-                  display: 'grid', gridTemplateColumns: '1fr 1fr',
-                  gap: 4,
-                }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <span style={{ fontSize: 9, color: 'var(--c-text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Precio unit.</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--c-text-secondary)', fontWeight: 500 }}>
-                      S/ {fmt(p.precio_unitario)}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'flex-end' }}>
-                    <span style={{ fontSize: 9, color: 'var(--c-text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Subtotal <span style={{ color: 'var(--c-warning)', fontWeight: 700 }}>s/IGV</span></span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--c-text)' }}>
-                      S/ {fmt(p.total)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        );
   return (
     <div className="card" style={{ marginTop: 16, overflow: 'visible' }}>
       <div className="table-wrap">
