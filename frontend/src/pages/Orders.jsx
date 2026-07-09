@@ -26,6 +26,7 @@ const Orders = () => {
   const [search, setSearch] = useState(initialSearch);
   const [catalogo, setCatalogo] = useState(initialCatalogo);
   const [catalogoOptions, setCatalogoOptions] = useState([]);
+  const [estadoOptions, setEstadoOptions] = useState([]);
   
   // Custom Table Header Filters
   const [estadoOrden, setEstadoOrden] = useState(initialEstado);
@@ -36,6 +37,13 @@ const Orders = () => {
   useEffect(() => {
     purchaseOrdersApi.getCatalogosFilter()
       .then((res) => setCatalogoOptions(res.data.catalogos || []))
+      .catch(() => {});
+  }, []);
+
+  // Load distinct state values from the DB
+  useEffect(() => {
+    purchaseOrdersApi.getColumnFilter('estado')
+      .then((res) => setEstadoOptions(res.data.values || []))
       .catch(() => {});
   }, []);
 
@@ -193,10 +201,10 @@ const Orders = () => {
 
   const sortedOrders = sort.col
     ? [...orders].sort((a, b) => {
-        const va = a[sort.col] ?? (sort.dir === 'desc' ? -Infinity : Infinity);
-        const vb = b[sort.col] ?? (sort.dir === 'desc' ? -Infinity : Infinity);
-        return sort.dir === 'desc' ? vb - va : va - vb;
-      })
+         const va = a[sort.col] ?? (sort.dir === 'desc' ? -Infinity : Infinity);
+         const vb = b[sort.col] ?? (sort.dir === 'desc' ? -Infinity : Infinity);
+         return sort.dir === 'desc' ? vb - va : va - vb;
+       })
     : orders;
 
   return (
@@ -330,6 +338,17 @@ const Orders = () => {
           <option value="">Todos los catálogos</option>
           {catalogoOptions.map((c) => (
             <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+
+        <select
+          className="form-select"
+          value={estadoOrden}
+          onChange={(e) => { setEstadoOrden(e.target.value); setPage(0); }}
+        >
+          <option value="">Todos los estados</option>
+          {estadoOptions.map((e) => (
+            <option key={e} value={e}>{e}</option>
           ))}
         </select>
 

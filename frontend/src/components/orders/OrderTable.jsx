@@ -6,6 +6,27 @@ import HeaderFilter from '../HeaderFilter';
 const fmt = (n) =>
   n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const getStatusConfig = (status) => {
+  if (!status) return { label: 'S/E', className: 'badge-info' };
+  const s = status.toUpperCase();
+  if (s.includes('CONCLU')) {
+    return { label: 'Concluida', className: 'badge-success' };
+  }
+  if (s.includes('PENDIENTE') || s.includes('PEND')) {
+    if (s.includes('ACEPTADA') || s.includes('ACEPT')) {
+      return { label: 'Aceptada (Pend.)', className: 'badge-warning' };
+    }
+    return { label: 'Pendiente', className: 'badge-warning' };
+  }
+  if (s.includes('RECHAZADA') || s.includes('ANULADA')) {
+    return { label: s.includes('RECHAZADA') ? 'Rechazada' : 'Anulada', className: 'badge-danger' };
+  }
+  if (s.includes('ACEPTADA') || s.includes('ACEPT')) {
+    return { label: 'Aceptada', className: 'badge-success' };
+  }
+  return { label: status, className: 'badge-info' };
+};
+
 const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, sort, onSort }) => {
   const [expandedRows, setExpandedRows] = useState({});
 
@@ -98,15 +119,7 @@ const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, 
                   <span style={{ fontSize: 9, fontWeight: 400, color: 'var(--c-success)', letterSpacing: 0.3 }}>con IGV</span>
                 </div>
               </th>
-              <th>
-                <HeaderFilter 
-                  title="Estado" 
-                  column="estado" 
-                  currentFilter={filters.estadoOrden}
-                  onFilterChange={(v) => onFilterChange({ estadoOrden: v })}
-                  apiCall={purchaseOrdersApi.getColumnFilter}
-                />
-              </th>
+              <th>Estado</th>
               <th style={{ textAlign: 'center' }}>Doc</th>
             </tr>
           </thead>
@@ -214,15 +227,18 @@ const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, 
                       {order.monto_total != null ? `S/ ${fmt(order.monto_total)}` : '—'}
                     </td>
                     <td>
-                      <span className={`badge ${
-                        order.estado_orden?.toLowerCase().includes('aceptada')
-                          ? 'badge-success'
-                          : order.estado_orden?.toLowerCase().includes('pend')
-                            ? 'badge-warning'
-                            : 'badge-info'
-                      }`} style={{ fontSize: 10, padding: '4px 8px', borderRadius: 4, fontWeight: 700 }}>
-                        {order.estado_orden || 'S/E'}
-                      </span>
+                      {(() => {
+                        const statusCfg = getStatusConfig(order.estado_orden);
+                        return (
+                          <span 
+                            className={`badge ${statusCfg.className}`} 
+                            style={{ fontSize: 10, padding: '4px 8px', borderRadius: 4, fontWeight: 700 }}
+                            title={order.estado_orden}
+                          >
+                            {statusCfg.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                       {order.orden_digitalizada ? (
