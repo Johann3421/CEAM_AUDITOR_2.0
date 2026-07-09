@@ -109,6 +109,142 @@ def delete_all_orders(db: Session = Depends(get_db)):
     return {"deleted": count, "message": f"Se eliminaron {count} órdenes de compra"}
 
 
+@router.post("/enrich-marcas")
+def enrich_marcas(db: Session = Depends(get_db)):
+    """
+    Populate purchase_orders.marca from multiple sources (priority order):
+      1. fichas_producto — exact JOIN by nro_parte (most reliable).
+      2. Regex on detalle_producto against a curated brand list.
+      3. Prefix heuristic on nro_parte codes (e.g. HP-, DELL-).
+    Returns counts of orders updated per source.
+    """
+    import json
+    import re
+    from sqlalchemy import text as _text
+
+    # ── 1. Source A: fichas_producto JOIN by nro_parte ─────────────────────
+    # purchase_orders.nro_parte stores a JSON array:
+    # [{"nro_parte": "HP-XXXXX", ...}, ...]
+    # fichas_producto has columns "nro_parte_o_código_único_de_identificación"
+    # (or similar) and "marca".
+    # Strategy: for each order, expand JSON products, look up each p/n in fichas,
+    # take the first marca found.
+
+    updated_fichas = 0
+    updated_regex  = 0
+    updated_prefix = 0
+
+    # Detect the nro_parte column name in fichas_producto
+    try:
+        fich_cols = db.execute(
+            _text("SELECT column_name FROM information_schema.columns WHERE table_name='fichas_producto'")
+        ).fetchall()
+        fich_col_names = [r[0] for r in fich_cols]
+        nro_col = next(
+            (c for c in fich_col_names if c.startswith("nro_parte")),
+            None,
+        )
+        marca_fichas_col = "marca" if "marca" in fich_col_names else None
+    except Exception:
+        nro_col = None
+        marca_fichas_col = None
+
+    if nro_col and marca_fichas_col:
+        # Build dict {nro_parte_upper: marca} from fichas_producto
+        try:
+            fichas_rows = db.execute(
+                _text(f'SELECT UPPER(TRIM("{nro_col}")), UPPER(TRIM("{marca_fichas_col}")) FROM fichas_producto WHERE "{marca_fichas_col}" IS NOT NULL AND "{marca_fichas_col}" != \'\'')
+            ).fetchall()
+            fichas_map = {r[0]: r[1] for r in fichas_rows if r[0]}
+        except Exception:
+            fichas_map = {}
+    else:
+        fichas_map = {}
+
+    # ── 2. Known brand list for regex ──────────────────────────────────────
+    KNOWN_BRANDS = [
+        "HP", "HEWLETT PACKARD", "DELL", "LENOVO", "ASUS", "ACER", "MSI",
+        "APPLE", "SAMSUNG", "LG", "SONY", "TOSHIBA", "EPSON", "CANON",
+        "BROTHER", "XEROX", "LEXMARK", "INTEL", "AMD", "NVIDIA",
+        "GIGABYTE", "BIOSTAR", "ASRock", "CORSAIR", "KINGSTON", "SEAGATE",
+        "WESTERN DIGITAL", "WD", "SANDISK", "CRUCIAL", "LOGITECH",
+        "MICROSOFT", "BENQ", "VIEWSONIC", "AOC", "PHILIPS",
+        "KENYA", "ABAD", "SECURITAS",
+    ]
+    # Build compiled regex: word boundary around each brand, case-insensitive
+    brand_pattern = re.compile(
+        r'\b(' + '|'.join(re.escape(b) for b in KNOWN_BRANDS) + r')\b',
+        re.IGNORECASE
+    )
+
+    # ── 3. Prefix heuristics ───────────────────────────────────────────────
+    PREFIX_MAP = {
+        "HP-": "HP", "DELL-": "DELL", "LN-": "LENOVO",
+        "AX-": "ASUS", "AC-": "ACER", "MS-": "MSI",
+    }
+
+    # ── Process each order without a marca ────────────────────────────────
+    from app.models.purchase_order import PurchaseOrder as _PO
+    orders_to_enrich = db.query(_PO).filter(
+        (_PO.marca.is_(None)) | (_PO.marca == '')
+    ).all()
+
+    for order in orders_to_enrich:
+        marca_found = None
+
+        # Source A: fichas_producto via nro_parte JSON
+        if fichas_map and order.nro_parte:
+            try:
+                prods = json.loads(order.nro_parte)
+                if isinstance(prods, list):
+                    for p in prods:
+                        key = str(p.get("nro_parte", "")).strip().upper()
+                        if key and key in fichas_map:
+                            marca_found = fichas_map[key]
+                            break
+            except Exception:
+                pass
+            if marca_found:
+                updated_fichas += 1
+
+        # Source B: regex on detalle_producto
+        if not marca_found and order.detalle_producto:
+            m = brand_pattern.search(order.detalle_producto)
+            if m:
+                marca_found = m.group(1).upper()
+                updated_regex += 1
+
+        # Source C: prefix on nro_parte codes
+        if not marca_found and order.nro_parte:
+            try:
+                prods = json.loads(order.nro_parte)
+                if isinstance(prods, list):
+                    for p in prods:
+                        pn = str(p.get("nro_parte", "")).strip().upper()
+                        for prefix, brand in PREFIX_MAP.items():
+                            if pn.startswith(prefix):
+                                marca_found = brand
+                                break
+                        if marca_found:
+                            break
+            except Exception:
+                pass
+            if marca_found:
+                updated_prefix += 1
+
+        if marca_found:
+            order.marca = marca_found
+
+    db.commit()
+    total_updated = updated_fichas + updated_regex + updated_prefix
+    return {
+        "total_updated": total_updated,
+        "from_fichas": updated_fichas,
+        "from_regex": updated_regex,
+        "from_prefix": updated_prefix,
+    }
+
+
 @router.get("/providers")
 def list_providers(db: Session = Depends(get_db)):
     """Return all distinct providers with their order count and total amount."""

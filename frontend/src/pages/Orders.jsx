@@ -21,6 +21,7 @@ const Orders = () => {
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [sort, setSort] = useState({ col: null, dir: 'desc' });
+  const [enriching, setEnriching] = useState(false);
 
   const [search, setSearch] = useState(initialSearch);
   const [catalogo, setCatalogo] = useState(initialCatalogo);
@@ -124,6 +125,21 @@ const Orders = () => {
     }
   };
 
+  const handleEnrichMarcas = async () => {
+    setEnriching(true);
+    try {
+      const res = await purchaseOrdersApi.enrichMarcas();
+      const d = res.data;
+      alert(`✅ Marcas enriquecidas: ${d.total_updated} órdenes actualizadas\n  - Desde fichas producto: ${d.from_fichas}\n  - Desde descripción: ${d.from_regex}\n  - Desde prefijo P/N: ${d.from_prefix}`);
+      fetchOrders();
+    } catch (err) {
+      console.error('Enrich marcas failed', err);
+      alert('❌ Error al enriquecer marcas.');
+    } finally {
+      setEnriching(false);
+    }
+  };
+
   const handleDeleteAll = async () => {
     if (!window.confirm('⚠️ ¿Estás seguro de que deseas eliminar TODAS las órdenes de compra?\n\nEsta acción no se puede deshacer. Deberás volver a scrapear los datos.')) {
       return;
@@ -223,6 +239,32 @@ const Orders = () => {
               : activeFilters.length > 0
                 ? `Exportar ${totalResults != null ? totalResults.toLocaleString('es-PE') + ' ' : ''}órdenes`
                 : 'Exportar todo'}
+          </button>
+          <button
+            onClick={handleEnrichMarcas}
+            disabled={enriching || loading}
+            title="Enriquecer marcas desde fichas producto y descripción"
+            style={{
+              background: enriching
+                ? 'linear-gradient(135deg, #6b7280, #4b5563)'
+                : 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+              color: '#fff',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '10px 18px',
+              borderRadius: 10,
+              fontWeight: 600,
+              fontSize: '0.85rem',
+              cursor: enriching ? 'wait' : 'pointer',
+              opacity: loading ? 0.6 : 1,
+              boxShadow: '0 4px 12px rgba(124, 58, 237, 0.25)',
+              transition: 'all .2s',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            🏷️ {enriching ? 'Buscando marcas…' : 'Enriquecer Marcas'}
           </button>
           <button
             onClick={handleDeleteAll}

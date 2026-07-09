@@ -107,19 +107,10 @@ const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, 
               </th>
               <th>
                 <HeaderFilter 
-                  title="Proveedor" 
+                  title="Proveedor / Marca" 
                   column="proveedor" 
                   currentFilter={filters.proveedor} 
                   onFilterChange={(v) => onFilterChange({ proveedor: v })}
-                  apiCall={purchaseOrdersApi.getColumnFilter}
-                />
-              </th>
-              <th>
-                <HeaderFilter 
-                  title="Marca" 
-                  column="marca" 
-                  currentFilter={filters.marca} 
-                  onFilterChange={(v) => onFilterChange({ marca: v })}
                   apiCall={purchaseOrdersApi.getColumnFilter}
                 />
               </th>
@@ -176,17 +167,23 @@ const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, 
                   </div>
                 </td>
                 <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <User size={13} style={{ color: 'var(--c-text-tertiary)', flexShrink: 0 }} />
-                    <span style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--c-text-secondary)' }} title={order.nombre_proveedor}>
-                      {order.nombre_proveedor}
-                    </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <User size={13} style={{ color: 'var(--c-text-tertiary)', flexShrink: 0 }} />
+                      <span style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--c-text-secondary)' }} title={order.nombre_proveedor}>
+                        {order.nombre_proveedor}
+                      </span>
+                    </div>
+                    {order.marca && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, color: 'var(--c-brand)',
+                        background: 'rgba(37,99,235,0.08)', borderRadius: 4,
+                        padding: '1px 6px', alignSelf: 'flex-start', letterSpacing: 0.3,
+                      }}>
+                        {order.marca}
+                      </span>
+                    )}
                   </div>
-                </td>
-                <td>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--c-text-secondary)' }}>
-                    {order.marca || '—'}
-                  </span>
                 </td>
                 <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--c-text-secondary)', fontSize: 11 }}>

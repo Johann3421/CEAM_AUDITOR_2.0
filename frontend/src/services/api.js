@@ -18,6 +18,7 @@ export const purchaseOrdersApi = {
   getProviders: () => api.get('/purchase-orders/providers'),
   export: (params) => api.get('/purchase-orders/export', { params, responseType: 'blob' }),
   exportExcel: (params) => api.get('/purchase-orders/export-excel', { params, responseType: 'blob' }),
+  enrichMarcas: () => api.post('/purchase-orders/enrich-marcas'),
 };
 
 export const scraperApi = {
