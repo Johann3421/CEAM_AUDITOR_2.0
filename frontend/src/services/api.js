@@ -48,6 +48,7 @@ export const fichasProductoApi = {
 export const preciosFichasApi = {
   getStats: () => api.get('/fichas/precio-stats'),
   enrich: () => api.post('/fichas/enrich-precios'),
+  exportJson: (params) => api.get('/fichas/export-json', { params }),
 };
 
 export default api;

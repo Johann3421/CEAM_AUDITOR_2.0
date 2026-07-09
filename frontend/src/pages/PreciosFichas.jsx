@@ -4,7 +4,7 @@ import { preciosFichasApi, fichasProductoApi } from '../services/api';
 import {
   DollarSign, Zap, TrendingUp, AlertTriangle, CheckCircle,
   Loader2, RefreshCw, ChevronLeft, ChevronRight, Info, Search,
-  ArrowUp, ArrowDown, ChevronsUpDown, Filter
+  ArrowUp, ArrowDown, ChevronsUpDown, Filter, FileDown
 } from 'lucide-react';
 import HeaderFilter from '../components/HeaderFilter';
 
@@ -48,6 +48,7 @@ const PreciosFichas = () => {
   const [fichas, setFichas]         = useState([]);
   const [loading, setLoading]       = useState(true);
   const [enriching, setEnriching]   = useState(false);
+  const [exporting, setExporting]   = useState(false);
   const [enrichResult, setEnrichResult] = useState(null);
   const [page, setPage]             = useState(0);
   const [soloConPrecio, setSoloConPrecio] = useState(false);
@@ -137,6 +138,38 @@ const PreciosFichas = () => {
     }
   };
 
+  const handleExportJson = async () => {
+    setExporting(true);
+    try {
+      const params = {};
+      if (soloConPrecio) params.con_precio = true;
+      if (currentSearch) params.search = currentSearch;
+      if (filters.marca) params.marca = filters.marca;
+      if (filters.acuerdo_marco) params.acuerdo_marco = filters.acuerdo_marco;
+      if (filters.nro_parte) params.nro_parte = filters.nro_parte;
+      if (filters.precio_min) params.precio_min = filters.precio_min;
+      if (filters.precio_max) params.precio_max = filters.precio_max;
+      if (filters.volatilidad) params.volatilidad = filters.volatilidad;
+
+      const res = await preciosFichasApi.exportJson(params);
+      const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+        JSON.stringify(res.data, null, 2)
+      )}`;
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', jsonString);
+      const slug = [filters.marca, currentSearch].filter(Boolean).map(v => v.slice(0, 18).replace(/\s+/g, '_')).join('_') || 'fichas';
+      downloadAnchor.setAttribute('download', `precios_fichas_${slug}_${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    } catch (err) {
+      console.error('Export failed', err);
+      alert('❌ Error al exportar JSON');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleSearch = (e) => {
     e.preventDefault();
     setCurrentSearch(searchTerm);
@@ -154,15 +187,52 @@ const PreciosFichas = () => {
           <h1>Precios por Fichas</h1>
           <p>Enriquece las fichas-producto con precios de referencia extraídos de las órdenes de compra</p>
         </div>
-        <button
-          className="btn btn-primary"
-          onClick={handleEnrich}
-          disabled={enriching}
-          style={{ flexShrink: 0 }}
-        >
-          {enriching ? <Loader2 size={15} className="spin" /> : <Zap size={15} />}
-          {enriching ? 'Calculando...' : 'Enriquecer Precios'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <button
+            className="btn"
+            onClick={handleExportJson}
+            disabled={exporting || loading}
+            title="Exportar fichas como archivo JSON respetando filtros"
+            style={{
+              background: exporting
+                ? 'linear-gradient(135deg, #6b7280, #4b5563)'
+                : 'linear-gradient(135deg, #059669, #047857)',
+              color: '#fff',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '10px 18px',
+              borderRadius: 10,
+              fontWeight: 600,
+              fontSize: '0.85rem',
+              cursor: exporting ? 'wait' : 'pointer',
+              boxShadow: '0 4px 12px rgba(5, 150, 105, 0.25)',
+              transition: 'all .2s'
+            }}
+          >
+            <FileDown size={15} />
+            {exporting ? 'Exportando...' : 'Exportar JSON'}
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={handleEnrich}
+            disabled={enriching}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '10px 18px',
+              borderRadius: 10,
+              fontWeight: 600,
+              fontSize: '0.85rem',
+              transition: 'all .2s'
+            }}
+          >
+            {enriching ? <Loader2 size={15} className="spin" /> : <Zap size={15} />}
+            {enriching ? 'Calculando...' : 'Enriquecer Precios'}
+          </button>
+        </div>
       </div>
 
       {/* Info banner */}
