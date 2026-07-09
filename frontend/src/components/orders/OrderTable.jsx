@@ -92,10 +92,24 @@ const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, 
   return (
     <div className="card" style={{ marginTop: 16 }}>
       <div className="table-wrap">
-        <table className="data-table" style={{ fontSize: '0.85rem' }}>
+        {/* table-layout:fixed + colgroup = columns NEVER shift between pages */}
+        <table
+          className="data-table"
+          style={{ fontSize: '0.85rem', tableLayout: 'fixed', minWidth: 900 }}
+        >
+          <colgroup>
+            <col style={{ width: 148 }} /> {/* Nro. Orden */}
+            <col style={{ width: 160 }} /> {/* Entidad */}
+            <col style={{ width: 165 }} /> {/* Proveedor / Marca */}
+            <col style={{ width: 92 }}  /> {/* Publicación */}
+            <col />                        {/* Productos — fills remaining space */}
+            <col style={{ width: 118 }} /> {/* Total */}
+            <col style={{ width: 104 }} /> {/* Estado */}
+            <col style={{ width: 52 }}  /> {/* Doc */}
+          </colgroup>
           <thead>
             <tr>
-              <th style={{ width: 140 }}>Nro. Orden</th>
+              <th>Nro. Orden</th>
               <th>
                 <HeaderFilter 
                   title="Entidad" 
@@ -114,15 +128,15 @@ const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, 
                   apiCall={purchaseOrdersApi.getColumnFilter}
                 />
               </th>
-              <th style={{ width: 90 }}>Publicación</th>
-              <th style={{ minWidth: 260 }}>
+              <th>Publicación</th>
+              <th>
                 <div>Productos</div>
                 <div style={{ fontSize: 9, fontWeight: 400, color: 'var(--c-text-tertiary)', marginTop: 1, letterSpacing: 0.3 }}>
                   P/N · Precio unit. · Subtotal <span style={{ color: 'var(--c-warning)', fontWeight: 600 }}>sin IGV</span>
                 </div>
               </th>
               <th
-                style={{ textAlign: 'right', width: 110, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                style={{ textAlign: 'right', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
                 onClick={() => onSort && onSort('monto_total')}
                 title="Ordenar por total"
               >
@@ -138,7 +152,7 @@ const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, 
                   <span style={{ fontSize: 9, fontWeight: 400, color: 'var(--c-success)', letterSpacing: 0.3 }}>con IGV</span>
                 </div>
               </th>
-              <th style={{ width: 100 }}>
+              <th>
                 <HeaderFilter 
                   title="Estado" 
                   column="estado" 
@@ -147,26 +161,27 @@ const OrderTable = ({ orders, loading, filters = {}, onFilterChange = () => {}, 
                   apiCall={purchaseOrdersApi.getColumnFilter}
                 />
               </th>
-              <th style={{ width: 50, textAlign: 'center' }}>Doc</th>
+              <th style={{ textAlign: 'center' }}>Doc</th>
             </tr>
           </thead>
+
           <tbody>
             {orders.map((order) => (
               <tr key={order.id} className="fade-up">
-                <td>
-                  <span style={{ fontWeight: 600, color: 'var(--c-brand)' }}>
+                <td style={{ overflow: 'hidden' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--c-brand)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {order.orden_electronica || order.nro_orden_fisica || '—'}
                   </span>
                 </td>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <td style={{ overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
                     <Building2 size={13} style={{ color: 'var(--c-text-tertiary)', flexShrink: 0 }} />
-                    <span style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={order.nombre_entidad}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={order.nombre_entidad}>
                       {order.nombre_entidad}
                     </span>
                   </div>
                 </td>
-                <td>
+                <td style={{ overflow: 'hidden' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <User size={13} style={{ color: 'var(--c-text-tertiary)', flexShrink: 0 }} />
