@@ -52,8 +52,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend:/app   # hot-reload in dev
+#    volumes:
+#      - ./backend:/app   # hot-reload in dev (uncomment only for local dev)
 
   # ── Celery Worker ─────────────────────────────────────────────────────────
   worker:
@@ -76,8 +76,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
+#    volumes:
+#      - ./backend:/app   # (uncomment only for local dev)
 
   # ── Flower (Celery monitor) ────────────────────────────────────────────────
   flower:
