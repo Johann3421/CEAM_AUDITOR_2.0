@@ -1040,18 +1040,28 @@ def enrich_precios(db: Session = Depends(get_db)):
         })
         enriched += 1
 
-    if update_batch:
-        db.execute(text(
-            f'UPDATE {_TABLE} SET '
-            f'precio_referencia = :pr, precio_min = :pmin, precio_max = :pmax, '
-            f'precio_mediana = :pmed, precio_volatilidad = :pvol, '
-            f'n_ordenes_precio = :n, precio_actualizado_at = :ts, '
-            f'orden_min = :omin, monto_orden_min = :momin, '
-            f'orden_max = :omax, monto_orden_max = :momax '
-            f'WHERE UPPER(TRIM("{nro_col}")) = :key'
-        ), update_batch)
+    try:
+        if update_batch:
+            stmt = text(
+                f'UPDATE {_TABLE} SET '
+                f'precio_referencia = :pr, precio_min = :pmin, precio_max = :pmax, '
+                f'precio_mediana = :pmed, precio_volatilidad = :pvol, '
+                f'n_ordenes_precio = :n, precio_actualizado_at = :ts, '
+                f'orden_min = :omin, monto_orden_min = :momin, '
+                f'orden_max = :omax, monto_orden_max = :momax '
+                f'WHERE UPPER(TRIM("{nro_col}")) = :key'
+            )
+            # Batch execute in chunks of 500 via Connection object to prevent ORM Session executemany errors
+            conn = db.connection()
+            for i in range(0, len(update_batch), 500):
+                chunk = update_batch[i:i + 500]
+                conn.execute(stmt, chunk)
+            db.commit()
+    except Exception as exc:
+        db.rollback()
+        _log.getLogger("ceam.enrich").error("Error in update_batch: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error al actualizar precios en base de datos: {exc}")
 
-    db.commit()
     total = len(fichas_keys)
     return {
         "enriched": enriched,
