@@ -877,7 +877,7 @@ def enrich_precios(db: Session = Depends(get_db)):
         ("precio_min", "NUMERIC(14,4)"),
         ("precio_max", "NUMERIC(14,4)"),
         ("precio_mediana", "NUMERIC(14,4)"),
-        ("precio_volatilidad", "NUMERIC(7,2)"),
+        ("precio_volatilidad", "NUMERIC(14,2)"),
         ("n_ordenes_precio", "INTEGER"),
         ("precio_actualizado_at", "TIMESTAMP WITH TIME ZONE"),
         ("orden_min", "TEXT"),
@@ -888,10 +888,11 @@ def enrich_precios(db: Session = Depends(get_db)):
     try:
         for col_name, col_type in price_cols:
             db.execute(text(f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+        # Ensure column type is NUMERIC(14,2) if it was previously created as NUMERIC(7,2)
+        db.execute(text(f"ALTER TABLE {_TABLE} ALTER COLUMN precio_volatilidad TYPE NUMERIC(14,2)"))
         db.commit()
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al agregar columnas de precio: {e}")
 
     # 2. Detect nro_parte key column in fichas_producto
     cols = _safe_col(db)
@@ -968,7 +969,8 @@ def enrich_precios(db: Session = Depends(get_db)):
         
         canonical = statistics.median([x[0] for x in best])
         med_g = statistics.median(precios_only)
-        volatilidad = round((precios_only[-1] - precios_only[0]) / med_g * 100, 2) if med_g > 0 else 0.0
+        raw_vol = (precios_only[-1] - precios_only[0]) / med_g * 100 if med_g > 0 else 0.0
+        volatilidad = round(min(max(raw_vol, 0.0), 9999999.99), 2)
         
         return {
             "precio_referencia": round(canonical, 4),
