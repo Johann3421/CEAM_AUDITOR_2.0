@@ -582,6 +582,28 @@ async def _download_excel(
             raise RuntimeError(f"Error al descargar el archivo .xlsx: {exc}") from exc
 
 
+def _split_date_range(start_str: Optional[str], end_str: Optional[str], max_days: int = 30) -> List[tuple]:
+    """Split a date range YYYY-MM-DD into sub-ranges of up to `max_days` to prevent server timeouts."""
+    if not start_str or not end_str:
+        return [(start_str or "2025-01-01", end_str or "2025-03-31")]
+    try:
+        dt_start = datetime.strptime(start_str, "%Y-%m-%d").date()
+        dt_end = datetime.strptime(end_str, "%Y-%m-%d").date()
+    except ValueError:
+        return [(start_str, end_str)]
+
+    if dt_start >= dt_end:
+        return [(start_str, end_str)]
+
+    chunks = []
+    curr_start = dt_start
+    while curr_start <= dt_end:
+        curr_end = min(curr_start + timedelta(days=max_days - 1), dt_end)
+        chunks.append((curr_start.isoformat(), curr_end.isoformat()))
+        curr_start = curr_end + timedelta(days=1)
+    return chunks
+
+
 # ─── Sync Wrapper for Celery ──────────────────────────────────────────────────
 
 def run_scrape_sync(
@@ -593,7 +615,7 @@ def run_scrape_sync(
 ) -> dict:
     """
     Synchronous entry-point called by Celery tasks.
-    max_pages is kept for API compatibility but not used (we download full Excel).
+    Automatically splits long date ranges into 30-day chunks to prevent Peru Compras timeouts.
     """
     from app.services import crud
 
@@ -603,34 +625,40 @@ def run_scrape_sync(
     async def _run():
         nonlocal inserted, updated
 
-        filepath, rows_on_screen, fr_text, link_diag = await _download_excel(
-            catalogo_keyword=catalogo,
-            fecha_inicio=fecha_inicio,
-            fecha_fin=fecha_fin,
-        )
+        chunks = _split_date_range(fecha_inicio, fecha_fin, max_days=30)
+        logger.info("Scraping date range %s to %s split into %d chunk(s)", fecha_inicio, fecha_fin, len(chunks))
 
-        if not filepath or not os.path.exists(filepath):
-            logger.error("No Excel file downloaded")
-            return
+        for chunk_start, chunk_end in chunks:
+            logger.info("Processing date chunk: %s → %s", chunk_start, chunk_end)
+            try:
+                filepath, rows_on_screen, fr_text, link_diag = await _download_excel(
+                    catalogo_keyword=catalogo,
+                    fecha_inicio=chunk_start,
+                    fecha_fin=chunk_end,
+                )
+            except Exception as exc:
+                logger.error("Error downloading excel for chunk %s..%s: %s", chunk_start, chunk_end, exc)
+                continue
 
-        orders = _process_excel(filepath)
+            if not filepath or not os.path.exists(filepath):
+                logger.warning("No Excel file downloaded for chunk %s..%s", chunk_start, chunk_end)
+                continue
 
-        for order in orders:
-            existing = crud.get_order_by_electronica(db_session, order.orden_electronica)
-            crud.upsert_order(db_session, order)
-            if existing:
-                updated += 1
-            else:
-                inserted += 1
+            orders = _process_excel(filepath)
+            for order in orders:
+                existing = crud.get_order_by_electronica(db_session, order.orden_electronica)
+                crud.upsert_order(db_session, order)
+                if existing:
+                    updated += 1
+                else:
+                    inserted += 1
+
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
 
         # ── Limpieza de Registros Huérfanos (Función de Poda) ────────────
-        # El análisis del Excel real (DatosAbiertos) confirmó que el 100% de
-        # las órdenes del portal tienen orden_electronica con formato
-        # OCAM-YYYY-XXXXXX-XX-X.  Cualquier registro cuya orden_electronica
-        # NO empiece con "OCAM-" es un artefacto del scraper antiguo, que
-        # almacenaba erróneamente el nro_orden_fisica como orden_electronica.
-        # Tras un scrape exitoso con datos OCAM ya insertados, estos
-        # huérfanos son redundantes y se eliminan.
         try:
             from app.models.purchase_order import PurchaseOrder
             pruned = db_session.query(PurchaseOrder).filter(
@@ -642,11 +670,6 @@ def run_scrape_sync(
         except Exception as exc:
             logger.warning("Orphan cleanup failed (non-critical): %s", exc)
             db_session.rollback()
-
-        try:
-            os.remove(filepath)
-        except OSError:
-            pass
 
     # asyncio.run() swallows the exception context (sys.exc_info) when the
     # event loop closes, causing billiard to store an empty ExceptionInfo in

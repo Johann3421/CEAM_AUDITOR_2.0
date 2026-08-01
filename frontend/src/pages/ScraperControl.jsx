@@ -19,7 +19,6 @@ const ScraperControl = () => {
   const [status, setStatus]       = useState(null);
   const [catalogo, setCatalogo]   = useState('');
   const [catalogos, setCatalogos] = useState([]);
-  const [maxPages, setMaxPages]   = useState(5);
   const [fechaInicio, setFechaInicio] = useState(firstDayOfYearISO());
   const [fechaFin, setFechaFin]       = useState(todayISO());
   const [polling, setPolling]     = useState(false);
@@ -90,7 +89,6 @@ const ScraperControl = () => {
     try {
       const response = await scraperApi.start({
         catalogo,
-        max_pages: maxPages,
         fecha_inicio: fechaInicio,
         fecha_fin: fechaFin,
       });
@@ -189,24 +187,23 @@ const ScraperControl = () => {
               </div>
             </div>
 
-            {/* Max pages slider */}
-            <div style={{ marginBottom: 24 }}>
-              <label className="form-label">
-                Páginas máximas: <strong>{maxPages}</strong>
-              </label>
-              <input
-                type="range"
-                min="1"
-                max="50"
-                step="1"
-                value={maxPages}
-                onChange={(e) => setMaxPages(parseInt(e.target.value))}
-              />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--c-text-tertiary)', marginTop: 4 }}>
-                <span>1</span>
-                <span>25</span>
-                <span>50</span>
-              </div>
+            {/* Automatic full extraction badge */}
+            <div style={{
+              marginBottom: 24,
+              padding: '10px 14px',
+              background: 'rgba(59, 130, 246, 0.08)',
+              border: '1px solid rgba(59, 130, 246, 0.2)',
+              borderRadius: 8,
+              fontSize: 12,
+              color: 'var(--c-text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8
+            }}>
+              <CheckCircle size={15} style={{ color: 'var(--c-brand)', flexShrink: 0 }} />
+              <span>
+                <strong>Extracción Completa:</strong> Extrae automáticamente todas las órdenes de compra publicadas en el rango de fechas sin límite de páginas.
+              </span>
             </div>
 
             {!polling ? (
