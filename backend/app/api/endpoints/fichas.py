@@ -865,6 +865,8 @@ def enrich_precios(db: Session = Depends(get_db)):
         ("precio_volatilidad", "NUMERIC(7,2)"),
         ("n_ordenes_precio", "INTEGER"),
         ("precio_actualizado_at", "TIMESTAMP WITH TIME ZONE"),
+        ("orden_min", "TEXT"),
+        ("orden_max", "TEXT"),
     ]
     try:
         for col_name, col_type in price_cols:
@@ -888,7 +890,9 @@ def enrich_precios(db: Session = Depends(get_db)):
         """
         SELECT
             elem->>'nro_parte'                          AS nro_parte,
-            (elem->>'precio_unitario')::numeric          AS precio_unitario
+            (elem->>'precio_unitario')::numeric          AS precio_unitario,
+            orden_electronica,
+            nro_orden_fisica
         FROM purchase_orders
         CROSS JOIN LATERAL jsonb_array_elements(
             CASE
@@ -905,10 +909,11 @@ def enrich_precios(db: Session = Depends(get_db)):
         """
     )).fetchall()
     price_map: dict = defaultdict(list)
-    for nro, precio in raw:
+    for nro, precio, orden_elec, orden_fis in raw:
         normalized = str(nro).strip().upper()
         if normalized:  # skip empty strings after normalization
-            price_map[normalized].append(float(precio))
+            order_ref = orden_elec or orden_fis or ""
+            price_map[normalized].append((float(precio), order_ref))
 
     # Diagnostic: log first 5 keys so mismatches can be spotted quickly
     sample_po_keys = list(price_map.keys())[:5]
@@ -919,28 +924,35 @@ def enrich_precios(db: Session = Depends(get_db)):
     )
 
     # 4. Epsilon-neighborhood mode clustering
-    def canonical_price(precios: list) -> dict:
-        precios_s = sorted(precios)
+    def canonical_price(precios_with_orders: list) -> dict:
+        precios_s = sorted(precios_with_orders, key=lambda x: x[0])
+        precios_only = [x[0] for x in precios_s]
+        
         EPS = 0.05  # 5% proximity tolerance
         clusters, current = [], [precios_s[0]]
-        for p in precios_s[1:]:
-            if current[0] > 0 and p <= current[0] * (1 + EPS):
-                current.append(p)
+        for item in precios_s[1:]:
+            p = item[0]
+            if current[0][0] > 0 and p <= current[0][0] * (1 + EPS):
+                current.append(item)
             else:
                 clusters.append(current)
-                current = [p]
+                current = [item]
         clusters.append(current)
         best = max(clusters, key=len)
-        canonical = statistics.median(best)
-        med_g = statistics.median(precios_s)
-        volatilidad = round((max(precios_s) - min(precios_s)) / med_g * 100, 2) if med_g > 0 else 0.0
+        
+        canonical = statistics.median([x[0] for x in best])
+        med_g = statistics.median(precios_only)
+        volatilidad = round((precios_only[-1] - precios_only[0]) / med_g * 100, 2) if med_g > 0 else 0.0
+        
         return {
             "precio_referencia": round(canonical, 4),
-            "precio_min": round(min(precios_s), 4),
-            "precio_max": round(max(precios_s), 4),
+            "precio_min": round(precios_only[0], 4),
+            "precio_max": round(precios_only[-1], 4),
             "precio_mediana": round(med_g, 4),
             "precio_volatilidad": volatilidad,
-            "n_ordenes_precio": len(precios_s),
+            "n_ordenes_precio": len(precios_only),
+            "orden_min": precios_s[0][1],
+            "orden_max": precios_s[-1][1],
         }
 
     # 5. Update fichas_producto
@@ -964,11 +976,13 @@ def enrich_precios(db: Session = Depends(get_db)):
             f'UPDATE {_TABLE} SET '
             f'precio_referencia = :pr, precio_min = :pmin, precio_max = :pmax, '
             f'precio_mediana = :pmed, precio_volatilidad = :pvol, '
-            f'n_ordenes_precio = :n, precio_actualizado_at = :ts '
+            f'n_ordenes_precio = :n, precio_actualizado_at = :ts, '
+            f'orden_min = :omin, orden_max = :omax '
             f'WHERE "{nro_col}" = :key'
         ), {"pr": cp["precio_referencia"], "pmin": cp["precio_min"], "pmax": cp["precio_max"],
             "pmed": cp["precio_mediana"], "pvol": cp["precio_volatilidad"],
-            "n": cp["n_ordenes_precio"], "ts": now, "key": original_key})
+            "n": cp["n_ordenes_precio"], "ts": now, "omin": cp["orden_min"], "omax": cp["orden_max"],
+            "key": original_key})
         enriched += 1
 
     db.commit()

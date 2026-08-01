@@ -47,6 +47,27 @@ const Orders = () => {
       .catch(() => {});
   }, []);
 
+  // Sync state with URL query parameter changes
+  useEffect(() => {
+    const queryParams = new URLSearchParams(location.search);
+    const searchParam = queryParams.get('search') || '';
+    setSearch(searchParam);
+    
+    const provParam = queryParams.get('proveedor') || '';
+    setProveedor(provParam);
+    
+    const entParam = queryParams.get('entidad') || '';
+    setEntidad(entParam);
+    
+    const estParam = queryParams.get('estado_orden') || '';
+    setEstadoOrden(estParam);
+    
+    const catParam = queryParams.get('catalogo') || '';
+    setCatalogo(catParam);
+    
+    setPage(0);
+  }, [location.search]);
+
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
