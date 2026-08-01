@@ -89,12 +89,14 @@ def list_fichas(
     estado: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     con_precio: Optional[bool] = Query(None),
+    sort_by: Optional[str] = Query(None),
+    sort_dir: Optional[str] = Query("desc"),
     db: Session = Depends(get_db),
 ):
-    """List fichas-producto with optional filters and pagination."""
+    """List fichas-producto with optional filters, sorting, and pagination."""
     cols = _safe_col(db)
     if not cols:
-        return []
+        return {"total": 0, "items": []}
 
     col_set = set(cols)
     _, params, where_clause = _build_fichas_where(
@@ -115,10 +117,15 @@ def list_fichas(
     except Exception:
         pass
 
+    order_by_sql = 'ORDER BY fecha_extraccion DESC NULLS LAST'
+    if sort_by and sort_by in col_set:
+        direction = "ASC" if (sort_dir and sort_dir.lower() == "asc") else "DESC"
+        order_by_sql = f'ORDER BY "{sort_by}" {direction} NULLS LAST'
+
     sql = text(
-        f'SELECT {quoted_cols} FROM {_TABLE} {where_clause}'
-        f' ORDER BY fecha_extraccion DESC NULLS LAST'
-        f' LIMIT :limit OFFSET :skip'
+        f'SELECT {quoted_cols} FROM {_TABLE} {where_clause} '
+        f'{order_by_sql} '
+        f'LIMIT :limit OFFSET :skip'
     )
     rows = db.execute(sql, params).fetchall()
     return {
@@ -136,9 +143,11 @@ def export_fichas_excel(
     estado: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     con_precio: Optional[bool] = Query(None),
+    sort_by: Optional[str] = Query(None),
+    sort_dir: Optional[str] = Query("desc"),
     db: Session = Depends(get_db),
 ):
-    """Export fichas producto as a styled Excel file respecting active filters."""
+    """Export fichas producto as a styled Excel file respecting active filters and sorting."""
     import io
     from datetime import datetime
     from fastapi.responses import StreamingResponse
@@ -157,11 +166,16 @@ def export_fichas_excel(
     params["limit"] = 100_000
     params["skip"] = 0
 
+    order_by_sql = 'ORDER BY fecha_extraccion DESC NULLS LAST'
+    if sort_by and sort_by in col_set:
+        direction = "ASC" if (sort_dir and sort_dir.lower() == "asc") else "DESC"
+        order_by_sql = f'ORDER BY "{sort_by}" {direction} NULLS LAST'
+
     quoted_cols = ", ".join(f'"{c}"' for c in cols)
     sql = text(
-        f"SELECT {quoted_cols} FROM {_TABLE} {where_clause}"
-        f" ORDER BY fecha_extraccion DESC NULLS LAST"
-        f" LIMIT :limit OFFSET :skip"
+        f'SELECT {quoted_cols} FROM {_TABLE} {where_clause} '
+        f'{order_by_sql} '
+        f'LIMIT :limit OFFSET :skip'
     )
     try:
         rows = db.execute(sql, params).fetchall()

@@ -73,7 +73,12 @@ const PreciosFichas = () => {
   const fetchFichas = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { skip: page * limit, limit };
+      const params = {
+        skip: page * limit,
+        limit,
+        sort_by: sort.col || undefined,
+        sort_dir: sort.dir,
+      };
       const summaryParams = {};
       const addParam = (key, val) => { params[key] = val; summaryParams[key] = val; };
       if (soloConPrecio) addParam('con_precio', true);
@@ -95,7 +100,7 @@ const PreciosFichas = () => {
     } catch (_) {} finally {
       setLoading(false);
     }
-  }, [page, soloConPrecio, currentSearch, filters]);
+  }, [page, soloConPrecio, currentSearch, filters, sort]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => { fetchFichas(); }, [fetchFichas]);
@@ -109,15 +114,10 @@ const PreciosFichas = () => {
         ? { col, dir: prev.dir === 'desc' ? 'asc' : 'desc' }
         : { col, dir: 'desc' }
     );
+    setPage(0);
   };
 
-  const sorted = sort.col
-    ? [...fichas].sort((a, b) => {
-        const va = a[sort.col] ?? (sort.dir === 'desc' ? -Infinity : Infinity);
-        const vb = b[sort.col] ?? (sort.dir === 'desc' ? -Infinity : Infinity);
-        return sort.dir === 'desc' ? vb - va : va - vb;
-      })
-    : fichas;
+  const sorted = fichas;
 
   const hasFilters = soloConPrecio || !!currentSearch ||
     Object.values(filters).some(v => !!v);
