@@ -1014,6 +1014,7 @@ def enrich_precios(db: Session = Depends(get_db)):
 
     enriched = 0
     not_found = 0
+    update_batch = []
     for (norm_key,) in fichas_keys:
         if not norm_key or norm_key in ("NAN", "NONE"):
             not_found += 1
@@ -1023,7 +1024,23 @@ def enrich_precios(db: Session = Depends(get_db)):
             not_found += 1
             continue
         cp = canonical_price(prices)
-        # Use UPPER() in WHERE to match all case variants in the table
+        update_batch.append({
+            "pr": cp["precio_referencia"],
+            "pmin": cp["precio_min"],
+            "pmax": cp["precio_max"],
+            "pmed": cp["precio_mediana"],
+            "pvol": cp["precio_volatilidad"],
+            "n": cp["n_ordenes_precio"],
+            "ts": now,
+            "omin": cp["orden_min"],
+            "momin": cp["monto_orden_min"],
+            "omax": cp["orden_max"],
+            "momax": cp["monto_orden_max"],
+            "key": norm_key,
+        })
+        enriched += 1
+
+    if update_batch:
         db.execute(text(
             f'UPDATE {_TABLE} SET '
             f'precio_referencia = :pr, precio_min = :pmin, precio_max = :pmax, '
@@ -1032,13 +1049,7 @@ def enrich_precios(db: Session = Depends(get_db)):
             f'orden_min = :omin, monto_orden_min = :momin, '
             f'orden_max = :omax, monto_orden_max = :momax '
             f'WHERE UPPER(TRIM("{nro_col}")) = :key'
-        ), {"pr": cp["precio_referencia"], "pmin": cp["precio_min"], "pmax": cp["precio_max"],
-            "pmed": cp["precio_mediana"], "pvol": cp["precio_volatilidad"],
-            "n": cp["n_ordenes_precio"], "ts": now,
-            "omin": cp["orden_min"], "momin": cp["monto_orden_min"],
-            "omax": cp["orden_max"], "momax": cp["monto_orden_max"],
-            "key": norm_key})
-        enriched += 1
+        ), update_batch)
 
     db.commit()
     total = len(fichas_keys)
