@@ -908,12 +908,13 @@ def enrich_precios(db: Session = Depends(get_db)):
         """
         SELECT
             elem->>'nro_parte'                                    AS nro_parte,
-            -- precio_unitario may be 0 when the portal fills only 'Sub Total' (total).
-            -- Use precio_unitario when > 0, otherwise fall back to 'total' (sub_total del item).
-            GREATEST(
-                COALESCE(NULLIF((elem->>'precio_unitario')::numeric, 0), 0),
-                COALESCE(NULLIF((elem->>'total')::numeric, 0), 0)
-            )                                                     AS precio_efectivo,
+            -- Prioritize unit price (precio_unitario). Only fall back to item total
+            -- if precio_unitario is 0 or NULL (e.g., when portal omitted unit price).
+            CASE
+                WHEN COALESCE((elem->>'precio_unitario')::numeric, 0) > 0
+                THEN (elem->>'precio_unitario')::numeric
+                ELSE COALESCE((elem->>'total')::numeric, 0)
+            END                                                   AS precio_efectivo,
             orden_electronica,
             nro_orden_fisica,
             COALESCE(monto_total, 0)                              AS monto_total
@@ -927,10 +928,10 @@ def enrich_precios(db: Session = Depends(get_db)):
                 ELSE '[]'::jsonb
             END
         ) AS elem
-        WHERE GREATEST(
-                  COALESCE(NULLIF((elem->>'precio_unitario')::numeric, 0), 0),
-                  COALESCE(NULLIF((elem->>'total')::numeric, 0), 0)
-              ) > 0
+        WHERE (
+            COALESCE((elem->>'precio_unitario')::numeric, 0) > 0
+            OR COALESCE((elem->>'total')::numeric, 0) > 0
+        )
           AND elem->>'nro_parte' IS NOT NULL
           AND elem->>'nro_parte' <> ''
         """
