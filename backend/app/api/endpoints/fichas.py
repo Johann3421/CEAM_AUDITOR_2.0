@@ -889,8 +889,13 @@ def enrich_precios(db: Session = Depends(get_db)):
     raw = db.execute(text(
         """
         SELECT
-            elem->>'nro_parte'                          AS nro_parte,
-            (elem->>'precio_unitario')::numeric          AS precio_unitario,
+            elem->>'nro_parte'                                    AS nro_parte,
+            -- precio_unitario may be 0 when the portal fills only 'Sub Total' (total).
+            -- Use precio_unitario when > 0, otherwise fall back to 'total' (sub_total del item).
+            GREATEST(
+                COALESCE(NULLIF((elem->>'precio_unitario')::numeric, 0), 0),
+                COALESCE(NULLIF((elem->>'total')::numeric, 0), 0)
+            )                                                     AS precio_efectivo,
             orden_electronica,
             nro_orden_fisica
         FROM purchase_orders
@@ -903,7 +908,10 @@ def enrich_precios(db: Session = Depends(get_db)):
                 ELSE '[]'::jsonb
             END
         ) AS elem
-        WHERE (elem->>'precio_unitario')::numeric > 0
+        WHERE GREATEST(
+                  COALESCE(NULLIF((elem->>'precio_unitario')::numeric, 0), 0),
+                  COALESCE(NULLIF((elem->>'total')::numeric, 0), 0)
+              ) > 0
           AND elem->>'nro_parte' IS NOT NULL
           AND elem->>'nro_parte' <> ''
         """
@@ -911,7 +919,7 @@ def enrich_precios(db: Session = Depends(get_db)):
     price_map: dict = defaultdict(list)
     for nro, precio, orden_elec, orden_fis in raw:
         normalized = str(nro).strip().upper()
-        if normalized:  # skip empty strings after normalization
+        if normalized:
             order_ref = orden_elec or orden_fis or ""
             price_map[normalized].append((float(precio), order_ref))
 
