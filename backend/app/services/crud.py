@@ -32,6 +32,8 @@ def get_orders(
     entidad: Optional[str] = None,
     proveedor: Optional[str] = None,
     marca: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "desc",
 ) -> List[PurchaseOrder]:
     from sqlalchemy import or_
     q = db.query(PurchaseOrder)
@@ -57,7 +59,28 @@ def get_orders(
                 PurchaseOrder.nro_parte.ilike(f"%{search}%")
             )
         )
-    return q.order_by(PurchaseOrder.fecha_publicacion.desc()).offset(skip).limit(limit).all()
+
+    SORTABLE_COLS = {
+        "monto_total": PurchaseOrder.monto_total,
+        "fecha_publicacion": PurchaseOrder.fecha_publicacion,
+        "fecha_aceptacion": PurchaseOrder.fecha_aceptacion,
+        "nro_orden_fisica": PurchaseOrder.nro_orden_fisica,
+        "orden_electronica": PurchaseOrder.orden_electronica,
+        "nombre_entidad": PurchaseOrder.nombre_entidad,
+        "nombre_proveedor": PurchaseOrder.nombre_proveedor,
+        "estado_orden": PurchaseOrder.estado_orden,
+    }
+
+    sort_col = SORTABLE_COLS.get(sort_by) if sort_by else None
+    if sort_col is not None:
+        if sort_dir and sort_dir.lower() == "asc":
+            q = q.order_by(sort_col.asc().nullslast())
+        else:
+            q = q.order_by(sort_col.desc().nullslast())
+    else:
+        q = q.order_by(PurchaseOrder.fecha_publicacion.desc())
+
+    return q.offset(skip).limit(limit).all()
 
 
 def count_orders(db: Session) -> int:

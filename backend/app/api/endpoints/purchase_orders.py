@@ -21,9 +21,11 @@ def list_orders(
     entidad: Optional[str] = Query(None),
     proveedor: Optional[str] = Query(None),
     marca: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query(None),
+    sort_dir: Optional[str] = Query("desc"),
     db: Session = Depends(get_db),
 ):
-    """List purchase orders with optional filters and pagination."""
+    """List purchase orders with optional filters, sorting, and pagination."""
     return crud.get_orders(
         db,
         skip=skip,
@@ -35,6 +37,8 @@ def list_orders(
         entidad=entidad,
         proveedor=proveedor,
         marca=marca,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 
@@ -317,6 +321,8 @@ def export_orders_excel(
     search: Optional[str] = Query(None),
     entidad: Optional[str] = Query(None),
     proveedor: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query(None),
+    sort_dir: Optional[str] = Query("desc"),
     db: Session = Depends(get_db),
 ):
     """Export purchase orders as a styled Excel file respecting all active filters."""
@@ -333,6 +339,7 @@ def export_orders_excel(
         catalogo=catalogo, categoria=categoria,
         estado_orden=estado_orden, search=search,
         entidad=entidad, proveedor=proveedor,
+        sort_by=sort_by, sort_dir=sort_dir,
     )
 
     # ── Column definitions: (display label, model attr, column width) ────

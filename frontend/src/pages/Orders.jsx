@@ -79,11 +79,15 @@ const Orders = () => {
         estado_orden: estadoOrden || undefined,
         entidad: entidad || undefined,
         proveedor: proveedor || undefined,
+        sort_by: sort.col || undefined,
+        sort_dir: sort.dir,
       };
 
       const summaryParams = { ...params };
       delete summaryParams.skip;
       delete summaryParams.limit;
+      delete summaryParams.sort_by;
+      delete summaryParams.sort_dir;
 
       const [listRes, summaryRes] = await Promise.allSettled([
         purchaseOrdersApi.getAll(params),
@@ -106,7 +110,7 @@ const Orders = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, catalogo, search, estadoOrden, entidad, proveedor]);
+  }, [page, limit, catalogo, search, estadoOrden, entidad, proveedor, sort]);
 
   useEffect(() => {
     fetchOrders();
@@ -136,6 +140,8 @@ const Orders = () => {
         estado_orden: estadoOrden  || undefined,
         entidad:      entidad      || undefined,
         proveedor:    proveedor    || undefined,
+        sort_by:      sort.col     || undefined,
+        sort_dir:     sort.dir,
       });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a   = document.createElement('a');
@@ -218,15 +224,10 @@ const Orders = () => {
         ? { col, dir: prev.dir === 'desc' ? 'asc' : 'desc' }
         : { col, dir: 'desc' }
     );
+    setPage(0);
   };
 
-  const sortedOrders = sort.col
-    ? [...orders].sort((a, b) => {
-         const va = a[sort.col] ?? (sort.dir === 'desc' ? -Infinity : Infinity);
-         const vb = b[sort.col] ?? (sort.dir === 'desc' ? -Infinity : Infinity);
-         return sort.dir === 'desc' ? vb - va : va - vb;
-       })
-    : orders;
+  const sortedOrders = orders;
 
   return (
     <div>
