@@ -195,9 +195,10 @@ def export_fichas_excel(
         "acuerdo_marco":              "Acuerdo Marco",
         "catálogo":                   "Catálogo",
         "catalogo":                   "Catálogo",
-        "precio_referencia":          "Precio Ref. (S/)",
         "precio_min":                 "Precio Mín. (S/)",
+        "monto_orden_min":           "Total Orden Mín. (S/)",
         "precio_max":                 "Precio Máx. (S/)",
+        "monto_orden_max":           "Total Orden Máx. (S/)",
         "precio_mediana":             "Precio Mediana (S/)",
         "precio_volatilidad":         "Volatilidad (%)",
         "n_ordenes_precio":           "Nro. Órdenes",
@@ -881,6 +882,8 @@ def enrich_precios(db: Session = Depends(get_db)):
         ("precio_actualizado_at", "TIMESTAMP WITH TIME ZONE"),
         ("orden_min", "TEXT"),
         ("orden_max", "TEXT"),
+        ("monto_orden_min", "NUMERIC(14,4)"),
+        ("monto_orden_max", "NUMERIC(14,4)"),
     ]
     try:
         for col_name, col_type in price_cols:
@@ -911,7 +914,8 @@ def enrich_precios(db: Session = Depends(get_db)):
                 COALESCE(NULLIF((elem->>'total')::numeric, 0), 0)
             )                                                     AS precio_efectivo,
             orden_electronica,
-            nro_orden_fisica
+            nro_orden_fisica,
+            COALESCE(monto_total, 0)                              AS monto_total
         FROM purchase_orders
         CROSS JOIN LATERAL jsonb_array_elements(
             CASE
@@ -931,11 +935,11 @@ def enrich_precios(db: Session = Depends(get_db)):
         """
     )).fetchall()
     price_map: dict = defaultdict(list)
-    for nro, precio, orden_elec, orden_fis in raw:
+    for nro, precio, orden_elec, orden_fis, monto_tot in raw:
         normalized = str(nro).strip().upper()
         if normalized:
             order_ref = orden_elec or orden_fis or ""
-            price_map[normalized].append((float(precio), order_ref))
+            price_map[normalized].append((float(precio), order_ref, float(monto_tot or 0)))
 
     # Diagnostic: log first 5 keys so mismatches can be spotted quickly
     sample_po_keys = list(price_map.keys())[:5]
@@ -974,7 +978,9 @@ def enrich_precios(db: Session = Depends(get_db)):
             "precio_volatilidad": volatilidad,
             "n_ordenes_precio": len(precios_only),
             "orden_min": precios_s[0][1],
+            "monto_orden_min": round(precios_s[0][2], 4),
             "orden_max": precios_s[-1][1],
+            "monto_orden_max": round(precios_s[-1][2], 4),
         }
 
     # 5. Update fichas_producto
@@ -990,6 +996,7 @@ def enrich_precios(db: Session = Depends(get_db)):
             f'precio_referencia = NULL, precio_min = NULL, precio_max = NULL, '
             f'precio_mediana = NULL, precio_volatilidad = NULL, '
             f'n_ordenes_precio = NULL, orden_min = NULL, orden_max = NULL, '
+            f'monto_orden_min = NULL, monto_orden_max = NULL, '
             f'precio_actualizado_at = NULL'
         ))
         db.commit()
@@ -1022,11 +1029,14 @@ def enrich_precios(db: Session = Depends(get_db)):
             f'precio_referencia = :pr, precio_min = :pmin, precio_max = :pmax, '
             f'precio_mediana = :pmed, precio_volatilidad = :pvol, '
             f'n_ordenes_precio = :n, precio_actualizado_at = :ts, '
-            f'orden_min = :omin, orden_max = :omax '
+            f'orden_min = :omin, monto_orden_min = :momin, '
+            f'orden_max = :omax, monto_orden_max = :momax '
             f'WHERE UPPER(TRIM("{nro_col}")) = :key'
         ), {"pr": cp["precio_referencia"], "pmin": cp["precio_min"], "pmax": cp["precio_max"],
             "pmed": cp["precio_mediana"], "pvol": cp["precio_volatilidad"],
-            "n": cp["n_ordenes_precio"], "ts": now, "omin": cp["orden_min"], "omax": cp["orden_max"],
+            "n": cp["n_ordenes_precio"], "ts": now,
+            "omin": cp["orden_min"], "momin": cp["monto_orden_min"],
+            "omax": cp["orden_max"], "momax": cp["monto_orden_max"],
             "key": norm_key})
         enriched += 1
 

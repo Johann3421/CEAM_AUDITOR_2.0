@@ -522,12 +522,17 @@ const PreciosFichas = () => {
                           <div
                             onClick={() => navigate(`/orders?search=${f.orden_min}`)}
                             title={`Ir a orden: ${f.orden_min}`}
-                            style={{ cursor: 'pointer', color: 'var(--c-brand)', textDecoration: 'underline' }}
+                            style={{ cursor: 'pointer', color: 'var(--c-brand)', textDecoration: 'underline', fontWeight: 600 }}
                           >
                             {fmt(f.precio_min)}
                           </div>
                         ) : (
                           fmt(f.precio_min)
+                        )}
+                        {f.monto_orden_min != null && Number(f.monto_orden_min) > 0 && (
+                          <div style={{ fontSize: 10, color: 'var(--c-text-tertiary)', marginTop: 2 }} title="Monto total de la compra en la orden con precio mínimo">
+                            Tot: S/ {fmt(f.monto_orden_min)}
+                          </div>
                         )}
                       </td>
                       <td style={{ textAlign: 'right', fontSize: 12, color: 'var(--c-text-secondary)' }}>
@@ -535,12 +540,17 @@ const PreciosFichas = () => {
                           <div
                             onClick={() => navigate(`/orders?search=${f.orden_max}`)}
                             title={`Ir a orden: ${f.orden_max}`}
-                            style={{ cursor: 'pointer', color: 'var(--c-brand)', textDecoration: 'underline' }}
+                            style={{ cursor: 'pointer', color: 'var(--c-brand)', textDecoration: 'underline', fontWeight: 600 }}
                           >
                             {fmt(f.precio_max)}
                           </div>
                         ) : (
                           fmt(f.precio_max)
+                        )}
+                        {f.monto_orden_max != null && Number(f.monto_orden_max) > 0 && (
+                          <div style={{ fontSize: 10, color: 'var(--c-text-tertiary)', marginTop: 2 }} title="Monto total de la compra en la orden con precio máximo">
+                            Tot: S/ {fmt(f.monto_orden_max)}
+                          </div>
                         )}
                       </td>
                       <td><VolBadge vol={f.precio_volatilidad} /></td>
