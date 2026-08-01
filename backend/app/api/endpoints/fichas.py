@@ -956,33 +956,56 @@ def enrich_precios(db: Session = Depends(get_db)):
         }
 
     # 5. Update fichas_producto
+    # ── STEP A: Reset all price columns to NULL first ────────────────────────
+    # This guarantees each enrich run is idempotent and deterministic.
+    # Without this, stale prices from previous runs (for products that are no
+    # longer in purchase_orders) would persist indefinitely, causing volatility
+    # values to appear to change across runs and prices to "randomly" disappear
+    # or reappear depending on which data was scraped most recently.
+    try:
+        db.execute(text(
+            f'UPDATE {_TABLE} SET '
+            f'precio_referencia = NULL, precio_min = NULL, precio_max = NULL, '
+            f'precio_mediana = NULL, precio_volatilidad = NULL, '
+            f'n_ordenes_precio = NULL, orden_min = NULL, orden_max = NULL, '
+            f'precio_actualizado_at = NULL'
+        ))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al limpiar precios previos: {e}")
+
     now = datetime.now(tz=timezone.utc)
-    fichas_keys = db.execute(text(f'SELECT "{nro_col}" FROM {_TABLE} WHERE "{nro_col}" IS NOT NULL')).fetchall()
+
+    # ── STEP B: Fetch distinct nro_parte values (deduplicated) ───────────────
+    # Use UPPER() so we match consistently regardless of case stored in fichas.
+    fichas_keys = db.execute(
+        text(f'SELECT DISTINCT UPPER(TRIM("{nro_col}")) FROM {_TABLE} WHERE "{nro_col}" IS NOT NULL AND TRIM("{nro_col}") != \'\'')
+    ).fetchall()
 
     enriched = 0
     not_found = 0
-    for (nro_val,) in fichas_keys:
-        original_key = str(nro_val).strip()   # preserve original case for WHERE
-        key = original_key.upper()             # normalized key for price_map lookup
-        if not key or key in ("", "NAN", "NONE"):
+    for (norm_key,) in fichas_keys:
+        if not norm_key or norm_key in ("NAN", "NONE"):
             not_found += 1
             continue
-        prices = price_map.get(key)
+        prices = price_map.get(norm_key)
         if not prices:
             not_found += 1
             continue
         cp = canonical_price(prices)
+        # Use UPPER() in WHERE to match all case variants in the table
         db.execute(text(
             f'UPDATE {_TABLE} SET '
             f'precio_referencia = :pr, precio_min = :pmin, precio_max = :pmax, '
             f'precio_mediana = :pmed, precio_volatilidad = :pvol, '
             f'n_ordenes_precio = :n, precio_actualizado_at = :ts, '
             f'orden_min = :omin, orden_max = :omax '
-            f'WHERE "{nro_col}" = :key'
+            f'WHERE UPPER(TRIM("{nro_col}")) = :key'
         ), {"pr": cp["precio_referencia"], "pmin": cp["precio_min"], "pmax": cp["precio_max"],
             "pmed": cp["precio_mediana"], "pvol": cp["precio_volatilidad"],
             "n": cp["n_ordenes_precio"], "ts": now, "omin": cp["orden_min"], "omax": cp["orden_max"],
-            "key": original_key})
+            "key": norm_key})
         enriched += 1
 
     db.commit()
