@@ -8,6 +8,8 @@ import FichasControl from './pages/FichasControl';
 import Fichas from './pages/Fichas';
 import PreciosFichas from './pages/PreciosFichas';
 import Providers from './pages/Providers';
+import ProveedorFichas from './pages/ProveedorFichas';
+import FiltroPiezas from './pages/FiltroPiezas';
 
 function App() {
   return (
@@ -21,6 +23,8 @@ function App() {
             <Route path="/fichas-catalogo" element={<Fichas />} />
             <Route path="/providers" element={<Providers />} />
             <Route path="/precios-fichas" element={<PreciosFichas />} />
+            <Route path="/proveedores-fichas" element={<ProveedorFichas />} />
+            <Route path="/filtro-piezas" element={<FiltroPiezas />} />
             <Route path="/scraper" element={<ScraperControl />} />
             <Route path="/fichas" element={<FichasControl />} />
           </Routes>

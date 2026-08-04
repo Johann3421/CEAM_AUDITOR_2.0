@@ -1,12 +1,14 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Table, Cpu, FileSearch, BookOpen, DollarSign, Settings } from 'lucide-react';
+import { LayoutDashboard, Table, Cpu, FileSearch, BookOpen, DollarSign, Building2, Layers, Settings } from 'lucide-react';
 
 const links = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/orders', icon: Table, label: 'Órdenes de Compra' },
   { to: '/fichas-catalogo', icon: BookOpen, label: 'Fichas Producto' },
   { to: '/precios-fichas', icon: DollarSign, label: 'Precios por Fichas' },
+  { to: '/proveedores-fichas', icon: Building2, label: 'Filtro Proveedores' },
+  { to: '/filtro-piezas', icon: Layers, label: 'Filtro por Piezas' },
   { to: '/scraper', icon: Cpu, label: 'Scraper — Órdenes' },
   { to: '/fichas', icon: FileSearch, label: 'Scraper — Fichas' },
 ];
