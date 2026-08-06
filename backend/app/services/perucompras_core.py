@@ -34,21 +34,41 @@ MEJORA_BASICA_URL = f"{BASE_URL}/MejoraBasica"
 
 
 def _solve_captcha_image(img_bytes: bytes) -> str:
-    """Procesa la imagen del CAPTCHA con PIL + PyTesseract para extraer el texto."""
+    """Procesa la imagen del CAPTCHA con PIL + PyTesseract probando múltiples umbrales."""
     if not HAS_OCR or not Image or not pytesseract:
         logger.warning("Pillow / PyTesseract no están disponibles.")
         return ""
     try:
         image = Image.open(io.BytesIO(img_bytes))
         gray = image.convert("L")
-        # Umbral binarizado
-        bw = gray.point(lambda x: 0 if x < 140 else 255, "1")
-        text = pytesseract.image_to_string(bw, config="--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz").strip()
-        if not text:
-            text = pytesseract.image_to_string(gray, config="--psm 6").strip()
-        # Limpiar espacios y caracteres no alfanuméricos
-        clean_text = "".join(ch for ch in text if ch.isalnum())
-        return clean_text
+        
+        # Probar distintos métodos y umbrales de binarización
+        results = []
+        # Raw / Grayscale
+        t_raw = pytesseract.image_to_string(gray, config="--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz").strip()
+        if t_raw: results.append(t_raw)
+        
+        # Umbral binarizado 120
+        bw120 = gray.point(lambda x: 0 if x < 120 else 255, "1")
+        t120 = pytesseract.image_to_string(bw120, config="--psm 7").strip()
+        if t120: results.append(t120)
+
+        # Umbral binarizado 160
+        bw160 = gray.point(lambda x: 0 if x < 160 else 255, "1")
+        t160 = pytesseract.image_to_string(bw160, config="--psm 7").strip()
+        if t160: results.append(t160)
+
+        for res in results:
+            clean = "".join(ch for ch in res if ch.isalnum())
+            if len(clean) >= 3:
+                return clean
+                
+        # Retornar el mejor resultado limpio disponible
+        for res in results:
+            clean = "".join(ch for ch in res if ch.isalnum())
+            if clean:
+                return clean
+        return ""
     except Exception as e:
         logger.warning("Error resolviendo CAPTCHA con Tesseract: %s", e)
         return ""
@@ -104,14 +124,26 @@ async def login_automatico(
                 captcha_code = _solve_captcha_image(img_bytes)
                 _log(f"🧩 CAPTCHA extraído por OCR: '{captcha_code}'")
 
+            # Remover modales/overlays transparentes que puedan bloquear el clic
+            await page.evaluate("""() => {
+                const overlays = document.querySelectorAll('.modal-overlay, .modal-backdrop');
+                overlays.forEach(el => el.remove());
+            }""")
+
+            # Llenar CAPTCHA y presionar Enter
             captcha_input = await page.wait_for_selector("#CodigoCaptcha, input[name='CodigoCaptcha']", timeout=5000)
             if captcha_input and captcha_code:
                 await captcha_input.fill(captcha_code)
+                await captcha_input.press("Enter")
 
-            # Click Ingresar
+            # Click Ingresar (con force=True)
             btn_submit = await page.query_selector("button[type='submit'], input[type='submit'], #btnIngresar, .btn-primary")
             if btn_submit:
-                await btn_submit.click()
+                try:
+                    await btn_submit.click(force=True, timeout=5000)
+                except Exception:
+                    # Alternativa: Submit JS directo del formulario
+                    await page.evaluate("() => { const form = document.querySelector('form'); if (form) form.submit(); }")
 
             await page.wait_for_timeout(3000)
 
