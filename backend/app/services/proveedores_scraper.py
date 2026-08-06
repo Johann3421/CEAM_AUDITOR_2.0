@@ -83,7 +83,7 @@ async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = 
             context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
             page = await context.new_page()
 
-            ok = await login_automatico(page, user, password, max_retries=3, log_func=add_status_log)
+            ok = await login_automatico(page, user, password, max_retries=6, log_func=add_status_log)
             if ok:
                 raw_cookies = await context.cookies()
                 for c in raw_cookies:

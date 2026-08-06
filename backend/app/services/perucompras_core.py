@@ -28,49 +28,72 @@ except ImportError:
 
 logger = logging.getLogger("ceam.perucompras_core")
 
+import base64
+
 BASE_URL = "https://catalogos.perucompras.gob.pe"
 LOGIN_URL = f"{BASE_URL}/AccesoGeneral"
 MEJORA_BASICA_URL = f"{BASE_URL}/MejoraBasica"
 
 
+async def _extract_captcha_bytes_via_canvas(page: Page) -> Optional[bytes]:
+    """Extrae los bytes exactos PNG del #imgCaptcha usandolo sobre un Canvas HTML5 del DOM."""
+    try:
+        data_url = await page.evaluate("""() => {
+            return new Promise((resolve) => {
+                const img = document.querySelector('#imgCaptcha');
+                if (!img) { resolve(null); return; }
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth || img.width || 220;
+                canvas.height = img.naturalHeight || img.height || 80;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                resolve(canvas.toDataURL('image/png'));
+            });
+        }""")
+        if data_url and ',' in data_url:
+            base64_str = data_url.split(',')[1]
+            return base64.b64decode(base64_str)
+    except Exception as e:
+        logger.warning("Error en _extract_captcha_bytes_via_canvas: %s", e)
+    
+    # Fallback screenshot
+    try:
+        captcha_el = await page.query_selector("#imgCaptcha")
+        if captcha_el:
+            return await captcha_el.screenshot()
+    except Exception:
+        pass
+    return None
+
+
 def _solve_captcha_image(img_bytes: bytes) -> str:
-    """Procesa la imagen del CAPTCHA con PIL + PyTesseract probando múltiples umbrales."""
+    """Procesa los bytes del CAPTCHA con PIL (scaling 3x) + PyTesseract para obtener los 6 caracteres del CAPTCHA."""
     if not HAS_OCR or not Image or not pytesseract:
         logger.warning("Pillow / PyTesseract no están disponibles.")
         return ""
     try:
-        image = Image.open(io.BytesIO(img_bytes))
-        gray = image.convert("L")
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        scaled = img.resize((img.width * 3, img.height * 3), Image.LANCZOS)
+        gray = scaled.convert("L")
         
-        # Probar distintos métodos y umbrales de binarización
-        results = []
-        # Raw / Grayscale
-        t_raw = pytesseract.image_to_string(gray, config="--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz").strip()
-        if t_raw: results.append(t_raw)
-        
-        # Umbral binarizado 120
-        bw120 = gray.point(lambda x: 0 if x < 120 else 255, "1")
-        t120 = pytesseract.image_to_string(bw120, config="--psm 7").strip()
-        if t120: results.append(t120)
+        # OCR en escala de grises escalada
+        raw_text = pytesseract.image_to_string(gray, config="--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz").strip()
+        clean = "".join(ch for ch in raw_text if ch.isalnum())
+        if len(clean) >= 6:
+            return clean[:6]
 
-        # Umbral binarizado 160
-        bw160 = gray.point(lambda x: 0 if x < 160 else 255, "1")
-        t160 = pytesseract.image_to_string(bw160, config="--psm 7").strip()
-        if t160: results.append(t160)
+        # Umbral binarizado 130
+        bw130 = gray.point(lambda x: 0 if x < 130 else 255, "1")
+        raw130 = pytesseract.image_to_string(bw130, config="--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz").strip()
+        clean130 = "".join(ch for ch in raw130 if ch.isalnum())
+        if len(clean130) >= 6:
+            return clean130[:6]
+        elif len(clean130) >= 4:
+            return clean130
 
-        for res in results:
-            clean = "".join(ch for ch in res if ch.isalnum())
-            if len(clean) >= 3:
-                return clean
-                
-        # Retornar el mejor resultado limpio disponible
-        for res in results:
-            clean = "".join(ch for ch in res if ch.isalnum())
-            if clean:
-                return clean
-        return ""
+        return clean[:6] if clean else ""
     except Exception as e:
-        logger.warning("Error resolviendo CAPTCHA con Tesseract: %s", e)
+        logger.warning("Error en _solve_captcha_image: %s", e)
         return ""
 
 
@@ -78,7 +101,7 @@ async def login_automatico(
     page: Page,
     usuario: str,
     password: str,
-    max_retries: int = 5,
+    max_retries: int = 6,
     log_func: Optional[Callable[[str], None]] = None
 ) -> bool:
     """
@@ -116,13 +139,13 @@ async def login_automatico(
             if pass_input:
                 await pass_input.fill(password)
 
-            # CAPTCHA
-            captcha_el = await page.wait_for_selector("#imgCaptcha", timeout=10000)
+            # Extraer CAPTCHA vía HTML5 Canvas para máxima nitidez (sin ruido de viewport)
+            await page.wait_for_selector("#imgCaptcha", timeout=10000)
+            captcha_bytes = await _extract_captcha_bytes_via_canvas(page)
             captcha_code = ""
-            if captcha_el:
-                img_bytes = await captcha_el.screenshot()
-                captcha_code = _solve_captcha_image(img_bytes)
-                _log(f"🧩 CAPTCHA extraído por OCR: '{captcha_code}'")
+            if captcha_bytes:
+                captcha_code = _solve_captcha_image(captcha_bytes)
+                _log(f"🧩 CAPTCHA extraído por OCR vía Canvas: '{captcha_code}'")
 
             # Remover modales/overlays transparentes que puedan bloquear el clic
             await page.evaluate("""() => {
@@ -163,6 +186,15 @@ async def login_automatico(
     return False
 
 
+def _safe_log(msg: str, log_func: Optional[Callable[[str], None]] = None):
+    logger.info(msg)
+    if log_func:
+        try:
+            log_func(msg)
+        except Exception:
+            log_func(msg.encode('ascii', errors='ignore').decode('ascii'))
+
+
 async def saltar_verificacion(
     page: Page,
     log_func: Optional[Callable[[str], None]] = None
@@ -170,21 +202,16 @@ async def saltar_verificacion(
     """
     2. Maniobra de retroceso seguro y navegación limpia a MejoraBasica.
     """
-    def _log(msg: str):
-        logger.info(msg)
-        if log_func:
-            log_func(msg)
-
-    _log("🔄 Ejecutando saltar_verificacion...")
+    _safe_log("🔄 Ejecutando saltar_verificacion...", log_func)
     try:
         await page.go_back()
         await page.wait_for_timeout(1000)
         await page.goto(BASE_URL, timeout=30000)
         await page.goto(MEJORA_BASICA_URL, timeout=30000, wait_until="networkidle")
-        _log("✅ Navegación a MejoraBasica completada con éxito.")
+        _safe_log("✅ Navegación a MejoraBasica completada con éxito.", log_func)
         return True
     except Exception as e:
-        _log(f"⚠️ Error en saltar_verificacion: {e}")
+        _safe_log(f"⚠️ Error en saltar_verificacion: {e}", log_func)
         return False
 
 
@@ -208,12 +235,7 @@ async def completar_menu_dinamico(
     """
     4. Selecciona las opciones en los desplegables dinámicos y presiona #btnBuscar.
     """
-    def _log(msg: str):
-        logger.info(msg)
-        if log_func:
-            log_func(msg)
-
-    _log(f"📋 completando menu dinamico: acuerdo={acuerdo}, catalogo={catalogo}, categoria={categoria}")
+    _safe_log(f"📋 completando menu dinamico: acuerdo={acuerdo}, catalogo={catalogo}, categoria={categoria}", log_func)
     try:
         # Esperar dropdowns
         await page.wait_for_selector("select", timeout=15000)
@@ -222,11 +244,11 @@ async def completar_menu_dinamico(
         btn_buscar = await page.query_selector("#btnBuscar, input[value='Iniciar Búsqueda'], .btn-search")
         if btn_buscar:
             await btn_buscar.click()
-            _log("🚀 Botón #btnBuscar clickeado.")
+            _safe_log("🚀 Botón #btnBuscar clickeado.", log_func)
             await page.wait_for_timeout(2000)
         return True
     except Exception as e:
-        _log(f"❌ Error en completar_menu_dinamico: {e}")
+        _safe_log(f"❌ Error en completar_menu_dinamico: {e}", log_func)
         return False
 
 
@@ -241,13 +263,8 @@ async def consultar_json_productos(
     5. Ejecuta una petición fetch interna usando las cookies de la sesión activa en el navegador.
     Ruta objetivo: /MejoraBasica/_ListaProductosOfertados?N_Acuerdo=...&N_Catalogo=...&N_Categoria=...
     """
-    def _log(msg: str):
-        logger.info(msg)
-        if log_func:
-            log_func(msg)
-
     url = f"{BASE_URL}/MejoraBasica/_ListaProductosOfertados?N_Acuerdo={n_acuerdo}&N_Catalogo={n_catalogo}&N_Categoria={n_categoria}&_={int(time.time() * 1000)}"
-    _log(f"📡 Pidiendo JSON de productos desde el navegador a: {url}")
+    _safe_log(f"📡 Pidiendo JSON de productos desde el navegador a: {url}", log_func)
 
     js_code = """
     async (targetUrl) => {
@@ -265,15 +282,15 @@ async def consultar_json_productos(
     try:
         data = await page.evaluate(js_code, url)
         if isinstance(data, list):
-            _log(f"🎉 ¡Extraídos {len(data)} productos en formato JSON crudo!")
+            _safe_log(f"🎉 ¡Extraídos {len(data)} productos en formato JSON crudo!", log_func)
             return data
         elif isinstance(data, dict) and "data" in data:
             items = data.get("data", [])
-            _log(f"🎉 ¡Extraídos {len(items)} productos!")
+            _safe_log(f"🎉 ¡Extraídos {len(items)} productos!", log_func)
             return items
         else:
-            _log("⚠️ La respuesta no fue una lista. Obtenido tipo: " + str(type(data)))
+            _safe_log("⚠️ La respuesta no fue una lista. Obtenido tipo: " + str(type(data)), log_func)
             return []
     except Exception as e:
-        _log(f"❌ Error ejecutando fetch interno para consultar_json_productos: {e}")
+        _safe_log(f"❌ Error ejecutando fetch interno para consultar_json_productos: {e}", log_func)
         return []
