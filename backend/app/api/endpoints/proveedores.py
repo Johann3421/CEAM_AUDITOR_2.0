@@ -71,35 +71,7 @@ def get_proveedor_fichas(
     except Exception:
         pass
 
-    # Fallback to purchase_orders expanded items
-    po_sql = f"""
-        SELECT 
-            COALESCE(po.nro_parte, 'S/N') AS nro_parte,
-            COALESCE(po.detalle_producto, 'Producto Sin Descripción') AS descripcion,
-            COALESCE(po.marca, 'VARIOS') AS marca,
-            po.catalogo,
-            po.nombre_proveedor AS proveedor,
-            MIN(COALESCE(po.precio_unitario, po.monto_total)) AS precio_min,
-            MAX(COALESCE(po.precio_unitario, po.monto_total)) AS precio_max,
-            AVG(COALESCE(po.precio_unitario, po.monto_total)) AS precio_referencia,
-            COUNT(po.id) AS n_ordenes,
-            SUM(COALESCE(po.monto_total, 0)) AS total_vendido,
-            MAX(po.pdf_url) AS pdf_url
-        FROM purchase_orders po
-        WHERE po.nro_parte IS NOT NULL AND po.nro_parte <> ''
-        GROUP BY po.nro_parte, po.detalle_producto, po.marca, po.catalogo, po.nombre_proveedor
-        LIMIT :limit OFFSET :offset
-    """
-    try:
-        po_rows = db.execute(text(po_sql), {"limit": limit, "offset": offset}).mappings().all()
-        return {
-            "items": [dict(r) for r in po_rows],
-            "page": page,
-            "limit": limit,
-            "total": len(po_rows)
-        }
-    except Exception as e:
-        return {"items": [], "page": page, "limit": limit, "total": 0, "error": str(e)}
+    return {"items": [], "page": page, "limit": limit, "total": 0}
 
 @router.get("/kpis")
 def get_proveedor_kpis(
