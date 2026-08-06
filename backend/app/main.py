@@ -6,6 +6,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.db.database import engine, Base
 from app.api.router import api_router
+from app.models.ofertas_proveedor import OfertaProveedorHistory
 
 # Create all tables on startup (use Alembic in production)
 Base.metadata.create_all(bind=engine)
@@ -20,6 +21,15 @@ _NEW_COLS = [
 ]
 try:
     with engine.begin() as _c:
+        # Create composite unique index for ofertas_proveedor_history
+        try:
+            _c.execute(text("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_oferta_prov_unique 
+                ON ofertas_proveedor_history (nro_parte, ruc_proveedor, acuerdo_marco, catalogo, categoria, COALESCE(region, 'N/A'));
+            """))
+        except Exception:
+            pass
+
         # 1. Quitar el index unique de nro_orden_fisica si existiera
         try:
             _c.execute(text("DROP INDEX IF EXISTS ix_purchase_orders_nro_orden_fisica;"))
