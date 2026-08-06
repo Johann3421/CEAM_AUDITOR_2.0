@@ -38,6 +38,15 @@ COMBOS_CACHE_FILE = Path("combos_cache.json")
 DEFAULT_USER = os.getenv("PERUCOMPRAS_USER", "estalin.huamali01")
 DEFAULT_PASS = os.getenv("PERUCOMPRAS_PASS", "PE/CyG6c&1R4T=")
 
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "X-Requested-With": "XMLHttpRequest"
+}
+JITTER_MIN = 0.3
+JITTER_MAX = 1.0
+MAX_CONCURRENT_WORKERS = 3
+
 def login_and_get_cookies(user: str = DEFAULT_USER, password: str = DEFAULT_PASS) -> Dict[str, str]:
     """
     Inicia sesión en Perú Compras usando Playwright y retorna un diccionario con las cookies (.ASPXAUTH, ASP.NET_SessionId).

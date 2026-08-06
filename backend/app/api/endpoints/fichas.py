@@ -1154,7 +1154,7 @@ async def get_alertas_suspendidas(
                 "updated": result.get("updated")
             }
         }
-        
+    except Exception as e:
         return {
             "error": True,
             "message": str(e),
