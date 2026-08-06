@@ -25,7 +25,7 @@ try:
         try:
             _c.execute(text("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_oferta_prov_unique 
-                ON ofertas_proveedor_history (nro_parte, ruc_proveedor, acuerdo_marco, catalogo, categoria, COALESCE(region, 'N/A'));
+                ON ofertas_proveedor_history (nro_parte, ruc_proveedor, acuerdo_marco, catalogo, categoria, (COALESCE(region, 'N/A')));
             """))
         except Exception:
             pass

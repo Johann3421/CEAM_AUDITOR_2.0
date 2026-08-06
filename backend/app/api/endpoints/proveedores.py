@@ -74,26 +74,20 @@ def get_proveedor_fichas(
     # Fallback to purchase_orders expanded items
     po_sql = f"""
         SELECT 
-            elem->>'nro_parte' AS nro_parte,
-            COALESCE(elem->>'descripcion', 'Producto ' || (elem->>'nro_parte')) AS descripcion,
+            COALESCE(po.nro_parte, 'S/N') AS nro_parte,
+            COALESCE(po.detalle_producto, 'Producto Sin Descripción') AS descripcion,
             COALESCE(po.marca, 'VARIOS') AS marca,
             po.catalogo,
             po.nombre_proveedor AS proveedor,
-            MIN(GREATEST(COALESCE((elem->>'precio_unitario')::numeric, 0), COALESCE((elem->>'total')::numeric, 0))) AS precio_min,
-            MAX(GREATEST(COALESCE((elem->>'precio_unitario')::numeric, 0), COALESCE((elem->>'total')::numeric, 0))) AS precio_max,
-            AVG(GREATEST(COALESCE((elem->>'precio_unitario')::numeric, 0), COALESCE((elem->>'total')::numeric, 0))) AS precio_referencia,
+            MIN(COALESCE(po.precio_unitario, po.monto_total)) AS precio_min,
+            MAX(COALESCE(po.precio_unitario, po.monto_total)) AS precio_max,
+            AVG(COALESCE(po.precio_unitario, po.monto_total)) AS precio_referencia,
             COUNT(po.id) AS n_ordenes,
             SUM(COALESCE(po.monto_total, 0)) AS total_vendido,
             MAX(po.pdf_url) AS pdf_url
         FROM purchase_orders po
-        CROSS JOIN LATERAL jsonb_array_elements(
-            CASE 
-                WHEN nro_parte IS NOT NULL AND nro_parte LIKE '[%' THEN nro_parte::jsonb
-                ELSE '[]'::jsonb
-            END
-        ) AS elem
-        WHERE elem->>'nro_parte' IS NOT NULL AND elem->>'nro_parte' <> ''
-        GROUP BY elem->>'nro_parte', elem->>'descripcion', po.marca, po.catalogo, po.nombre_proveedor
+        WHERE po.nro_parte IS NOT NULL AND po.nro_parte <> ''
+        GROUP BY po.nro_parte, po.detalle_producto, po.marca, po.catalogo, po.nombre_proveedor
         LIMIT :limit OFFSET :offset
     """
     try:
