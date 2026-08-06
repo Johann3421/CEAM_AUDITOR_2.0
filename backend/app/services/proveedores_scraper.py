@@ -47,6 +47,27 @@ JITTER_MIN = 0.3
 JITTER_MAX = 1.0
 MAX_CONCURRENT_WORKERS = 3
 
+EXTRACTION_STATUS = {
+    "is_running": False,
+    "status": "idle",
+    "progress_message": "",
+    "combos_total": 0,
+    "combos_completed": 0,
+    "items_inserted": 0,
+    "logs": [],
+    "last_error": None
+}
+
+def add_status_log(msg: str):
+    timestamp = time.strftime("%H:%M:%S")
+    clean_msg = msg.encode('ascii', errors='ignore').decode('ascii') if not msg.isascii() else msg
+    log_line = f"[{timestamp}] {clean_msg}"
+    logger.info(clean_msg)
+    EXTRACTION_STATUS["logs"].append(log_line)
+    if len(EXTRACTION_STATUS["logs"]) > 200:
+        EXTRACTION_STATUS["logs"] = EXTRACTION_STATUS["logs"][-200:]
+    EXTRACTION_STATUS["progress_message"] = clean_msg
+
 async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = DEFAULT_PASS) -> Dict[str, str]:
     """
     Inicia sesión en Perú Compras usando Playwright + CAPTCHA OCR (perucompras_core) y retorna un diccionario con las cookies (.ASPXAUTH, ASP.NET_SessionId).
@@ -54,7 +75,7 @@ async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = 
     from playwright.async_api import async_playwright
     from app.services.perucompras_core import login_automatico
     
-    logger.info("🔐 Iniciando sesión en Perú Compras vía perucompras_core (usuario: %s)", user)
+    add_status_log(f"🔐 Iniciando autenticación en Perú Compras con usuario: {user}")
     cookies_dict = {}
     try:
         async with async_playwright() as p:
@@ -62,18 +83,18 @@ async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = 
             context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
             page = await context.new_page()
 
-            ok = await login_automatico(page, user, password, max_retries=3)
+            ok = await login_automatico(page, user, password, max_retries=3, log_func=add_status_log)
             if ok:
                 raw_cookies = await context.cookies()
                 for c in raw_cookies:
                     cookies_dict[c["name"]] = c["value"]
-                logger.info("✅ Sesión obtenida con éxito. Cookies capturadas: %d", len(cookies_dict))
+                add_status_log(f"✅ Sesión obtenida con éxito. {len(cookies_dict)} cookies capturadas.")
             else:
-                logger.error("❌ Falló la autenticación en Perú Compras vía perucompras_core.")
+                add_status_log("❌ Falló la autenticación automática en Perú Compras.")
 
             await browser.close()
     except Exception as e:
-        logger.error("Error al iniciar sesión con Playwright en perucompras_core: %s", e)
+        add_status_log(f"❌ Excepción en inicio de sesión: {e}")
     return cookies_dict
 
 def login_and_get_cookies(user: str = DEFAULT_USER, password: str = DEFAULT_PASS) -> Dict[str, str]:
@@ -203,50 +224,80 @@ async def run_worker_pool_extraction(
     """
     Orquesta el Worker Pool concurrente procesando las combinaciones con resumibilidad y checkpoints.
     """
-    if not cookies:
-        cookies = await async_login_and_get_cookies()
+    EXTRACTION_STATUS["is_running"] = True
+    EXTRACTION_STATUS["status"] = "running"
+    EXTRACTION_STATUS["logs"] = []
+    EXTRACTION_STATUS["last_error"] = None
+    EXTRACTION_STATUS["combos_completed"] = 0
+    EXTRACTION_STATUS["items_inserted"] = 0
+    EXTRACTION_STATUS["combos_total"] = len(combos)
 
-    completed = load_checkpoint()
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_WORKERS)
-    total_inserted = 0
-    combos_processed = 0
+    add_status_log("⚡ Iniciando flujo de extracción por proveedor...")
 
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
-        # First verify if national scope is sufficient
-        is_national = await verify_national_scope(client, cookies)
+    try:
+        if not cookies:
+            cookies = await async_login_and_get_cookies()
+            if not cookies:
+                EXTRACTION_STATUS["is_running"] = False
+                EXTRACTION_STATUS["status"] = "error"
+                EXTRACTION_STATUS["last_error"] = "Fallo de autenticación o resolución de CAPTCHA en Perú Compras"
+                add_status_log("❌ Error fatal: No se pudo obtener sesión activa.")
+                return {"processed_combos": 0, "total_inserted": 0, "error": "Login failed"}
 
-        tasks = []
-        for n_acuerdo, n_catalogo, n_categoria in combos:
-            combo_key = f"{n_acuerdo}_{n_catalogo}_{n_categoria}"
-            if combo_key in completed:
-                continue
-            tasks.append(fetch_single_combo(client, semaphore, combo_key, n_acuerdo, n_catalogo, n_categoria, cookies))
+        completed = load_checkpoint()
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_WORKERS)
+        total_inserted = 0
+        combos_processed = 0
 
-        logger.info("Iniciando Worker Pool para %d combinaciones pendientes...", len(tasks))
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+            add_status_log("🔍 Verificando alcance del endpoint JSON _ListaProductosOfertados...")
+            is_national = await verify_national_scope(client, cookies)
+            add_status_log(f"Scope nacional verificado: {is_national}")
 
-        for chunk_start in range(0, len(tasks), 20):
-            chunk = tasks[chunk_start:chunk_start + 20]
-            results = await asyncio.gather(*chunk)
+            tasks = []
+            for n_acuerdo, n_catalogo, n_categoria in combos:
+                combo_key = f"{n_acuerdo}_{n_catalogo}_{n_categoria}"
+                if combo_key in completed:
+                    continue
+                tasks.append(fetch_single_combo(client, semaphore, combo_key, n_acuerdo, n_catalogo, n_categoria, cookies))
 
-            for combo_key, items, session_expired in results:
-                if session_expired:
-                    logger.critical("🚨 Sesión de Perú Compras expirada. Pausando extracción para re-autenticación.")
-                    break
+            add_status_log(f"📡 Procesando Worker Pool ({len(tasks)} combinaciones)...")
 
-                if items:
-                    count = upsert_ofertas_history_db(db, items)
-                    total_inserted += count
+            for chunk_start in range(0, len(tasks), 20):
+                chunk = tasks[chunk_start:chunk_start + 20]
+                results = await asyncio.gather(*chunk)
 
-                completed.add(combo_key)
-                combos_processed += 1
+                for combo_key, items, session_expired in results:
+                    if session_expired:
+                        add_status_log("🚨 Sesión expirada. Solicitando re-autenticación...")
+                        break
 
-            save_checkpoint(completed)
+                    if items:
+                        count = upsert_ofertas_history_db(db, items)
+                        total_inserted += count
+                        EXTRACTION_STATUS["items_inserted"] = total_inserted
 
-    return {
-        "processed_combos": combos_processed,
-        "total_inserted": total_inserted,
-        "national_scope_verified": is_national
-    }
+                    completed.add(combo_key)
+                    combos_processed += 1
+                    EXTRACTION_STATUS["combos_completed"] = combos_processed
+
+                save_checkpoint(completed)
+
+        EXTRACTION_STATUS["is_running"] = False
+        EXTRACTION_STATUS["status"] = "completed"
+        add_status_log(f"🎉 Extracción finalizada con éxito! Total ofertas insertadas/actualizadas: {total_inserted}")
+
+        return {
+            "processed_combos": combos_processed,
+            "total_inserted": total_inserted,
+            "national_scope_verified": is_national
+        }
+    except Exception as e:
+        EXTRACTION_STATUS["is_running"] = False
+        EXTRACTION_STATUS["status"] = "error"
+        EXTRACTION_STATUS["last_error"] = str(e)
+        add_status_log(f"❌ Error crítico en worker pool: {e}")
+        return {"processed_combos": 0, "total_inserted": 0, "error": str(e)}
 
 def upsert_ofertas_history_db(db: Session, ofertas: List[Dict]) -> int:
     """

@@ -119,3 +119,8 @@ async def trigger_scrape_proveedores(
 
     background_tasks.add_task(_async_task)
     return {"message": "Worker Pool de extracción por proveedor iniciado en segundo plano"}
+
+@router.get("/scrape-status")
+def get_scrape_status():
+    from app.services.proveedores_scraper import EXTRACTION_STATUS
+    return EXTRACTION_STATUS

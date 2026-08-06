@@ -55,6 +55,7 @@ export const proveedoresApi = {
   getFichas: (params) => api.get('/proveedores/fichas', { params }).catch(() => api.get('/fichas/proveedores', { params })),
   getKpis: (params) => api.get('/proveedores/kpis', { params }).catch(() => api.get('/fichas/proveedores-kpis', { params })),
   scrape: (params) => api.post('/proveedores/scrape', null, { params }).catch(() => api.post('/fichas/scrape-proveedores', null, { params })),
+  getScrapeStatus: () => api.get('/proveedores/scrape-status').catch(() => api.get('/fichas/scrape-proveedores-status')),
 };
 
 export default api;

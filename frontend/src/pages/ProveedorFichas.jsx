@@ -90,11 +90,8 @@ const ProveedorFichas = () => {
   const [search, setSearch] = useState('');
   const [marcaFilter, setMarcaFilter] = useState('');
   const [fichas, setFichas] = useState(MOCK_PROVIDER_FICHAS);
-  const [loading, setLoading] = useState(false);
-  const [scraping, setScraping] = useState(false);
-  const [scrapeMessage, setScrapeMessage] = useState('');
-  const [page, setPage] = useState(0);
-  const limit = 25;
+  const [scrapeStatus, setScrapeStatus] = useState(null);
+  const [showLogModal, setShowLogModal] = useState(false);
 
   const fetchFichasData = () => {
     setLoading(true);
@@ -121,20 +118,41 @@ const ProveedorFichas = () => {
     fetchFichasData();
   }, [selectedProvider, search, marcaFilter, page]);
 
+  useEffect(() => {
+    let interval = null;
+    if (scraping || showLogModal) {
+      interval = setInterval(async () => {
+        try {
+          const res = await proveedoresApi.getScrapeStatus();
+          if (res.data) {
+            setScrapeStatus(res.data);
+            if (res.data.is_running) {
+              setScraping(true);
+            } else if (res.data.status === 'completed' || res.data.status === 'error') {
+              setScraping(false);
+              fetchFichasData();
+            }
+          }
+        } catch (e) {
+          console.error("Error obteniendo status del scraper:", e);
+        }
+      }, 1500);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [scraping, showLogModal]);
+
   const handleStartScrape = async () => {
     setScraping(true);
+    setShowLogModal(true);
     setScrapeMessage('⚡ Conectando a Perú Compras e iniciando Worker Pool async...');
     try {
-      const resp = await proveedoresApi.scrape({
+      await proveedoresApi.scrape({
         n_acuerdo: '249',
         n_catalogo: '252',
         n_categoria: '11736'
       });
-      setScrapeMessage(resp.data?.message || 'Extracción iniciada en segundo plano');
-      setTimeout(() => {
-        setScraping(false);
-        fetchFichasData();
-      }, 4000);
     } catch (err) {
       console.error(err);
       setScrapeMessage('❌ Error al iniciar la extracción en el servidor');
@@ -207,6 +225,65 @@ const ProveedorFichas = () => {
           {scraping ? 'Extrayendo en 2do Plano...' : '⚡ Extraer Ofertas de Proveedores'}
         </button>
       </div>
+
+      {/* Live Extraction Log & Status Panel */}
+      {(showLogModal || scraping || (scrapeStatus && scrapeStatus.logs?.length > 0)) && (
+        <div className="card fade-up" style={{ marginBottom: 20, padding: 18, border: '1px solid var(--c-brand)', background: 'var(--c-surface)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, margin: 0, color: 'var(--c-brand)' }}>
+              <RefreshCw size={18} className={scraping ? 'spin' : ''} />
+              Monitoreo de Extracción en Vivo
+            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span className={`tag ${scraping ? 'tag-primary' : scrapeStatus?.status === 'error' ? 'tag-danger' : 'tag-success'}`}>
+                {scraping ? 'En proceso...' : scrapeStatus?.status === 'error' ? 'Falla' : 'Completado'}
+              </span>
+              <button 
+                onClick={() => setShowLogModal(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-tertiary)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+
+          {scrapeStatus?.progress_message && (
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: 'var(--c-text-primary)' }}>
+              📌 {scrapeStatus.progress_message}
+            </div>
+          )}
+
+          {scrapeStatus?.last_error && (
+            <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', padding: '10px 14px', borderRadius: 6, fontSize: 13, marginBottom: 10 }}>
+              <strong>❌ Error detectado:</strong> {scrapeStatus.last_error}
+            </div>
+          )}
+
+          {/* Terminal Logs Box */}
+          <div style={{ 
+            background: '#0f172a', 
+            color: '#38bdf8', 
+            fontFamily: 'monospace', 
+            fontSize: 12, 
+            padding: 14, 
+            borderRadius: 8, 
+            maxHeight: 220, 
+            overflowY: 'auto',
+            whiteSpace: 'pre-wrap',
+            lineHeight: 1.5
+          }}>
+            {scrapeStatus?.logs && scrapeStatus.logs.length > 0 ? (
+              scrapeStatus.logs.map((log, i) => (
+                <div key={i} style={{ color: log.includes('❌') || log.includes('Error') ? '#f87171' : log.includes('✅') || log.includes('🎉') ? '#4ade80' : '#e2e8f0' }}>
+                  {log}
+                </div>
+              ))
+            ) : (
+              <span style={{ color: '#64748b' }}>Esperando respuesta de inicio de sesión y worker pool...</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {scrapeMessage && (
         <div className="card fade-up" style={{ marginBottom: 16, padding: '12px 18px', background: 'var(--c-brand-light)', borderColor: 'var(--c-brand)', color: 'var(--c-brand-dark)', fontWeight: 500, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
