@@ -91,8 +91,56 @@ const ProveedorFichas = () => {
   const [marcaFilter, setMarcaFilter] = useState('');
   const [fichas, setFichas] = useState(MOCK_PROVIDER_FICHAS);
   const [loading, setLoading] = useState(false);
+  const [scraping, setScraping] = useState(false);
+  const [scrapeMessage, setScrapeMessage] = useState('');
   const [page, setPage] = useState(0);
   const limit = 25;
+
+  const fetchFichasData = () => {
+    setLoading(true);
+    const provName = MAIN_PROVIDERS.find(p => p.id === selectedProvider)?.name || '';
+    proveedoresApi.getFichas({
+      proveedor: selectedProvider !== 'all' ? provName : undefined,
+      search: search || undefined,
+      marca: marcaFilter || undefined,
+      page: page + 1,
+      limit
+    })
+      .then(res => {
+        if (res.data?.items && res.data.items.length > 0) {
+          setFichas(res.data.items);
+        } else {
+          setFichas(MOCK_PROVIDER_FICHAS);
+        }
+      })
+      .catch(() => setFichas(MOCK_PROVIDER_FICHAS))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchFichasData();
+  }, [selectedProvider, search, marcaFilter, page]);
+
+  const handleStartScrape = async () => {
+    setScraping(true);
+    setScrapeMessage('⚡ Conectando a Perú Compras e iniciando Worker Pool async...');
+    try {
+      const resp = await proveedoresApi.scrape({
+        n_acuerdo: '249',
+        n_catalogo: '252',
+        n_categoria: '11736'
+      });
+      setScrapeMessage(resp.data?.message || 'Extracción iniciada en segundo plano');
+      setTimeout(() => {
+        setScraping(false);
+        fetchFichasData();
+      }, 4000);
+    } catch (err) {
+      console.error(err);
+      setScrapeMessage('❌ Error al iniciar la extracción en el servidor');
+      setScraping(false);
+    }
+  };
 
   // Filter items based on provider, search term and brand
   const filteredFichas = useMemo(() => {
@@ -149,7 +197,25 @@ const ProveedorFichas = () => {
             Análisis de fichas técnicas y volúmenes adjudicados por proveedores principales (*The King Computer, Jorge Rojas, Sekaitech*)
           </p>
         </div>
+        <button
+          className="btn btn-primary"
+          onClick={handleStartScrape}
+          disabled={scraping}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', fontWeight: 600 }}
+        >
+          <RefreshCw size={16} className={scraping ? 'spin' : ''} />
+          {scraping ? 'Extrayendo en 2do Plano...' : '⚡ Extraer Ofertas de Proveedores'}
+        </button>
       </div>
+
+      {scrapeMessage && (
+        <div className="card fade-up" style={{ marginBottom: 16, padding: '12px 18px', background: 'var(--c-brand-light)', borderColor: 'var(--c-brand)', color: 'var(--c-brand-dark)', fontWeight: 500, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{scrapeMessage}</span>
+          <button onClick={() => setScrapeMessage('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-brand-dark)' }}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Provider Selector Tabs */}
       <div className="card fade-up" style={{ marginBottom: 20, padding: '14px 18px' }}>
