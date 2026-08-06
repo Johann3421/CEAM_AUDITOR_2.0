@@ -3,7 +3,7 @@ import statistics
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -1155,10 +1155,50 @@ async def get_alertas_suspendidas(
             }
         }
         
-    except Exception as e:
-        import traceback
         return {
             "error": True,
             "message": str(e),
             "trace": traceback.format_exc()
         }
+
+
+# ==============================================================================
+# ALIASES DE PROVEEDORES (/fichas/proveedores, /fichas/proveedores-kpis)
+# ==============================================================================
+
+@router.get("/proveedores")
+def get_fichas_proveedores_alias(
+    proveedor: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    marca: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(25, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """Alias secundario para obtener fichas de proveedores."""
+    from app.api.endpoints.proveedores import get_proveedor_fichas
+    return get_proveedor_fichas(proveedor=proveedor, search=search, marca=marca, page=page, limit=limit, db=db)
+
+
+@router.get("/proveedores-kpis")
+def get_fichas_proveedores_kpis_alias(
+    proveedor: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Alias secundario para obtener KPIs de proveedores."""
+    from app.api.endpoints.proveedores import get_proveedor_kpis
+    return get_proveedor_kpis(proveedor=proveedor, db=db)
+
+
+@router.post("/scrape-proveedores")
+async def trigger_fichas_scrape_proveedores_alias(
+    background_tasks: BackgroundTasks,
+    n_acuerdo: str = Query("249"),
+    n_catalogo: str = Query("252"),
+    n_categoria: str = Query("11736"),
+    db: Session = Depends(get_db)
+):
+    """Alias secundario para iniciar la extracción por proveedor."""
+    from app.api.endpoints.proveedores import trigger_scrape_proveedores
+    return await trigger_scrape_proveedores(background_tasks=background_tasks, n_acuerdo=n_acuerdo, n_catalogo=n_catalogo, n_categoria=n_categoria, db=db)
+

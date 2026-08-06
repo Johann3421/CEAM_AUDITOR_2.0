@@ -52,9 +52,9 @@ export const preciosFichasApi = {
 };
 
 export const proveedoresApi = {
-  getFichas: (params) => api.get('/proveedores/fichas', { params }),
-  getKpis: (params) => api.get('/proveedores/kpis', { params }),
-  scrape: (params) => api.post('/proveedores/scrape', null, { params }),
+  getFichas: (params) => api.get('/proveedores/fichas', { params }).catch(() => api.get('/fichas/proveedores', { params })),
+  getKpis: (params) => api.get('/proveedores/kpis', { params }).catch(() => api.get('/fichas/proveedores-kpis', { params })),
+  scrape: (params) => api.post('/proveedores/scrape', null, { params }).catch(() => api.post('/fichas/scrape-proveedores', null, { params })),
 };
 
 export default api;
