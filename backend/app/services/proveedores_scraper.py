@@ -35,19 +35,39 @@ ENDPOINT_OFERTAS = f"{BASE_URL}/MejoraBasica/_ListaProductosOfertados"
 CHECKPOINT_FILE = Path("checkpoint_proveedores.json")
 COMBOS_CACHE_FILE = Path("combos_cache.json")
 
-# Maximum concurrent worker tasks
-MAX_CONCURRENT_WORKERS = 5
-# Throttling jitter range in seconds
-JITTER_MIN = 0.3
-JITTER_MAX = 1.0
+DEFAULT_USER = os.getenv("PERUCOMPRAS_USER", "estalin.huamali01")
+DEFAULT_PASS = os.getenv("PERUCOMPRAS_PASS", "PE/CyG6c&1R4T=")
 
-# Headers required to match real browser AJAX requests
-DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "X-Requested-With": "XMLHttpRequest",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Referer": f"{BASE_URL}/MejoraPlazo/IndexMejora"
-}
+def login_and_get_cookies(user: str = DEFAULT_USER, password: str = DEFAULT_PASS) -> Dict[str, str]:
+    """
+    Inicia sesión en Perú Compras usando Playwright y retorna un diccionario con las cookies (.ASPXAUTH, ASP.NET_SessionId).
+    """
+    from playwright.sync_api import sync_playwright
+    logger.info("🔐 Iniciando sesión en Perú Compras con usuario: %s", user)
+    cookies_dict = {}
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context()
+            page = context.new_page()
+            page.goto("https://catalogos.perucompras.gob.pe/AccesoGeneral/Login", timeout=45000)
+
+            # Fill login credentials
+            page.fill("input[name='Usuario']", user)
+            page.fill("input[name='Clave']", password)
+            page.click("button[type='submit'], input[type='submit']")
+            page.wait_for_timeout(3000)
+
+            # Retrieve session cookies
+            raw_cookies = context.cookies()
+            for c in raw_cookies:
+                cookies_dict[c["name"]] = c["value"]
+
+            browser.close()
+            logger.info("✅ Sesión obtenida con exito. Cookies capturadas: %d", len(cookies_dict))
+    except Exception as e:
+        logger.error("Error al iniciar sesión con Playwright: %s", e)
+    return cookies_dict
 
 def load_checkpoint() -> Set[str]:
     """Carga el conjunto de combinaciones ya procesadas exitosamente."""
@@ -172,6 +192,9 @@ async def run_worker_pool_extraction(
     """
     Orquesta el Worker Pool concurrente procesando las combinaciones con resumibilidad y checkpoints.
     """
+    if not cookies:
+        cookies = login_and_get_cookies()
+
     completed = load_checkpoint()
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_WORKERS)
     total_inserted = 0
