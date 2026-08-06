@@ -88,6 +88,7 @@ const ProveedorFichas = () => {
   const navigate = useNavigate();
   const [selectedProvider, setSelectedProvider] = useState('all');
   const [search, setSearch] = useState('');
+  const [marcaFilter, setMarcaFilter] = useState('');
   const [fichas, setFichas] = useState(MOCK_PROVIDER_FICHAS);
   const [loading, setLoading] = useState(false);
   const [scraping, setScraping] = useState(false);
