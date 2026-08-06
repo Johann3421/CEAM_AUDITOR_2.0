@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from playwright.async_api import Page, TimeoutError as PWTimeoutError
+
 try:
     from PIL import Image
     import pytesseract
