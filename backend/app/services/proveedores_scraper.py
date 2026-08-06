@@ -47,36 +47,38 @@ JITTER_MIN = 0.3
 JITTER_MAX = 1.0
 MAX_CONCURRENT_WORKERS = 3
 
-def login_and_get_cookies(user: str = DEFAULT_USER, password: str = DEFAULT_PASS) -> Dict[str, str]:
+async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = DEFAULT_PASS) -> Dict[str, str]:
     """
-    Inicia sesión en Perú Compras usando Playwright y retorna un diccionario con las cookies (.ASPXAUTH, ASP.NET_SessionId).
+    Inicia sesión en Perú Compras usando Playwright + CAPTCHA OCR (perucompras_core) y retorna un diccionario con las cookies (.ASPXAUTH, ASP.NET_SessionId).
     """
-    from playwright.sync_api import sync_playwright
-    logger.info("🔐 Iniciando sesión en Perú Compras con usuario: %s", user)
+    from playwright.async_api import async_playwright
+    from app.services.perucompras_core import login_automatico
+    
+    logger.info("🔐 Iniciando sesión en Perú Compras vía perucompras_core (usuario: %s)", user)
     cookies_dict = {}
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context()
-            page = context.new_page()
-            page.goto("https://catalogos.perucompras.gob.pe/AccesoGeneral/Login", timeout=45000)
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
+            page = await context.new_page()
 
-            # Fill login credentials
-            page.fill("input[name='Usuario']", user)
-            page.fill("input[name='Clave']", password)
-            page.click("button[type='submit'], input[type='submit']")
-            page.wait_for_timeout(3000)
+            ok = await login_automatico(page, user, password, max_retries=3)
+            if ok:
+                raw_cookies = await context.cookies()
+                for c in raw_cookies:
+                    cookies_dict[c["name"]] = c["value"]
+                logger.info("✅ Sesión obtenida con éxito. Cookies capturadas: %d", len(cookies_dict))
+            else:
+                logger.error("❌ Falló la autenticación en Perú Compras vía perucompras_core.")
 
-            # Retrieve session cookies
-            raw_cookies = context.cookies()
-            for c in raw_cookies:
-                cookies_dict[c["name"]] = c["value"]
-
-            browser.close()
-            logger.info("✅ Sesión obtenida con exito. Cookies capturadas: %d", len(cookies_dict))
+            await browser.close()
     except Exception as e:
-        logger.error("Error al iniciar sesión con Playwright: %s", e)
+        logger.error("Error al iniciar sesión con Playwright en perucompras_core: %s", e)
     return cookies_dict
+
+def login_and_get_cookies(user: str = DEFAULT_USER, password: str = DEFAULT_PASS) -> Dict[str, str]:
+    """Wrapper síncrono para async_login_and_get_cookies."""
+    return asyncio.run(async_login_and_get_cookies(user, password))
 
 def load_checkpoint() -> Set[str]:
     """Carga el conjunto de combinaciones ya procesadas exitosamente."""
@@ -202,7 +204,7 @@ async def run_worker_pool_extraction(
     Orquesta el Worker Pool concurrente procesando las combinaciones con resumibilidad y checkpoints.
     """
     if not cookies:
-        cookies = login_and_get_cookies()
+        cookies = await async_login_and_get_cookies()
 
     completed = load_checkpoint()
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_WORKERS)
