@@ -12,14 +12,17 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from PIL import Image
-import pytesseract
-from playwright.async_api import Page, TimeoutError as PWTimeoutError
-
-# Intentar configurar la ruta estándar de Tesseract en Windows si existe
-TESSERACT_WIN_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-if os.path.exists(TESSERACT_WIN_PATH):
-    pytesseract.pytesseract.tesseract_cmd = TESSERACT_WIN_PATH
+try:
+    from PIL import Image
+    import pytesseract
+    TESSERACT_WIN_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    if os.path.exists(TESSERACT_WIN_PATH):
+        pytesseract.pytesseract.tesseract_cmd = TESSERACT_WIN_PATH
+    HAS_OCR = True
+except ImportError:
+    HAS_OCR = False
+    Image = None
+    pytesseract = None
 
 logger = logging.getLogger("ceam.perucompras_core")
 
@@ -30,6 +33,9 @@ MEJORA_BASICA_URL = f"{BASE_URL}/MejoraBasica"
 
 def _solve_captcha_image(img_bytes: bytes) -> str:
     """Procesa la imagen del CAPTCHA con PIL + PyTesseract para extraer el texto."""
+    if not HAS_OCR or not Image or not pytesseract:
+        logger.warning("Pillow / PyTesseract no están disponibles.")
+        return ""
     try:
         image = Image.open(io.BytesIO(img_bytes))
         gray = image.convert("L")
