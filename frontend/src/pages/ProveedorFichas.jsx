@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { purchaseOrdersApi, fichasProductoApi } from '../services/api';
 import {
   Building2, Search, SlidersHorizontal, FileText, ChevronLeft, ChevronRight,
-  ExternalLink, FileDown, CheckCircle, Tag, DollarSign, Package, TrendingUp, X
+  ExternalLink, FileDown, CheckCircle, Tag, DollarSign, Package, TrendingUp, X, RefreshCw
 } from 'lucide-react';
 
 const MAIN_PROVIDERS = [
