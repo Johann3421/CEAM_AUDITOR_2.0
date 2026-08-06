@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { purchaseOrdersApi, fichasProductoApi } from '../services/api';
+import { purchaseOrdersApi, fichasProductoApi, proveedoresApi } from '../services/api';
 import {
   Building2, Search, SlidersHorizontal, FileText, ChevronLeft, ChevronRight,
   ExternalLink, FileDown, CheckCircle, Tag, DollarSign, Package, TrendingUp, X, RefreshCw
