@@ -252,6 +252,52 @@ async def completar_menu_dinamico(
         return False
 
 
+def _parse_html_products_partial(html_text: str) -> List[Dict[str, Any]]:
+    """Parsea la tabla HTML devuelta por _ListaProductosOfertados."""
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html_text, "html.parser")
+        rows = soup.find_all("tr")
+        products = []
+        for r in rows:
+            cols = [td.get_text(strip=True) for td in r.find_all("td")]
+            if len(cols) >= 7:
+                desc = cols[1]
+                estado = cols[2]
+                moneda = cols[3]
+                precio_str = cols[4]
+                stock_str = cols[6]
+
+                try:
+                    precio = float(precio_str.replace(",", "")) if precio_str else 0.0
+                except ValueError:
+                    precio = 0.0
+
+                try:
+                    stock = int(stock_str) if stock_str else 0
+                except ValueError:
+                    stock = 0
+
+                marca_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)', desc)
+                marca = marca_match.group(1) if marca_match else "VARIOS"
+                words = desc.split()
+                nro_parte = words[-1] if words else "S/N"
+
+                products.append({
+                    "nro_parte": nro_parte,
+                    "descripcion_producto": desc,
+                    "marca": marca,
+                    "precio_ofertado": precio,
+                    "moneda": moneda,
+                    "existencia_stock": stock,
+                    "estado": estado
+                })
+        return products
+    except Exception as e:
+        logger.warning("Error parseando HTML partial de productos: %s", e)
+        return []
+
+
 async def consultar_json_productos(
     page: Page,
     n_acuerdo: int,
@@ -261,36 +307,47 @@ async def consultar_json_productos(
 ) -> List[Dict[str, Any]]:
     """
     5. Ejecuta una petición fetch interna usando las cookies de la sesión activa en el navegador.
-    Ruta objetivo: /MejoraBasica/_ListaProductosOfertados?N_Acuerdo=...&N_Catalogo=...&N_Categoria=...
+    Soporta formato JSON y Vista Parcial HTML DataTables ASP.NET de Perú Compras.
     """
     url = f"{BASE_URL}/MejoraBasica/_ListaProductosOfertados?N_Acuerdo={n_acuerdo}&N_Catalogo={n_catalogo}&N_Categoria={n_categoria}&_={int(time.time() * 1000)}"
-    _safe_log(f"📡 Pidiendo JSON de productos desde el navegador a: {url}", log_func)
+    _safe_log(f"📡 Pidiendo dataset de productos a: {url}", log_func)
 
     js_code = """
     async (targetUrl) => {
         const response = await fetch(targetUrl, {
             headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-                'Accept': 'application/json, text/javascript, */*; q=0.01'
+                'X-Requested-With': 'XMLHttpRequest'
             }
         });
         if (!response.ok) return null;
-        return await response.json();
+        return await response.text();
     }
     """
 
     try:
-        data = await page.evaluate(js_code, url)
-        if isinstance(data, list):
-            _safe_log(f"🎉 ¡Extraídos {len(data)} productos en formato JSON crudo!", log_func)
-            return data
-        elif isinstance(data, dict) and "data" in data:
-            items = data.get("data", [])
-            _safe_log(f"🎉 ¡Extraídos {len(items)} productos!", log_func)
-            return items
-        else:
-            _safe_log("⚠️ La respuesta no fue una lista. Obtenido tipo: " + str(type(data)), log_func)
+        raw_res = await page.evaluate(js_code, url)
+        if not raw_res:
+            _safe_log("⚠️ El servidor de Perú Compras devolvió una respuesta vacía.", log_func)
             return []
+
+        # 1. Intentar JSON primero
+        if raw_res.strip().startswith("[") or raw_res.strip().startswith("{"):
+            try:
+                data = json.loads(raw_res)
+                if isinstance(data, list):
+                    _safe_log(f"🎉 Extraídos {len(data)} productos en formato JSON crudo!", log_func)
+                    return data
+                elif isinstance(data, dict) and "data" in data:
+                    items = data.get("data", [])
+                    _safe_log(f"🎉 Extraídos {len(items)} productos desde objeto JSON!", log_func)
+                    return items
+            except Exception:
+                pass
+
+        # 2. Parsear HTML Partial de DataTables
+        products = _parse_html_products_partial(raw_res)
+        _safe_log(f"🎉 Extraídos {len(products)} productos desde la tabla HTML!", log_func)
+        return products
     except Exception as e:
-        _safe_log(f"❌ Error ejecutando fetch interno para consultar_json_productos: {e}", log_func)
+        _safe_log(f"❌ Error en consultar_json_productos: {e}", log_func)
         return []
