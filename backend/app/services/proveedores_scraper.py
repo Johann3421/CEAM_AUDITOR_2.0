@@ -24,8 +24,12 @@ import httpx
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-
 from app.schemas.oferta_proveedor import OfertaPeruComprasSchema
+from app.services.perucompras_core import (
+    login_automatico,
+    saltar_verificacion,
+    _parse_html_products_partial
+)
 
 logger = logging.getLogger("ceam.proveedores_scraper")
 
@@ -40,7 +44,7 @@ DEFAULT_PASS = os.getenv("PERUCOMPRAS_PASS", "PE/CyG6c&1R4T=")
 
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json,*/*;q=0.8",
     "X-Requested-With": "XMLHttpRequest"
 }
 JITTER_MIN = 0.3
@@ -55,8 +59,12 @@ EXTRACTION_STATUS = {
     "combos_completed": 0,
     "items_inserted": 0,
     "logs": [],
-    "last_error": None
+    "last_error": None,
+    "latest_screenshot": None
 }
+
+def update_live_screenshot(b64_str: str):
+    EXTRACTION_STATUS["latest_screenshot"] = b64_str
 
 def add_status_log(msg: str):
     timestamp = time.strftime("%H:%M:%S")
@@ -73,7 +81,6 @@ async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = 
     Inicia sesión en Perú Compras usando Playwright + CAPTCHA OCR (perucompras_core) y retorna un diccionario con las cookies (.ASPXAUTH, ASP.NET_SessionId).
     """
     from playwright.async_api import async_playwright
-    from app.services.perucompras_core import login_automatico
     
     add_status_log(f"🔐 Iniciando autenticación en Perú Compras con usuario: {user}")
     cookies_dict = {}
@@ -83,8 +90,20 @@ async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = 
             context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
             page = await context.new_page()
 
-            ok = await login_automatico(page, user, password, max_retries=6, log_func=add_status_log)
+            ok = await login_automatico(
+                page, 
+                user, 
+                password, 
+                max_retries=6, 
+                log_func=add_status_log,
+                screenshot_callback=update_live_screenshot
+            )
             if ok:
+                await saltar_verificacion(
+                    page, 
+                    log_func=add_status_log,
+                    screenshot_callback=update_live_screenshot
+                )
                 raw_cookies = await context.cookies()
                 for c in raw_cookies:
                     cookies_dict[c["name"]] = c["value"]
@@ -121,20 +140,20 @@ def save_checkpoint(completed: Set[str]):
         logger.warning("Error guardando checkpoint: %s", e)
 
 def load_combos_cache(max_age_days: int = 3) -> Optional[Dict]:
-    """Carga la jerarquía de combos si no ha expirado."""
+    """Carga la jerarquía de catálogos y categorías desde cache si no ha expirado."""
     if COMBOS_CACHE_FILE.exists():
         try:
-            stat = COMBOS_CACHE_FILE.stat()
-            age_days = (time.time() - stat.st_mtime) / 86400
-            if age_days < max_age_days:
-                with open(COMBOS_CACHE_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
+            with open(COMBOS_CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                cached_at = data.get("cached_at", 0)
+                if time.time() - cached_at < max_age_days * 86400:
+                    return data.get("combos")
         except Exception as e:
             logger.warning("Error leyendo cache de combos: %s", e)
     return None
 
 def save_combos_cache(combos_data: Dict):
-    """Guarda la jerarquía de combos en caché local."""
+    """Guarda la estructura jerárquica de combos en disco con timestamp."""
     try:
         with open(COMBOS_CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(combos_data, f, ensure_ascii=False, indent=2)
@@ -154,11 +173,21 @@ async def verify_national_scope(client: httpx.AsyncClient, cookies: Optional[Dic
     }
     try:
         resp = await client.get(ENDPOINT_OFERTAS, params=params, headers=DEFAULT_HEADERS, cookies=cookies)
-        if resp.status_code == 200 and "text/html" not in resp.headers.get("content-type", ""):
-            data = resp.json()
-            if isinstance(data, list) and len(data) > 0:
-                logger.info("⚡ Verificación de alcance exitosa: Petición nacional retornó %d registros sin iterar regiones.", len(data))
-                return True
+        if resp.status_code == 200:
+            text_res = resp.text
+            if "AccesoGeneral" not in text_res:
+                # Probar si es HTML partial
+                items = _parse_html_products_partial(text_res)
+                if len(items) > 0:
+                    logger.info("⚡ Verificación de alcance exitosa: Petición nacional retornó %d registros sin iterar regiones.", len(items))
+                    return True
+                # Probar si es JSON
+                try:
+                    data = resp.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        return True
+                except Exception:
+                    pass
     except Exception as e:
         logger.warning("No se pudo verificar alcance nacional: %s", e)
     return False
@@ -190,25 +219,42 @@ async def fetch_single_combo(
         try:
             resp = await client.get(ENDPOINT_OFERTAS, params=params, headers=DEFAULT_HEADERS, cookies=cookies)
 
-            # Detect Session Expiration (302 or HTML login response)
-            if resp.status_code in (301, 302) or "text/html" in resp.headers.get("content-type", ""):
-                logger.warning("⚠️ Sesión expirada o requerida re-autenticación para combo: %s", combo_key)
-                return combo_key, [], True  # Signal session expired
+            # Detect Session Expiration (Redirección HTTP a login o página de login)
+            if resp.status_code in (301, 302):
+                logger.warning("⚠️ Redirección 302 detectada. Sesión expirada para combo: %s", combo_key)
+                return combo_key, [], True
 
             if resp.status_code == 200:
-                raw_list = resp.json()
-                valid_items = []
-                if isinstance(raw_list, list):
-                    for raw in raw_list:
-                        try:
-                            # Pydantic Contract Validation
-                            validated = OfertaPeruComprasSchema.parse_obj(raw)
-                            val_dict = validated.dict()
-                            val_dict["raw_json"] = raw
-                            valid_items.append(val_dict)
-                        except ValidationError as ve:
-                            logger.warning("Estructura JSON inválida en item: %s", ve)
-                return combo_key, valid_items, False
+                raw_text = resp.text
+                if "AccesoGeneral" in raw_text or "SISCatalogo - Peru Compras" in raw_text:
+                    logger.warning("⚠️ Redirección a AccesoGeneral detectada en HTML. Sesión expirada.")
+                    return combo_key, [], True
+
+                # Intentar parsear como HTML Partial de DataTables
+                items_from_html = _parse_html_products_partial(raw_text)
+                if items_from_html and len(items_from_html) > 0:
+                    logger.info("✅ Extraídos %d productos de la tabla HTML para combo %s", len(items_from_html), combo_key)
+                    return combo_key, items_from_html, False
+
+                # Si es JSON
+                try:
+                    raw_list = resp.json()
+                    valid_items = []
+                    if isinstance(raw_list, list):
+                        for raw in raw_list:
+                            try:
+                                # Pydantic Contract Validation
+                                validated = OfertaPeruComprasSchema.parse_obj(raw)
+                                val_dict = validated.dict()
+                                val_dict["raw_json"] = raw
+                                valid_items.append(val_dict)
+                            except ValidationError as ve:
+                                logger.warning("Estructura JSON inválida en item: %s", ve)
+                    return combo_key, valid_items, False
+                except Exception:
+                    pass
+
+                return combo_key, [], False
             else:
                 logger.error("HTTP Error %d en combo %s", resp.status_code, combo_key)
                 return combo_key, [], False
@@ -324,11 +370,11 @@ def upsert_ofertas_history_db(db: Session, ofertas: List[Dict]) -> int:
     for o in ofertas:
         try:
             params = {
-                "nro_parte": o.get("nro_parte"),
-                "descripcion": o.get("descripcion"),
-                "marca": o.get("marca"),
-                "ruc_proveedor": o.get("ruc_proveedor"),
-                "nombre_proveedor": o.get("nombre_proveedor"),
+                "nro_parte": o.get("nro_parte") or "S/N",
+                "descripcion": o.get("descripcion") or o.get("descripcion_producto") or "",
+                "marca": o.get("marca") or "VARIOS",
+                "ruc_proveedor": o.get("ruc_proveedor") or "20000000001",
+                "nombre_proveedor": o.get("nombre_proveedor") or o.get("proveedor") or "SEKAITECH / PROVEEDOR GENERAL",
                 "acuerdo_marco": o.get("acuerdo_marco") or "EXT-CE-2022-5",
                 "catalogo": o.get("catalogo") or "COMPUTADORAS DE ESCRITORIO",
                 "categoria": o.get("categoria") or "ESCRITORIO",

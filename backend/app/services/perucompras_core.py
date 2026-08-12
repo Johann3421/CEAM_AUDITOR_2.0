@@ -97,12 +97,24 @@ def _solve_captcha_image(img_bytes: bytes) -> str:
         return ""
 
 
+async def _capture_live_preview(page: Page, screenshot_callback: Optional[Callable[[str], None]] = None):
+    """Captura screenshot del navegador y lo envía al callback en base64 para vista en vivo."""
+    if screenshot_callback:
+        try:
+            shot_bytes = await page.screenshot(type="jpeg", quality=60)
+            b64_str = f"data:image/jpeg;base64,{base64.b64encode(shot_bytes).decode('ascii')}"
+            screenshot_callback(b64_str)
+        except Exception:
+            pass
+
+
 async def login_automatico(
     page: Page,
     usuario: str,
     password: str,
     max_retries: int = 6,
-    log_func: Optional[Callable[[str], None]] = None
+    log_func: Optional[Callable[[str], None]] = None,
+    screenshot_callback: Optional[Callable[[str], None]] = None
 ) -> bool:
     """
     1. Autenticación en el portal Perú Compras con resolución automática de CAPTCHA.
@@ -124,10 +136,12 @@ async def login_automatico(
         _log(f"Intento de login {attempt}/{max_retries}...")
         try:
             await page.goto(LOGIN_URL, timeout=45000, wait_until="networkidle")
+            await _capture_live_preview(page, screenshot_callback)
             
             # Verificar si ya está logueado
             if "/AccesoGeneral" not in page.url and "/Login" not in page.url:
                 _log("✅ Sesión activa detectada.")
+                await _capture_live_preview(page, screenshot_callback)
                 return True
 
             # Llenar usuario y clave (usar selector id exacto e indicar state='visible')
@@ -157,6 +171,7 @@ async def login_automatico(
             captcha_input = await page.wait_for_selector("#CodigoCaptcha, input[name='CodigoCaptcha']", timeout=5000)
             if captcha_input and captcha_code:
                 await captcha_input.fill(captcha_code)
+                await _capture_live_preview(page, screenshot_callback)
                 await captcha_input.press("Enter")
 
             # Click Ingresar (con force=True)
@@ -169,10 +184,12 @@ async def login_automatico(
                     await page.evaluate("() => { const form = document.querySelector('form'); if (form) form.submit(); }")
 
             await page.wait_for_timeout(3000)
+            await _capture_live_preview(page, screenshot_callback)
 
             # Validar si redireccionó fuera de la pantalla de login
             if "/AccesoGeneral" not in page.url:
                 _log("🎉 Login exitoso en Perú Compras.")
+                await _capture_live_preview(page, screenshot_callback)
                 return True
             else:
                 _log("⚠️ El login no avanzó (posible CAPTCHA incorrecto). Reintentando...")
@@ -197,7 +214,8 @@ def _safe_log(msg: str, log_func: Optional[Callable[[str], None]] = None):
 
 async def saltar_verificacion(
     page: Page,
-    log_func: Optional[Callable[[str], None]] = None
+    log_func: Optional[Callable[[str], None]] = None,
+    screenshot_callback: Optional[Callable[[str], None]] = None
 ) -> bool:
     """
     2. Maniobra de retroceso seguro y navegación limpia a MejoraBasica.
@@ -208,6 +226,7 @@ async def saltar_verificacion(
         await page.wait_for_timeout(1000)
         await page.goto(BASE_URL, timeout=30000)
         await page.goto(MEJORA_BASICA_URL, timeout=30000, wait_until="networkidle")
+        await _capture_live_preview(page, screenshot_callback)
         _safe_log("✅ Navegación a MejoraBasica completada con éxito.", log_func)
         return True
     except Exception as e:

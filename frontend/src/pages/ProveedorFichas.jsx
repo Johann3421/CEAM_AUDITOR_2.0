@@ -264,6 +264,20 @@ const ProveedorFichas = () => {
             </div>
           )}
 
+          {/* Live Browser Screenshot Preview */}
+          {scrapeStatus?.latest_screenshot && (
+            <div style={{ marginBottom: 14, background: '#f8fafc', border: '1px solid var(--c-border)', borderRadius: 8, padding: 10, textAlign: 'center' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <span>🖥️ Vista en Vivo del Navegador (Perú Compras)</span>
+              </div>
+              <img 
+                src={scrapeStatus.latest_screenshot} 
+                alt="Vista en vivo del navegador" 
+                style={{ maxWidth: '100%', maxHeight: 260, borderRadius: 6, border: '1px solid #cbd5e1', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} 
+              />
+            </div>
+          )}
+
           {/* Terminal Logs Box */}
           <div style={{ 
             background: '#0f172a', 
