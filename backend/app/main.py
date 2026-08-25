@@ -57,12 +57,23 @@ try:
         # 3. Auto-clasificar categorías existentes en ofertas_proveedor_history
         try:
             _c.execute(text("""
+                -- 1. Monitores
+                UPDATE ofertas_proveedor_history 
+                SET catalogo = 'MONITORES', categoria = 'MONITOR'
+                WHERE (UPPER(descripcion_producto) LIKE 'MONITOR%' 
+                   OR UPPER(descripcion_producto) LIKE '%MONITOR LED%' 
+                   OR UPPER(descripcion_producto) LIKE '%MONITOR PARA PC%'
+                   OR UPPER(categoria) LIKE '%MONITOR%')
+                  AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%';
+
+                -- 2. Todo en Uno (AIO)
                 UPDATE ofertas_proveedor_history 
                 SET catalogo = 'COMPUTADORAS DE ESCRITORIO', categoria = 'COMPUTADORA TODO EN UNO'
                 WHERE (UPPER(descripcion_producto) LIKE '%TODO EN UNO%' 
                    OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%' 
                    OR UPPER(descripcion_producto) LIKE '%ALL-IN-ONE%');
 
+                -- 3. Portátiles / Laptops
                 UPDATE ofertas_proveedor_history 
                 SET catalogo = 'COMPUTADORAS PORTATILES', categoria = 'COMPUTADORA PORTATIL'
                 WHERE (UPPER(descripcion_producto) LIKE '%PORTATIL%' 
@@ -71,19 +82,61 @@ try:
                    OR UPPER(descripcion_producto) LIKE '%NOTEBOOK%')
                   AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%';
 
+                -- 4. Impresoras / Multifuncionales
+                UPDATE ofertas_proveedor_history 
+                SET catalogo = 'IMPRESORAS', categoria = 'IMPRESORA'
+                WHERE (UPPER(descripcion_producto) LIKE '%IMPRESORA%' 
+                   OR UPPER(descripcion_producto) LIKE '%MULTIFUNCIONAL%'
+                   OR UPPER(descripcion_producto) LIKE '%PLOTTER%'
+                   OR UPPER(categoria) LIKE '%IMPRESORA%');
+
+                -- 5. Escáneres
                 UPDATE ofertas_proveedor_history 
                 SET catalogo = 'ESCANERES', categoria = 'ESCANER'
                 WHERE (UPPER(descripcion_producto) LIKE '%ESCANER%' 
                    OR UPPER(descripcion_producto) LIKE '%ESCÁNER%');
 
+                -- 6. Tablets
+                UPDATE ofertas_proveedor_history 
+                SET catalogo = 'TABLETS', categoria = 'TABLET'
+                WHERE UPPER(descripcion_producto) LIKE '%TABLET%';
+
+                -- 7. Estaciones de Trabajo (Workstations)
+                UPDATE ofertas_proveedor_history 
+                SET catalogo = 'ESTACIONES DE TRABAJO', categoria = 'ESTACION DE TRABAJO'
+                WHERE (UPPER(descripcion_producto) LIKE '%ESTACION DE TRABAJO%' 
+                   OR UPPER(descripcion_producto) LIKE '%ESTACIÓN DE TRABAJO%'
+                   OR UPPER(descripcion_producto) LIKE '%WORKSTATION%');
+
+                -- 8. Servidores
+                UPDATE ofertas_proveedor_history 
+                SET catalogo = 'SERVIDORES', categoria = 'SERVIDOR'
+                WHERE (UPPER(descripcion_producto) LIKE '%SERVIDOR%' 
+                   OR UPPER(descripcion_producto) LIKE '%SERVER%');
+
+                -- 9. Proyectores
+                UPDATE ofertas_proveedor_history 
+                SET catalogo = 'PROYECTORES', categoria = 'PROYECTOR'
+                WHERE UPPER(descripcion_producto) LIKE '%PROYECTOR%';
+
+                -- 10. UPS / Energía
+                UPDATE ofertas_proveedor_history 
+                SET catalogo = 'ENERGIA Y UPS', categoria = 'UPS'
+                WHERE (UPPER(descripcion_producto) LIKE '%UPS%' 
+                   OR UPPER(descripcion_producto) LIKE '%ENERGIA ININTERRUMPIDA%'
+                   OR UPPER(descripcion_producto) LIKE '%ESTABILIZADOR%');
+
+                -- 11. Computadoras de Escritorio (Desktop / Torre)
                 UPDATE ofertas_proveedor_history 
                 SET catalogo = 'COMPUTADORAS DE ESCRITORIO', categoria = 'COMPUTADORA DE ESCRITORIO'
                 WHERE (UPPER(descripcion_producto) LIKE 'COMPUTADORA DE ESCRITORIO%' 
                    OR UPPER(descripcion_producto) LIKE '%ESCRITORIO%' 
-                   OR UPPER(descripcion_producto) LIKE '%MINI PC%')
+                   OR UPPER(descripcion_producto) LIKE '%MINI PC%'
+                   OR UPPER(descripcion_producto) LIKE '%SFF%')
                   AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
                   AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
-                  AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%';
+                  AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%'
+                  AND UPPER(descripcion_producto) NOT LIKE '%MONITOR%';
             """))
         except Exception:
             pass

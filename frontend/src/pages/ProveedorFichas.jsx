@@ -7,7 +7,7 @@ import {
   ExternalLink, Tag, DollarSign, Package, TrendingUp, X, RefreshCw,
   Code, Copy, Check, Cpu, HardDrive, Monitor, Download,
   ArrowUp, ArrowDown, ChevronsUpDown, Filter, Layers, CheckCircle2, ChevronDown, ChevronUp,
-  Laptop, MonitorCheck, Printer, Sparkles
+  Laptop, MonitorCheck, Printer, Sparkles, Tv, Smartphone, Server, Zap, Projector
 } from 'lucide-react';
 
 const MAIN_PROVIDERS = [
@@ -120,7 +120,11 @@ const ProveedorFichas = () => {
   const [sortBy, setSortBy] = useState('');
   const [fichas, setFichas] = useState([]);
   const [totalFichas, setTotalFichas] = useState(0);
-  const [categoriesCount, setCategoriesCount] = useState({ total: 0, desktop: 0, laptop: 0, aio: 0, escaner: 0 });
+  const [categoriesCount, setCategoriesCount] = useState({
+    total: 0, desktop: 0, laptop: 0, aio: 0, monitor: 0,
+    impresora: 0, escaner: 0, tablet: 0, workstation: 0,
+    servidor: 0, proyector: 0, ups: 0
+  });
   const [loading, setLoading] = useState(false);
   const [reclassifying, setReclassifying] = useState(false);
   const [scraping, setScraping] = useState(false);
@@ -310,7 +314,14 @@ const ProveedorFichas = () => {
     { id: 'desktop', label: '🖥️ Computadoras de Escritorio', count: categoriesCount.desktop, icon: Monitor },
     { id: 'laptop', label: '💻 Laptops / Portátiles', count: categoriesCount.laptop, icon: Laptop },
     { id: 'aio', label: '🖥️ Todo en Uno (AIO)', count: categoriesCount.aio, icon: MonitorCheck },
+    { id: 'monitor', label: '📺 Monitores', count: categoriesCount.monitor, icon: Tv },
+    { id: 'impresora', label: '🖨️ Impresoras / Multifuncionales', count: categoriesCount.impresora, icon: Printer },
     { id: 'escaner', label: '📠 Escáneres', count: categoriesCount.escaner, icon: Printer },
+    { id: 'tablet', label: '📱 Tablets', count: categoriesCount.tablet, icon: Smartphone },
+    { id: 'workstation', label: '⚙️ Estaciones de Trabajo', count: categoriesCount.workstation, icon: Cpu },
+    { id: 'servidor', label: '🗄️ Servidores', count: categoriesCount.servidor, icon: Server },
+    { id: 'proyector', label: '📽️ Proyectores', count: categoriesCount.proyector, icon: Projector },
+    { id: 'ups', label: '🔋 UPS / Energía', count: categoriesCount.ups, icon: Zap },
   ];
 
   return (
