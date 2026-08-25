@@ -42,17 +42,21 @@ def get_proveedor_fichas(
     try:
         sql = f"""
             SELECT 
+                id,
                 nro_parte,
                 descripcion_producto AS descripcion,
                 marca,
                 catalogo,
+                categoria,
+                acuerdo_marco,
                 nombre_proveedor AS proveedor,
-                precio_ofertado AS precio_referencia,
-                precio_ofertado AS precio_min,
-                precio_ofertado AS precio_max,
-                existencia_stock AS n_ordenes,
-                precio_ofertado AS total_vendido,
+                ruc_proveedor,
+                precio_ofertado,
+                existencia_stock,
+                plazo_entrega_dias,
                 pdf_url,
+                raw_json,
+                created_at,
                 COUNT(*) OVER() AS total_count
             FROM ofertas_proveedor_history f
             WHERE {where_sql}
@@ -75,6 +79,24 @@ def get_proveedor_fichas(
         pass
 
     return {"items": [], "page": page, "limit": limit, "total": 0}
+
+@router.get("/export-json")
+def export_all_fichas_json(db: Session = Depends(get_db)):
+    """
+    Devuelve todas las ofertas extraídas en formato JSON crudo completo.
+    """
+    try:
+        rows = db.execute(text("""
+            SELECT 
+                id, nro_parte, descripcion_producto, marca, catalogo, categoria,
+                acuerdo_marco, nombre_proveedor, ruc_proveedor, precio_ofertado,
+                existencia_stock, plazo_entrega_dias, pdf_url, raw_json, created_at
+            FROM ofertas_proveedor_history
+            ORDER BY id ASC
+        """)).mappings().all()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        return {"error": str(e)}
 
 @router.get("/kpis")
 def get_proveedor_kpis(

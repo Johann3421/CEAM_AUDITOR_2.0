@@ -1,88 +1,47 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { purchaseOrdersApi, fichasProductoApi, proveedoresApi } from '../services/api';
+import { purchaseOrdersApi, proveedoresApi } from '../services/api';
 import {
-  Building2, Search, SlidersHorizontal, FileText, ChevronLeft, ChevronRight,
-  ExternalLink, FileDown, CheckCircle, Tag, DollarSign, Package, TrendingUp, X, RefreshCw
+  Building2, Search, FileText, ChevronLeft, ChevronRight,
+  ExternalLink, FileDown, Tag, DollarSign, Package, TrendingUp, X, RefreshCw,
+  Code, Copy, Check, Cpu, HardDrive, Monitor, ShieldCheck, Download
 } from 'lucide-react';
 
 const MAIN_PROVIDERS = [
   { id: 'all', name: 'Todos los Proveedores', tag: 'Global' },
+  { id: 'sekaitech', name: 'SEKAITECH E.I.R.L.', ruc: '20608889991', short: 'Sekaitech' },
   { id: 'king', name: 'THE KING COMPUTER E.I.R.L.', ruc: '20601234567', short: 'The King Computer' },
   { id: 'jorge', name: 'DISTRIBUIDORA JORGE ROJAS S.A.C.', ruc: '20509876543', short: 'Jorge Rojas' },
-  { id: 'sekaitech', name: 'SEKAITECH E.I.R.L.', ruc: '20608889991', short: 'Sekaitech' },
-];
-
-const MOCK_PROVIDER_FICHAS = [
-  {
-    nro_parte: '27-CB0003LA',
-    descripcion: 'ALL IN ONE HP 27-CB0003LA AMD RYZEN 5 5500U 8GB 512GB SSD 27" FHD W11H',
-    marca: 'HP',
-    catalogo: 'EXT-CE-2022-5 — COMPUTADORAS DE ESCRITORIO',
-    proveedor: 'THE KING COMPUTER E.I.R.L.',
-    precio_min: 2450.00,
-    precio_max: 2790.00,
-    precio_referencia: 2580.00,
-    n_ordenes: 18,
-    total_vendido: 46440.00,
-    pdf_url: 'https://prod-pc-cdn.azureedge.net/contproveedor/Documentos/Productos/sample.pdf'
-  },
-  {
-    nro_parte: '21.5-V22-HP',
-    descripcion: 'MONITOR HP V22 21.5" FHD HDMI VGA 60HZ VESA NEGRO',
-    marca: 'HP',
-    catalogo: 'EXT-CE-2022-5 — ESCÁNERES Y MONITORES',
-    proveedor: 'THE KING COMPUTER E.I.R.L.',
-    precio_min: 380.00,
-    precio_max: 420.00,
-    precio_referencia: 395.00,
-    n_ordenes: 42,
-    total_vendido: 16590.00,
-    pdf_url: 'https://prod-pc-cdn.azureedge.net/contproveedor/Documentos/Productos/sample.pdf'
-  },
-  {
-    nro_parte: 'LNV-THINK-M70S',
-    descripcion: 'DESKTOP LENOVO THINKCENTRE M70S SFF INTEL CORE I7-12700 16GB 512GB SSD W11 PRO',
-    marca: 'LENOVO',
-    catalogo: 'EXT-CE-2022-5 — COMPUTADORAS DE ESCRITORIO',
-    proveedor: 'DISTRIBUIDORA JORGE ROJAS S.A.C.',
-    precio_min: 3890.00,
-    precio_max: 4250.00,
-    precio_referencia: 3990.00,
-    n_ordenes: 25,
-    total_vendido: 99750.00,
-    pdf_url: '#'
-  },
-  {
-    nro_parte: 'DELL-OPT-3090',
-    descripcion: 'DELL OPTIPLEX 3090 TOWER INTEL CORE I5-10505 8GB 1TB HDD DOS',
-    marca: 'DELL',
-    catalogo: 'EXT-CE-2022-5 — COMPUTADORAS DE ESCRITORIO',
-    proveedor: 'DISTRIBUIDORA JORGE ROJAS S.A.C.',
-    precio_min: 2100.00,
-    precio_max: 2350.00,
-    precio_referencia: 2200.00,
-    n_ordenes: 31,
-    total_vendido: 68200.00,
-    pdf_url: '#'
-  },
-  {
-    nro_parte: 'SK-TOWER-PRO15',
-    descripcion: 'COMPUTADORA DE ESCRITORIO SEKAITECH PRO INTEL CORE I5-12400 16GB SSD 512GB W11',
-    marca: 'SEKAITECH',
-    catalogo: 'EXT-CE-2022-5 — COMPUTADORAS DE ESCRITORIO',
-    proveedor: 'SEKAITECH E.I.R.L.',
-    precio_min: 2600.00,
-    precio_max: 2850.00,
-    precio_referencia: 2690.00,
-    n_ordenes: 15,
-    total_vendido: 40350.00,
-    pdf_url: '#'
-  }
 ];
 
 const fmt = (n) =>
   n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const parseSpecs = (desc = '') => {
+  if (!desc) return {};
+  const getMatch = (regex) => {
+    const m = desc.match(regex);
+    return m ? m[1].trim() : null;
+  };
+
+  const procesador = getMatch(/PROCESADOR:\s*([^;]+?)(?=\s+RAM:|\s+ALMACENAMIENTO:|$)/i);
+  const ram = getMatch(/RAM:\s*([^;]+?)(?=\s+ALMACENAMIENTO:|\s+PANTALLA:|$)/i);
+  const disco = getMatch(/ALMACENAMIENTO:\s*([^;]+?)(?=\s+PANTALLA:|\s+LAN:|$)/i);
+  const pantalla = getMatch(/PANTALLA:\s*([^;]+?)(?=\s+LAN:|\s+WLAN:|$)/i);
+  const so = getMatch(/SIST\.\s*OPER:\s*([^;]+?)(?=\s+UNIDAD|\s+TECLADO:|$)/i);
+  const garantia = getMatch(/G\.\s*F:\s*([^;]+?)(?=\s+UNIDAD|\s+SIST\.|$)/i);
+  const modelo = getMatch(/UNIDAD\s+([A-Z0-9_-]+)\s+([A-Z0-9\s_-]+?)(?=\s+[A-Z0-9_*#/-]+\s+SIST\.\s+MANEJO|$)/i);
+
+  return {
+    procesador,
+    ram,
+    disco,
+    pantalla,
+    so,
+    garantia,
+    modelo: modelo ? modelo.replace(/\s+/g, ' ') : null
+  };
+};
 
 const ProveedorFichas = () => {
   const navigate = useNavigate();
@@ -98,6 +57,9 @@ const ProveedorFichas = () => {
   const [limit, setLimit] = useState(50);
   const [scrapeStatus, setScrapeStatus] = useState(null);
   const [showLogModal, setShowLogModal] = useState(false);
+  const [selectedJsonItem, setSelectedJsonItem] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [exportingJson, setExportingJson] = useState(false);
 
   const fetchFichasData = () => {
     setLoading(true);
@@ -157,7 +119,7 @@ const ProveedorFichas = () => {
   const handleStartScrape = async () => {
     setScraping(true);
     setShowLogModal(true);
-    setScrapeMessage('⚡ Conectando a Perú Compras e iniciando Worker Pool async...');
+    setScrapeMessage('⚡ Conectando a Perú Compras e iniciando extracción...');
     try {
       await proveedoresApi.scrape({
         n_acuerdo: '249',
@@ -171,18 +133,44 @@ const ProveedorFichas = () => {
     }
   };
 
-  // Provider summary KPI calculations
+  const handleDownloadFullJson = async () => {
+    setExportingJson(true);
+    try {
+      const response = await fetch('/api/proveedores/export-json');
+      const data = await response.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `perucompras_ofertas_proveedores_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Error exportando JSON:", e);
+    } finally {
+      setExportingJson(false);
+    }
+  };
+
+  const handleCopyJson = () => {
+    if (selectedJsonItem) {
+      navigator.clipboard.writeText(JSON.stringify(selectedJsonItem, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   const kpiStats = useMemo(() => {
-    const totalOrdenes = fichas.reduce((acc, curr) => acc + (curr.n_ordenes || 0), 0);
-    const totalVendido = fichas.reduce((acc, curr) => acc + (curr.total_vendido || 0), 0);
+    const totalStock = fichas.reduce((acc, curr) => acc + (curr.existencia_stock || 0), 0);
     const avgPrecio = fichas.length
-      ? fichas.reduce((acc, curr) => acc + (curr.precio_referencia || 0), 0) / fichas.length
+      ? fichas.reduce((acc, curr) => acc + (curr.precio_ofertado || curr.precio_referencia || 0), 0) / fichas.length
       : 0;
 
     return {
       fichasCount: totalFichas || fichas.length,
-      totalOrdenes,
-      totalVendido,
+      totalStock,
       avgPrecio
     };
   }, [fichas, totalFichas]);
@@ -190,27 +178,41 @@ const ProveedorFichas = () => {
   const activeProviderObj = MAIN_PROVIDERS.find(p => p.id === selectedProvider);
 
   return (
-    <div>
+    <div style={{ maxWidth: 1400, margin: '0 auto', paddingBottom: 40 }}>
       {/* Header */}
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
         <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Building2 size={28} style={{ color: 'var(--c-brand)' }} />
-            Filtro de Proveedores — Fichas Producto
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 24, fontWeight: 700, margin: 0 }}>
+            <Building2 size={26} style={{ color: 'var(--c-brand)' }} />
+            Ofertas y Fichas de Proveedores — Perú Compras
           </h1>
-          <p>
-            Análisis de fichas técnicas y volúmenes adjudicados por proveedores principales (*The King Computer, Jorge Rojas, Sekaitech*)
+          <p style={{ margin: '6px 0 0 0', color: 'var(--c-text-secondary)', fontSize: 14 }}>
+            Catálogo completo extraído directamente del portal oficial (Acuerdo Marco EXT-CE-2022-5)
           </p>
         </div>
-        <button
-          className="btn btn-primary"
-          onClick={handleStartScrape}
-          disabled={scraping}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', fontWeight: 600 }}
-        >
-          <RefreshCw size={16} className={scraping ? 'spin' : ''} />
-          {scraping ? 'Extrayendo en 2do Plano...' : '⚡ Extraer Ofertas de Proveedores'}
-        </button>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-secondary"
+            onClick={handleDownloadFullJson}
+            disabled={exportingJson || totalFichas === 0}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 15px', fontWeight: 600 }}
+            title="Descargar todas las ofertas en un archivo .json"
+          >
+            <Download size={16} />
+            {exportingJson ? 'Generando...' : '📥 Descargar JSON Completo'}
+          </button>
+
+          <button
+            className="btn btn-primary"
+            onClick={handleStartScrape}
+            disabled={scraping}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 18px', fontWeight: 600 }}
+          >
+            <RefreshCw size={16} className={scraping ? 'spin' : ''} />
+            {scraping ? 'Extrayendo en 2do Plano...' : '⚡ Actualizar Ofertas (Scraper)'}
+          </button>
+        </div>
       </div>
 
       {/* Live Extraction Log & Status Panel */}
@@ -268,7 +270,7 @@ const ProveedorFichas = () => {
             fontSize: 12, 
             padding: 14, 
             borderRadius: 8, 
-            maxHeight: 220, 
+            maxHeight: 180, 
             overflowY: 'auto',
             whiteSpace: 'pre-wrap',
             lineHeight: 1.5
@@ -286,56 +288,6 @@ const ProveedorFichas = () => {
         </div>
       )}
 
-      {scrapeMessage && (
-        <div className="card fade-up" style={{ marginBottom: 16, padding: '12px 18px', background: 'var(--c-brand-light)', borderColor: 'var(--c-brand)', color: 'var(--c-brand-dark)', fontWeight: 500, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>{scrapeMessage}</span>
-          <button onClick={() => setScrapeMessage('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-brand-dark)' }}>
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
-      {/* Provider Selector Tabs */}
-      <div className="card fade-up" style={{ marginBottom: 20, padding: '14px 18px' }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          Seleccionar Proveedor Principal:
-        </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {MAIN_PROVIDERS.map((p) => {
-            const isSelected = selectedProvider === p.id;
-            return (
-              <button
-                key={p.id}
-                onClick={() => { setSelectedProvider(p.id); setPage(0); }}
-                style={{
-                  padding: '9px 16px',
-                  borderRadius: 'var(--radius-md)',
-                  border: isSelected ? '1px solid var(--c-brand)' : '1px solid var(--c-border)',
-                  background: isSelected ? 'var(--c-brand-light)' : 'var(--c-surface)',
-                  color: isSelected ? 'var(--c-brand-dark)' : 'var(--c-text)',
-                  fontWeight: isSelected ? 600 : 500,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  boxShadow: isSelected ? 'var(--shadow-xs)' : 'none',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <Building2 size={15} style={{ color: isSelected ? 'var(--c-brand)' : 'var(--c-text-tertiary)' }} />
-                <span>{p.short || p.name}</span>
-                {p.tag && (
-                  <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'var(--c-border-light)', color: 'var(--c-text-secondary)' }}>
-                    {p.tag}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* KPI Stats Bar */}
       <div className="stats-grid" style={{ marginBottom: 20 }}>
         <div className="stat-card">
@@ -343,10 +295,10 @@ const ProveedorFichas = () => {
             <Package size={20} />
           </div>
           <div>
-            <div className="stat-value">{kpiStats.fichasCount}</div>
-            <div className="stat-label">Fichas Asociadas</div>
+            <div className="stat-value">{kpiStats.fichasCount.toLocaleString('es-PE')}</div>
+            <div className="stat-label">Total Ofertas Extraídas</div>
             <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
-              {activeProviderObj?.short || 'Todos'}
+              Dataset oficial Perú Compras
             </div>
           </div>
         </div>
@@ -356,10 +308,10 @@ const ProveedorFichas = () => {
             <TrendingUp size={20} />
           </div>
           <div>
-            <div className="stat-value">{kpiStats.totalOrdenes}</div>
-            <div className="stat-label">Órdenes Adjudicadas</div>
+            <div className="stat-value">{kpiStats.totalStock} unid.</div>
+            <div className="stat-label">Stock en Página Actual</div>
             <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
-              En catálogo Perú Compras
+              Existencias vigentes
             </div>
           </div>
         </div>
@@ -369,152 +321,252 @@ const ProveedorFichas = () => {
             <DollarSign size={20} />
           </div>
           <div>
-            <div className="stat-value">S/ {fmt(kpiStats.totalVendido)}</div>
-            <div className="stat-label">Monto Total Facturado</div>
+            <div className="stat-value">USD {fmt(kpiStats.avgPrecio)}</div>
+            <div className="stat-label">Precio Promedio Ofertado</div>
             <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
-              Sumatoria de órdenes
-            </div>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(124,58,237,0.1)', color: '#7c3aed' }}>
-            <Tag size={20} />
-          </div>
-          <div>
-            <div className="stat-value">S/ {fmt(kpiStats.avgPrecio)}</div>
-            <div className="stat-label">Precio Promedio Unitario</div>
-            <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
-              Valor ref. por producto
+              Promedio unitario vigente
             </div>
           </div>
         </div>
       </div>
 
       {/* Toolbar Filters */}
-      <div className="toolbar" style={{ marginBottom: 16 }}>
-        <div className="toolbar-search" style={{ flex: 1 }}>
-          <Search size={16} />
-          <input
-            className="form-input"
-            placeholder="Buscar por N° Parte, Marca o Descripción del producto…"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-          />
-          {search && (
-            <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-              <X size={14} style={{ color: 'var(--c-text-tertiary)' }} />
-            </button>
-          )}
+      <div className="card fade-up" style={{ marginBottom: 16, padding: '14px 18px' }}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="toolbar-search" style={{ flex: 1, minWidth: 260 }}>
+            <Search size={16} />
+            <input
+              className="form-input"
+              placeholder="Buscar por N° Parte, Marca, Procesador o Modelo…"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+            />
+            {search && (
+              <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                <X size={14} style={{ color: 'var(--c-text-tertiary)' }} />
+              </button>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--c-text-secondary)' }}>Marca:</span>
+            <select
+              className="form-select"
+              value={marcaFilter}
+              onChange={(e) => { setMarcaFilter(e.target.value); setPage(0); }}
+              style={{ width: 140 }}
+            >
+              <option value="">Todas</option>
+              <option value="ADVANCE">ADVANCE</option>
+              <option value="HP">HP</option>
+              <option value="LENOVO">LENOVO</option>
+              <option value="DELL">DELL</option>
+              <option value="M4X">M4X</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--c-text-secondary)' }}>Proveedor:</span>
+            <select
+              className="form-select"
+              value={selectedProvider}
+              onChange={(e) => { setSelectedProvider(e.target.value); setPage(0); }}
+              style={{ minWidth: 170 }}
+            >
+              {MAIN_PROVIDERS.map(p => (
+                <option key={p.id} value={p.id}>{p.short || p.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
-
-        <select
-          className="form-select"
-          value={marcaFilter}
-          onChange={(e) => { setMarcaFilter(e.target.value); setPage(0); }}
-          style={{ maxWidth: 180 }}
-        >
-          <option value="">Todas las marcas</option>
-          <option value="HP">HP</option>
-          <option value="LENOVO">LENOVO</option>
-          <option value="DELL">DELL</option>
-          <option value="SEKAITECH">SEKAITECH</option>
-        </select>
-
-        {selectedProvider !== 'all' && (
-          <button
-            className="btn btn-primary"
-            onClick={() => navigate(`/orders?proveedor=${encodeURIComponent(activeProviderObj?.name || '')}`)}
-            title="Ver todas las órdenes de este proveedor"
-          >
-            <ExternalLink size={14} />
-            Ver Órdenes del Proveedor
-          </button>
-        )}
       </div>
 
       {/* Main Table */}
-      <div className="card fade-up">
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FileText size={16} style={{ color: 'var(--c-brand)' }} />
-            Fichas Técnicas — {activeProviderObj?.name || 'Todos los Proveedores'}
+      <div className="card fade-up" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="card-header" style={{ padding: '14px 20px', borderBottom: '1px solid var(--c-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 600 }}>
+            <FileText size={17} style={{ color: 'var(--c-brand)' }} />
+            Listado de Fichas de Productos Ofertados
           </span>
-          <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>
-            Mostrando <strong>{fichas.length}</strong> de <strong>{totalFichas.toLocaleString('es-PE')}</strong> fichas (Página {page + 1} de {Math.max(1, Math.ceil(totalFichas / limit))})
+          <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}>
+            Mostrando <strong>{fichas.length}</strong> de <strong>{totalFichas.toLocaleString('es-PE')}</strong> ofertas (Pág. {page + 1} de {Math.max(1, Math.ceil(totalFichas / limit))})
           </span>
         </div>
 
         <div className="table-wrap">
-          <table className="data-table" style={{ fontSize: '0.85rem' }}>
+          <table className="data-table" style={{ fontSize: '0.86rem', width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr>
-                <th style={{ width: 140 }}>N° Parte / Código</th>
-                <th>Descripción del Producto</th>
-                <th style={{ width: 110 }}>Marca</th>
-                <th style={{ width: 220 }}>Proveedor Adjudicado</th>
-                <th style={{ width: 110, textAlign: 'right' }}>P. Mínimo</th>
-                <th style={{ width: 110, textAlign: 'right' }}>P. Máximo</th>
-                <th style={{ width: 120, textAlign: 'right' }}>Total Facturado</th>
-                <th style={{ width: 80, textAlign: 'center' }}>Órdenes</th>
-                <th style={{ width: 60, textAlign: 'center' }}>Ficha</th>
+              <tr style={{ background: '#f8fafc', borderBottom: '2px solid var(--c-border)' }}>
+                <th style={{ width: 170, padding: '12px 14px' }}>Marca & Código</th>
+                <th style={{ padding: '12px 14px' }}>Ficha Técnica / Especificaciones</th>
+                <th style={{ width: 100, textAlign: 'center', padding: '12px 14px' }}>Estado</th>
+                <th style={{ width: 140, textAlign: 'right', padding: '12px 14px' }}>Precio Ofertado</th>
+                <th style={{ width: 100, textAlign: 'center', padding: '12px 14px' }}>Stock</th>
+                <th style={{ width: 90, textAlign: 'center', padding: '12px 14px' }}>Datos</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--c-text-secondary)' }}>
-                    Cargando fichas de proveedores...
+                  <td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-secondary)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
+                      <RefreshCw size={18} className="spin" />
+                      <span>Cargando ofertas de la base de datos...</span>
+                    </div>
                   </td>
                 </tr>
               ) : fichas.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--c-text-tertiary)' }}>
-                    No se encontraron fichas para los filtros seleccionados.
+                  <td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-tertiary)' }}>
+                    No se encontraron registros. Haz clic en <strong>⚡ Actualizar Ofertas (Scraper)</strong> para extraer la lista de Perú Compras.
                   </td>
                 </tr>
               ) : (
-                fichas.map((f, idx) => (
-                  <tr key={idx} className="fade-up">
-                    <td>
-                      <span style={{ fontWeight: 600, color: 'var(--c-brand)', fontFamily: 'monospace', fontSize: 12 }}>
-                        {f.nro_parte}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={{ maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--c-text-secondary)' }} title={f.descripcion}>
-                        {f.descripcion}
-                      </div>
-                    </td>
-                    <td>
-                      <span className="badge badge-info">{f.marca}</span>
-                    </td>
-                    <td style={{ fontSize: 12, fontWeight: 500, color: 'var(--c-text)' }}>
-                      {f.proveedor}
-                    </td>
-                    <td style={{ textAlign: 'right', fontSize: 12, color: 'var(--c-text-secondary)' }}>
-                      S/ {fmt(f.precio_min)}
-                    </td>
-                    <td style={{ textAlign: 'right', fontSize: 12, color: 'var(--c-text-secondary)' }}>
-                      S/ {fmt(f.precio_max)}
-                    </td>
-                    <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--c-success)' }}>
-                      S/ {fmt(f.total_vendido)}
-                    </td>
-                    <td style={{ textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--c-brand)' }}>
-                      {f.n_ordenes}
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      {f.pdf_url && f.pdf_url !== '#' ? (
-                        <a href={f.pdf_url} target="_blank" rel="noopener noreferrer" className="btn btn-sm" title="Ver PDF de Ficha Técnica">
-                          <ExternalLink size={13} />
-                        </a>
-                      ) : (
-                        <span style={{ color: 'var(--c-text-tertiary)', fontSize: 11 }}>—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                fichas.map((f, idx) => {
+                  const specs = parseSpecs(f.descripcion);
+                  return (
+                    <tr key={idx} style={{ borderBottom: '1px solid var(--c-border)', transition: 'background 0.15s' }}>
+                      {/* Marca & Nro Parte */}
+                      <td style={{ padding: '12px 14px', verticalAlign: 'top' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ 
+                            display: 'inline-block',
+                            padding: '2px 8px', 
+                            borderRadius: 4, 
+                            fontSize: 11, 
+                            fontWeight: 700, 
+                            background: f.marca === 'HP' ? '#eff6ff' : f.marca === 'LENOVO' ? '#fef2f2' : f.marca === 'DELL' ? '#f0fdf4' : '#f1f5f9',
+                            color: f.marca === 'HP' ? '#1d4ed8' : f.marca === 'LENOVO' ? '#b91c1c' : f.marca === 'DELL' ? '#15803d' : '#334155',
+                            width: 'fit-content'
+                          }}>
+                            {f.marca || 'VARIOS'}
+                          </span>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12, color: 'var(--c-text-primary)' }}>
+                            {f.nro_parte || 'S/N'}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Specs / Descripcion */}
+                      <td style={{ padding: '12px 14px', verticalAlign: 'top' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ fontWeight: 600, color: 'var(--c-text-primary)', fontSize: 13 }}>
+                            {specs.modelo ? `${f.marca} ${specs.modelo}` : (f.descripcion?.split(':')[0] || 'Computadora Todo en Uno')}
+                          </div>
+
+                          {/* Tech Specs Chips */}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                            {specs.procesador && (
+                              <span style={{ background: '#f1f5f9', color: '#1e293b', fontSize: 11, padding: '2px 7px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                <Cpu size={12} style={{ color: 'var(--c-brand)' }} />
+                                {specs.procesador}
+                              </span>
+                            )}
+                            {specs.ram && (
+                              <span style={{ background: '#f1f5f9', color: '#1e293b', fontSize: 11, padding: '2px 7px', borderRadius: 4 }}>
+                                RAM: <strong>{specs.ram}</strong>
+                              </span>
+                            )}
+                            {specs.disco && (
+                              <span style={{ background: '#f1f5f9', color: '#1e293b', fontSize: 11, padding: '2px 7px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                <HardDrive size={12} />
+                                {specs.disco}
+                              </span>
+                            )}
+                            {specs.pantalla && (
+                              <span style={{ background: '#f1f5f9', color: '#1e293b', fontSize: 11, padding: '2px 7px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                <Monitor size={12} />
+                                {specs.pantalla}
+                              </span>
+                            )}
+                            {specs.so && (
+                              <span style={{ background: '#f1f5f9', color: '#1e293b', fontSize: 11, padding: '2px 7px', borderRadius: 4 }}>
+                                {specs.so}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Raw text collapsible / preview */}
+                          <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', maxWidth: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.descripcion}>
+                            {f.descripcion}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Estado */}
+                      <td style={{ padding: '12px 14px', textAlign: 'center', verticalAlign: 'top' }}>
+                        <span style={{ 
+                          display: 'inline-block',
+                          padding: '3px 8px', 
+                          borderRadius: 12, 
+                          fontSize: 11, 
+                          fontWeight: 600, 
+                          background: '#ecfdf5', 
+                          color: '#047857',
+                          border: '1px solid #a7f3d0'
+                        }}>
+                          {f.estado || 'VIGENTE'}
+                        </span>
+                      </td>
+
+                      {/* Precio */}
+                      <td style={{ padding: '12px 14px', textAlign: 'right', verticalAlign: 'top' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--c-text-primary)', fontFamily: 'monospace' }}>
+                            {f.moneda || 'USD'} {fmt(f.precio_ofertado || f.precio_referencia)}
+                          </span>
+                          <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)' }}>
+                            P. Unitario Vigente
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Stock */}
+                      <td style={{ padding: '12px 14px', textAlign: 'center', verticalAlign: 'top' }}>
+                        <span style={{ 
+                          display: 'inline-block',
+                          padding: '3px 8px', 
+                          borderRadius: 6, 
+                          fontSize: 11, 
+                          fontWeight: 600,
+                          background: (f.existencia_stock > 0) ? '#eff6ff' : '#f8fafc',
+                          color: (f.existencia_stock > 0) ? '#1d4ed8' : '#64748b',
+                          border: '1px solid #e2e8f0'
+                        }}>
+                          {f.existencia_stock > 0 ? `${f.existencia_stock} unid.` : '0 unid.'}
+                        </span>
+                      </td>
+
+                      {/* Acciones & JSON View */}
+                      <td style={{ padding: '12px 14px', textAlign: 'center', verticalAlign: 'top' }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 6 }}>
+                          <button
+                            className="btn btn-sm"
+                            onClick={() => setSelectedJsonItem(f)}
+                            style={{ padding: '4px 8px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                            title="Ver JSON completo de este registro"
+                          >
+                            <Code size={13} style={{ color: 'var(--c-brand)' }} />
+                            <span>JSON</span>
+                          </button>
+
+                          {f.pdf_url && f.pdf_url !== '#' && (
+                            <a
+                              href={f.pdf_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-sm"
+                              style={{ padding: '4px 6px' }}
+                              title="Ver PDF Ficha Técnica"
+                            >
+                              <ExternalLink size={13} />
+                            </a>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -525,9 +577,9 @@ const ProveedorFichas = () => {
           display: 'flex', 
           justifyContent: 'space-between', 
           alignItems: 'center', 
-          padding: '12px 18px', 
+          padding: '14px 20px', 
           borderTop: '1px solid var(--c-border)',
-          background: 'var(--c-surface-secondary, #fafafa)',
+          background: '#f8fafc',
           flexWrap: 'wrap',
           gap: 12
         }}>
@@ -537,7 +589,7 @@ const ProveedorFichas = () => {
               className="form-select"
               value={limit}
               onChange={(e) => { setLimit(Number(e.target.value)); setPage(0); }}
-              style={{ width: 85, padding: '4px 8px' }}
+              style={{ width: 85, padding: '5px 8px' }}
             >
               <option value={25}>25</option>
               <option value={50}>50</option>
@@ -552,19 +604,19 @@ const ProveedorFichas = () => {
               onClick={() => setPage(Math.max(0, page - 1))}
               disabled={page === 0 || loading}
               className="btn btn-sm"
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px' }}
             >
               <ChevronLeft size={16} />
               Anterior
             </button>
-            <span className="pagination-info" style={{ fontWeight: 600, fontSize: 13 }}>
+            <span style={{ fontWeight: 600, fontSize: 13 }}>
               Página {page + 1} de {Math.max(1, Math.ceil(totalFichas / limit))}
             </span>
             <button
               onClick={() => setPage(page + 1)}
               disabled={(page + 1) * limit >= totalFichas || loading}
               className="btn btn-sm"
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px' }}
             >
               Siguiente
               <ChevronRight size={16} />
@@ -572,6 +624,103 @@ const ProveedorFichas = () => {
           </div>
         </div>
       </div>
+
+      {/* JSON Inspection Modal */}
+      {selectedJsonItem && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.6)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+          padding: 20
+        }}>
+          <div className="card fade-up" style={{
+            width: '100%',
+            maxWidth: 750,
+            maxHeight: '85vh',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: 0,
+            overflow: 'hidden',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--c-border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: '#f8fafc'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Code size={18} style={{ color: 'var(--c-brand)' }} />
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
+                  Inspección de Objeto JSON — [{selectedJsonItem.marca}] {selectedJsonItem.nro_parte}
+                </h3>
+              </div>
+              <button 
+                onClick={() => setSelectedJsonItem(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-tertiary)' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: 20, overflowY: 'auto', flex: 1, background: '#0f172a' }}>
+              <pre style={{
+                margin: 0,
+                color: '#38bdf8',
+                fontFamily: 'monospace',
+                fontSize: 12,
+                lineHeight: 1.6,
+                whiteSpace: 'pre-wrap'
+              }}>
+                {JSON.stringify(selectedJsonItem, null, 2)}
+              </pre>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding: '12px 20px',
+              borderTop: '1px solid var(--c-border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: '#f8fafc'
+            }}>
+              <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>
+                N° Parte: <strong>{selectedJsonItem.nro_parte}</strong> | Marca: <strong>{selectedJsonItem.marca}</strong>
+              </span>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleCopyJson}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  {copied ? <Check size={14} style={{ color: '#16a34a' }} /> : <Copy size={14} />}
+                  {copied ? '¡Copiado!' : 'Copiar JSON'}
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setSelectedJsonItem(null)}
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
