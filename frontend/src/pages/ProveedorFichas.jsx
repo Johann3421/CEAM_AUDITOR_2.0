@@ -136,19 +136,24 @@ const ProveedorFichas = () => {
   const handleDownloadFullJson = async () => {
     setExportingJson(true);
     try {
-      const response = await fetch('/api/proveedores/export-json');
-      const data = await response.json();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `perucompras_ofertas_proveedores_${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const res = await proveedoresApi.exportJson();
+      const data = res.data;
+      if (Array.isArray(data) && data.length > 0) {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `perucompras_ofertas_proveedores_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else {
+        alert("Aún no hay ofertas guardadas en la base de datos para exportar.");
+      }
     } catch (e) {
       console.error("Error exportando JSON:", e);
+      alert("Error al descargar el JSON de ofertas.");
     } finally {
       setExportingJson(false);
     }

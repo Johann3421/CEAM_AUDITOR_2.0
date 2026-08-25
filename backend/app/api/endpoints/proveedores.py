@@ -56,7 +56,7 @@ def get_proveedor_fichas(
                 plazo_entrega_dias,
                 pdf_url,
                 raw_json,
-                created_at,
+                fecha_extraccion,
                 COUNT(*) OVER() AS total_count
             FROM ofertas_proveedor_history f
             WHERE {where_sql}
@@ -75,8 +75,9 @@ def get_proveedor_fichas(
                 "limit": limit,
                 "total": total_items
             }
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger("ceam.proveedores").error("Error en get_proveedor_fichas: %s", e)
 
     return {"items": [], "page": page, "limit": limit, "total": 0}
 
@@ -90,12 +91,14 @@ def export_all_fichas_json(db: Session = Depends(get_db)):
             SELECT 
                 id, nro_parte, descripcion_producto, marca, catalogo, categoria,
                 acuerdo_marco, nombre_proveedor, ruc_proveedor, precio_ofertado,
-                existencia_stock, plazo_entrega_dias, pdf_url, raw_json, created_at
+                existencia_stock, plazo_entrega_dias, pdf_url, raw_json, fecha_extraccion
             FROM ofertas_proveedor_history
             ORDER BY id ASC
         """)).mappings().all()
         return [dict(r) for r in rows]
     except Exception as e:
+        import logging
+        logging.getLogger("ceam.proveedores").error("Error en export_all_fichas_json: %s", e)
         return {"error": str(e)}
 
 @router.get("/kpis")
