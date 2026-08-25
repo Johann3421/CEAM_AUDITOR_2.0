@@ -14,6 +14,8 @@ def get_proveedor_fichas(
     search: Optional[str] = Query(None, description="Búsqueda rápida por nro_parte o descripción"),
     marca: Optional[str] = Query(None, description="Filtro por marca"),
     nro_parte: Optional[str] = Query(None, description="Filtro por nro_parte"),
+    catalogo: Optional[str] = Query(None, description="Filtro por catálogo"),
+    categoria: Optional[str] = Query(None, description="Filtro por categoría"),
     stock_filter: Optional[str] = Query(None, description="Filtro de stock: 'with_stock' o 'zero_stock'"),
     sort_by: Optional[str] = Query(None, description="Ordenamiento: precio_asc, precio_desc, stock_desc, marca_asc"),
     page: int = Query(1, ge=1),
@@ -42,6 +44,14 @@ def get_proveedor_fichas(
     if nro_parte:
         where_clauses.append("UPPER(f.nro_parte) LIKE UPPER(:nro_parte)")
         params["nro_parte"] = f"%{nro_parte}%"
+
+    if catalogo:
+        where_clauses.append("UPPER(f.catalogo) LIKE UPPER(:catalogo)")
+        params["catalogo"] = f"%{catalogo}%"
+
+    if categoria:
+        where_clauses.append("UPPER(f.categoria) LIKE UPPER(:categoria)")
+        params["categoria"] = f"%{categoria}%"
 
     if stock_filter == "with_stock":
         where_clauses.append("f.existencia_stock > 0")

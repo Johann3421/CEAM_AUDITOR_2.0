@@ -6,7 +6,8 @@ import {
   Building2, Search, FileText, ChevronLeft, ChevronRight,
   ExternalLink, Tag, DollarSign, Package, TrendingUp, X, RefreshCw,
   Code, Copy, Check, Cpu, HardDrive, Monitor, Download,
-  ArrowUp, ArrowDown, ChevronsUpDown, Filter, Layers, CheckCircle2, ChevronDown, ChevronUp
+  ArrowUp, ArrowDown, ChevronsUpDown, Filter, Layers, CheckCircle2, ChevronDown, ChevronUp,
+  Laptop, MonitorCheck, Printer
 } from 'lucide-react';
 
 const MAIN_PROVIDERS = [
@@ -16,11 +17,19 @@ const MAIN_PROVIDERS = [
   { id: 'jorge', name: 'DISTRIBUIDORA JORGE ROJAS S.A.C.', ruc: '20509876543', short: 'Jorge Rojas' },
 ];
 
+const CATEGORY_TABS = [
+  { id: 'all', label: 'Todas las Categorías', icon: Layers },
+  { id: 'desktop', label: '🖥️ Computadoras de Escritorio', catalogo: 'COMPUTADORAS DE ESCRITORIO', categoria: 'ESCRITORIO', icon: Monitor },
+  { id: 'laptop', label: '💻 Laptops / Portátiles', catalogo: 'PORTATIL', categoria: '', icon: Laptop },
+  { id: 'aio', label: '🖥️ Todo en Uno (AIO)', catalogo: '', categoria: 'TODO EN UNO', icon: MonitorCheck },
+  { id: 'escaner', label: '📠 Escáneres', catalogo: 'ESCANER', categoria: '', icon: Printer },
+];
+
 const fmt = (n) =>
   n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const parseSpecs = (desc = '') => {
-  if (!desc) return { marca: 'VARIOS', modelo: 'Computadora Todo en Uno', specsList: [] };
+  if (!desc) return { marca: 'VARIOS', modelo: 'Computadora / Dispositivo', specsList: [] };
 
   const getMatch = (regex) => {
     const m = desc.match(regex);
@@ -49,7 +58,7 @@ const parseSpecs = (desc = '') => {
   }
 
   // 4. Pantalla
-  let pantalla = getMatch(/PANTALLA:\s*([^;]+?)(?=\s+LAN:|\s+WLAN:|$)/i);
+  let pantalla = getMatch(/PANTALLA:\s*([^;]+?)(?=\s+LAN:|\s+WLAN:|$)|\b(\d+(?:\.\d+)?\s*(?:\"|PULGADAS))\b/i);
   if (pantalla) {
     const mPan = pantalla.match(/(\d+(?:\.\d+)?\s*(?:\"|PULGADAS)?)/i);
     const size = mPan ? mPan[1].replace(/PULGADAS/i, '"') : '';
@@ -100,7 +109,7 @@ const parseSpecs = (desc = '') => {
 
   return {
     marca: marca || 'VARIOS',
-    modelo: modelo || 'Computadora Todo en Uno',
+    modelo: modelo || 'Computadora / Dispositivo',
     proc,
     ram,
     disco,
@@ -112,15 +121,17 @@ const parseSpecs = (desc = '') => {
 const ProveedorFichas = () => {
   const navigate = useNavigate();
   const [selectedProvider, setSelectedProvider] = useState('all');
+  const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
   const [marcaFilter, setMarcaFilter] = useState('');
+  const [catalogoFilter, setCatalogoFilter] = useState('');
+  const [categoriaFilter, setCategoriaFilter] = useState('');
   const [stockFilter, setStockFilter] = useState('');
   const [sortBy, setSortBy] = useState('');
   const [fichas, setFichas] = useState([]);
   const [totalFichas, setTotalFichas] = useState(0);
   const [loading, setLoading] = useState(false);
   const [scraping, setScraping] = useState(false);
-  const [scrapeMessage, setScrapeMessage] = useState('');
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(50);
   const [scrapeStatus, setScrapeStatus] = useState(null);
@@ -130,6 +141,16 @@ const ProveedorFichas = () => {
   const [exportingJson, setExportingJson] = useState(false);
   const [expandedDescId, setExpandedDescId] = useState(null);
 
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    const tabObj = CATEGORY_TABS.find(t => t.id === tabId);
+    if (tabObj) {
+      setCatalogoFilter(tabObj.catalogo || '');
+      setCategoriaFilter(tabObj.categoria || '');
+    }
+    setPage(0);
+  };
+
   const fetchFichasData = () => {
     setLoading(true);
     const provName = MAIN_PROVIDERS.find(p => p.id === selectedProvider)?.name || '';
@@ -137,6 +158,8 @@ const ProveedorFichas = () => {
       proveedor: selectedProvider !== 'all' ? provName : undefined,
       search: search || undefined,
       marca: marcaFilter || undefined,
+      catalogo: catalogoFilter || undefined,
+      categoria: categoriaFilter || undefined,
       stock_filter: stockFilter || undefined,
       sort_by: sortBy || undefined,
       page: page + 1,
@@ -160,7 +183,7 @@ const ProveedorFichas = () => {
 
   useEffect(() => {
     fetchFichasData();
-  }, [selectedProvider, search, marcaFilter, stockFilter, sortBy, page, limit]);
+  }, [selectedProvider, catalogoFilter, categoriaFilter, search, marcaFilter, stockFilter, sortBy, page, limit]);
 
   useEffect(() => {
     let interval = null;
@@ -190,16 +213,10 @@ const ProveedorFichas = () => {
   const handleStartScrape = async () => {
     setScraping(true);
     setShowLogModal(true);
-    setScrapeMessage('⚡ Conectando a Perú Compras e iniciando extracción...');
     try {
-      await proveedoresApi.scrape({
-        n_acuerdo: '249',
-        n_catalogo: '252',
-        n_categoria: '11736'
-      });
+      await proveedoresApi.scrape({});
     } catch (err) {
       console.error(err);
-      setScrapeMessage('❌ Error al iniciar la extracción en el servidor');
       setScraping(false);
     }
   };
@@ -253,14 +270,17 @@ const ProveedorFichas = () => {
     setPage(0);
   };
 
-  const hasActiveFilters = Boolean(search || marcaFilter || stockFilter || sortBy || selectedProvider !== 'all');
+  const hasActiveFilters = Boolean(search || marcaFilter || catalogoFilter || categoriaFilter || stockFilter || sortBy || selectedProvider !== 'all' || activeTab !== 'all');
 
   const clearAllFilters = () => {
     setSearch('');
     setMarcaFilter('');
+    setCatalogoFilter('');
+    setCategoriaFilter('');
     setStockFilter('');
     setSortBy('');
     setSelectedProvider('all');
+    setActiveTab('all');
     setPage(0);
   };
 
@@ -280,14 +300,14 @@ const ProveedorFichas = () => {
   return (
     <div style={{ maxWidth: 1440, margin: '0 auto', paddingBottom: 40 }}>
       {/* Header */}
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, marginBottom: 16 }}>
         <div>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 22, fontWeight: 700, margin: 0 }}>
             <Building2 size={24} style={{ color: 'var(--c-brand)' }} />
             Ofertas y Fichas de Proveedores — Perú Compras
           </h1>
           <p style={{ margin: '4px 0 0 0', color: 'var(--c-text-secondary)', fontSize: 13 }}>
-            Catálogo completo extraído directamente del portal oficial (Acuerdo Marco EXT-CE-2022-5)
+            Extracción secuencial ordenada: Computadoras de Escritorio, Laptops, AIO y Catálogo Completo
           </p>
         </div>
 
@@ -310,9 +330,36 @@ const ProveedorFichas = () => {
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600 }}
           >
             <RefreshCw size={15} className={scraping ? 'spin' : ''} />
-            {scraping ? 'Extrayendo en 2do Plano...' : '⚡ Actualizar Ofertas (Scraper)'}
+            {scraping ? 'Extrayendo Catálogos...' : '⚡ Extraer Todo el Catálogo'}
           </button>
         </div>
+      </div>
+
+      {/* Category Quick Tabs */}
+      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 10, marginBottom: 16 }}>
+        {CATEGORY_TABS.map(tab => {
+          const isSelected = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => handleTabChange(tab.id)}
+              style={{
+                padding: '7px 14px',
+                borderRadius: 20,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                border: isSelected ? '1px solid var(--c-brand)' : '1px solid var(--c-border)',
+                background: isSelected ? 'var(--c-brand)' : 'var(--c-surface)',
+                color: isSelected ? '#fff' : 'var(--c-text-secondary)',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Live Extraction Log & Status Panel */}
@@ -321,11 +368,11 @@ const ProveedorFichas = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, margin: 0, color: 'var(--c-brand)' }}>
               <RefreshCw size={16} className={scraping ? 'spin' : ''} />
-              Monitoreo de Extracción en Vivo
+              Extracción Multicatálogo en Vivo (Perú Compras)
             </h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span className={`tag ${scraping ? 'tag-primary' : scrapeStatus?.status === 'error' ? 'tag-danger' : 'tag-success'}`}>
-                {scraping ? 'En proceso...' : scrapeStatus?.status === 'error' ? 'Falla' : 'Completado'}
+                {scraping ? `Procesando combinaciones (${scrapeStatus?.combos_completed || 0}/${scrapeStatus?.combos_total || '...'})` : scrapeStatus?.status === 'error' ? 'Falla' : 'Completado'}
               </span>
               <button 
                 onClick={() => setShowLogModal(false)}
@@ -354,7 +401,7 @@ const ProveedorFichas = () => {
               <img 
                 src={scrapeStatus.latest_screenshot} 
                 alt="Vista en vivo del navegador" 
-                style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 4, border: '1px solid #cbd5e1' }} 
+                style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 4, border: '1px solid #cbd5e1' }} 
               />
             </div>
           )}
@@ -403,7 +450,7 @@ const ProveedorFichas = () => {
           </div>
           <div>
             <div className="stat-value">{kpiStats.totalStock} unid.</div>
-            <div className="stat-label">Stock en Página Actual</div>
+            <div className="stat-label">Stock en Vista Actual</div>
           </div>
         </div>
 
@@ -443,7 +490,7 @@ const ProveedorFichas = () => {
               className="form-select"
               value={stockFilter}
               onChange={(e) => { setStockFilter(e.target.value); setPage(0); }}
-              style={{ width: 140, fontSize: 12, padding: '4px 8px' }}
+              style={{ width: 130, fontSize: 12, padding: '4px 8px' }}
             >
               <option value="">Todos</option>
               <option value="with_stock">Con stock (&gt; 0)</option>
@@ -483,7 +530,7 @@ const ProveedorFichas = () => {
         <div className="card-header" style={{ padding: '12px 18px', borderBottom: '1px solid var(--c-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
           <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}>
             <FileText size={16} style={{ color: 'var(--c-brand)' }} />
-            Listado de Fichas de Productos Ofertados
+            Listado de Ofertas de Proveedores
           </span>
           <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>
             Mostrando <strong>{fichas.length}</strong> de <strong>{totalFichas.toLocaleString('es-PE')}</strong> ofertas (Pág. {page + 1} de {Math.max(1, Math.ceil(totalFichas / limit))})
@@ -568,7 +615,7 @@ const ProveedorFichas = () => {
               ) : fichas.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
-                    No se encontraron registros. Haz clic en <strong>⚡ Actualizar Ofertas (Scraper)</strong> para extraer la lista de Perú Compras.
+                    No se encontraron registros para los filtros seleccionados. Haz clic en <strong>⚡ Extraer Todo el Catálogo</strong>.
                   </td>
                 </tr>
               ) : (

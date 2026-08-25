@@ -248,6 +248,136 @@ async def navegar_mejora_basica(
     return await saltar_verificacion(page, log_func=log_func)
 
 
+async def descubrir_todas_las_combinaciones(
+    page: Page,
+    log_func: Optional[Callable[[str], None]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Descubre dinámicamente todos los Acuerdos, Catálogos y Categorías disponibles
+    en la cuenta activa en MejoraBasica, ordenándolos por prioridad de negocio:
+      1. COMPUTADORAS DE ESCRITORIO (Desktop PC tradicional)
+      2. COMPUTADORAS PORTÁTILES (Laptops / Notebooks)
+      3. COMPUTADORAS TODO EN UNO (AIO)
+      4. ESCÁNERES y demás categorías en orden
+    """
+    _safe_log("🧭 Descubriendo árbol completo de opciones dinámicas en Perú Compras...", log_func)
+    combinaciones = []
+
+    try:
+        await page.wait_for_selector("#ajaxAcuerdo", state="visible", timeout=20000)
+
+        # 1. Obtener todos los acuerdos
+        acuerdos = await page.evaluate("""() => {
+            const sel = document.querySelector('#ajaxAcuerdo');
+            if (!sel) return [];
+            return Array.from(sel.options)
+                .filter(o => o.value && o.value !== '0' && o.value.trim() !== '')
+                .map(o => ({ value: o.value.trim(), text: o.text.trim() }));
+        }""")
+
+        _safe_log(f"📋 Encontrados {len(acuerdos)} Acuerdos Marco en la cuenta.", log_func)
+
+        for ac in acuerdos:
+            # Seleccionar Acuerdo
+            await page.evaluate("""(val) => {
+                const sel = document.querySelector('#ajaxAcuerdo');
+                if (sel) {
+                    sel.value = val;
+                    sel.dispatchEvent(new Event('change', { bubbles: true }));
+                    if (window.jQuery) { window.jQuery(sel).trigger('change'); }
+                }
+            }""", ac["value"])
+
+            # Esperar a que se pueble #ajaxCatalogo
+            catalogos = []
+            for _ in range(12):
+                await page.wait_for_timeout(800)
+                catalogos = await page.evaluate("""() => {
+                    const sel = document.querySelector('#ajaxCatalogo');
+                    if (!sel || sel.options.length <= 1) return [];
+                    return Array.from(sel.options)
+                        .filter(o => o.value && o.value !== '0' && o.value.trim() !== '')
+                        .map(o => ({ value: o.value.trim(), text: o.text.trim() }));
+                }""")
+                if catalogos:
+                    break
+
+            _safe_log(f"  📂 Acuerdo [{ac['value']}] {ac['text']}: {len(catalogos)} catálogos detectados.", log_func)
+
+            for cat in catalogos:
+                # Seleccionar Catálogo
+                await page.evaluate("""(val) => {
+                    const sel = document.querySelector('#ajaxCatalogo');
+                    if (sel) {
+                        sel.value = val;
+                        sel.dispatchEvent(new Event('change', { bubbles: true }));
+                        if (window.jQuery) { window.jQuery(sel).trigger('change'); }
+                    }
+                }""", cat["value"])
+
+                # Esperar a que se pueble #ajaxCategoria
+                categorias = []
+                for _ in range(12):
+                    await page.wait_for_timeout(800)
+                    categorias = await page.evaluate("""() => {
+                        const sel = document.querySelector('#ajaxCategoria');
+                        if (!sel || sel.options.length <= 1) return [];
+                        return Array.from(sel.options)
+                            .filter(o => o.value && o.value !== '0' && o.value.trim() !== '')
+                            .map(o => ({ value: o.value.trim(), text: o.text.trim() }));
+                    }""")
+                    if categorias:
+                        break
+
+                for categ in categorias:
+                    combinaciones.append({
+                        "n_acuerdo": ac["value"],
+                        "acuerdo_nombre": ac["text"],
+                        "n_catalogo": cat["value"],
+                        "catalogo_nombre": cat["text"],
+                        "n_categoria": categ["value"],
+                        "categoria_nombre": categ["text"],
+                    })
+
+        # Función de puntuación de prioridad para ordenar
+        def calcular_prioridad(c):
+            cat_up = c["catalogo_nombre"].upper()
+            categ_up = c["categoria_nombre"].upper()
+
+            # Prioridad 1: Computadoras de Escritorio (Desktop tradicional)
+            if "ESCRITORIO" in cat_up and ("ESCRITORIO" in categ_up or "TORRE" in categ_up or "PC" in categ_up) and "TODO EN UNO" not in categ_up:
+                return 1
+            # Prioridad 2: Computadoras Portátiles / Laptops
+            if "PORTATIL" in cat_up or "PORTÁTIL" in cat_up or "LAPTOP" in cat_up or "NOTEBOOK" in cat_up:
+                return 2
+            # Prioridad 3: Todo en Uno (AIO)
+            if "TODO EN UNO" in categ_up or "ALL IN ONE" in categ_up or "AIO" in categ_up:
+                return 3
+            # Prioridad 4: Escáneres
+            if "ESCANER" in cat_up or "ESCÁNER" in cat_up:
+                return 4
+            # Otras categorías
+            return 10
+
+        combinaciones.sort(key=calcular_prioridad)
+        _safe_log(f"🎯 Total combinaciones descubiertas y ordenadas por prioridad: {len(combinaciones)}", log_func)
+        return combinaciones
+
+    except Exception as e:
+        _safe_log(f"⚠️ Error en descubrimiento dinámico: {e}", log_func)
+        # Fallback a las combinaciones conocidas por defecto
+        return [
+            {
+                "n_acuerdo": "249",
+                "acuerdo_nombre": "EXT-CE-2022-5 COMPUTADORAS DE ESCRITORIO, COMPUTADORAS PORTÁTILES Y ESCÁNERES",
+                "n_catalogo": "252",
+                "catalogo_nombre": "COMPUTADORAS DE ESCRITORIO",
+                "n_categoria": "11736",
+                "categoria_nombre": "COMPUTADORA TODO EN UNO"
+            }
+        ]
+
+
 async def completar_menu_dinamico(
     page: Page,
     acuerdo: str = "",

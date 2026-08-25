@@ -29,6 +29,8 @@ from app.services.perucompras_core import (
     login_automatico,
     saltar_verificacion,
     completar_menu_dinamico,
+    descubrir_todas_las_combinaciones,
+    consultar_json_productos,
     _parse_html_products_partial
 )
 
@@ -84,7 +86,8 @@ async def async_login_and_get_cookies(
 ) -> Dict[str, str]:
     """
     Inicia sesión en Perú Compras usando Playwright + CAPTCHA OCR (perucompras_core),
-    completa los desplegables dinámicos, extrae el dataset y retorna las cookies de sesión.
+    descubre dinámicamente todos los Acuerdos/Catálogos/Categorías disponibles,
+    y extrae en orden de prioridad (Desktop -> Laptops -> AIO -> Demás) todas las ofertas.
     """
     from playwright.async_api import async_playwright
     
@@ -112,33 +115,57 @@ async def async_login_and_get_cookies(
                     log_func=add_status_log,
                     screenshot_callback=update_live_screenshot
                 )
-                # Completar selección dinámica en los dropdowns de MejoraBasica con espera activa hasta 10 min
-                menu_res = await completar_menu_dinamico(
-                    page,
-                    acuerdo="EXT-CE-2022-5",
-                    catalogo="COMPUTADORAS DE ESCRITORIO",
-                    categoria="COMPUTADORA TODO EN UNO",
-                    log_func=add_status_log,
-                    screenshot_callback=update_live_screenshot,
-                    max_wait_table_sec=600
-                )
+                
+                # 1. Descubrir dinámicamente todas las combinaciones y ordenarlas por prioridad
+                combos = await descubrir_todas_las_combinaciones(page, log_func=add_status_log)
+                EXTRACTION_STATUS["combos_total"] = len(combos)
+                EXTRACTION_STATUS["combos_completed"] = 0
 
-                if menu_res and menu_res.get("products") and db:
-                    prods = menu_res["products"]
-                    inserted_now = upsert_ofertas_history_db(db, prods)
-                    EXTRACTION_STATUS["items_inserted"] += inserted_now
-                    add_status_log(f"🎉 Insertadas {inserted_now} ofertas de proveedores en la base de datos!")
+                # 2. Extraer ordenadamente cada combinación
+                for i, combo in enumerate(combos, 1):
+                    n_acuerdo = combo["n_acuerdo"]
+                    n_catalogo = combo["n_catalogo"]
+                    n_categoria = combo["n_categoria"]
+                    cat_nom = combo.get("catalogo_nombre", "")
+                    categ_nom = combo.get("categoria_nombre", "")
+                    acuerdo_nom = combo.get("acuerdo_nombre", "")
+
+                    add_status_log(f"⚡ [{i}/{len(combos)}] Extrayendo: {cat_nom} ➔ {categ_nom}...")
+                    
+                    products = await consultar_json_productos(
+                        page,
+                        n_acuerdo=int(n_acuerdo),
+                        n_catalogo=int(n_catalogo),
+                        n_categoria=int(n_categoria),
+                        log_func=add_status_log
+                    )
+
+                    if products and db:
+                        # Enriquecer productos con la metadata de catálogo y categoría
+                        for prod_item in products:
+                            prod_item["catalogo"] = cat_nom
+                            prod_item["categoria"] = categ_nom
+                            prod_item["acuerdo_marco"] = acuerdo_nom
+
+                        inserted_now = upsert_ofertas_history_db(db, products)
+                        EXTRACTION_STATUS["items_inserted"] += inserted_now
+                        add_status_log(f"✅ [{i}/{len(combos)}] Guardados {len(products)} productos de '{categ_nom}'.")
+                    else:
+                        add_status_log(f"ℹ️ [{i}/{len(combos)}] 0 productos disponibles en '{categ_nom}'.")
+
+                    EXTRACTION_STATUS["combos_completed"] = i
+                    await asyncio.sleep(1.0)
 
                 raw_cookies = await context.cookies()
                 for c in raw_cookies:
                     cookies_dict[c["name"]] = c["value"]
-                add_status_log(f"✅ Sesión obtenida con éxito. {len(cookies_dict)} cookies capturadas.")
+                add_status_log(f"🎉 Extracción completa finalizada. {EXTRACTION_STATUS['items_inserted']} ofertas guardadas en total.")
             else:
                 add_status_log("❌ Falló la autenticación automática en Perú Compras.")
 
             await browser.close()
     except Exception as e:
-        add_status_log(f"❌ Excepción en inicio de sesión: {e}")
+        add_status_log(f"❌ Excepción en inicio de sesión / extracción: {e}")
     return cookies_dict
 
 def login_and_get_cookies(user: str = DEFAULT_USER, password: str = DEFAULT_PASS) -> Dict[str, str]:
