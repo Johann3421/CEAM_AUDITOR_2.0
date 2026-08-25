@@ -89,12 +89,13 @@ const ProveedorFichas = () => {
   const [selectedProvider, setSelectedProvider] = useState('all');
   const [search, setSearch] = useState('');
   const [marcaFilter, setMarcaFilter] = useState('');
-  const [fichas, setFichas] = useState(MOCK_PROVIDER_FICHAS);
+  const [fichas, setFichas] = useState([]);
+  const [totalFichas, setTotalFichas] = useState(0);
   const [loading, setLoading] = useState(false);
   const [scraping, setScraping] = useState(false);
   const [scrapeMessage, setScrapeMessage] = useState('');
   const [page, setPage] = useState(0);
-  const limit = 25;
+  const [limit, setLimit] = useState(50);
   const [scrapeStatus, setScrapeStatus] = useState(null);
   const [showLogModal, setShowLogModal] = useState(false);
 
@@ -111,17 +112,22 @@ const ProveedorFichas = () => {
       .then(res => {
         if (res.data?.items && res.data.items.length > 0) {
           setFichas(res.data.items);
+          setTotalFichas(res.data.total || res.data.items.length);
         } else {
-          setFichas(MOCK_PROVIDER_FICHAS);
+          setFichas([]);
+          setTotalFichas(0);
         }
       })
-      .catch(() => setFichas(MOCK_PROVIDER_FICHAS))
+      .catch(() => {
+        setFichas([]);
+        setTotalFichas(0);
+      })
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
     fetchFichasData();
-  }, [selectedProvider, search, marcaFilter, page]);
+  }, [selectedProvider, search, marcaFilter, page, limit]);
 
   useEffect(() => {
     let interval = null;
@@ -165,45 +171,21 @@ const ProveedorFichas = () => {
     }
   };
 
-  // Filter items based on provider, search term and brand
-  const filteredFichas = useMemo(() => {
-    return fichas.filter((f) => {
-      // Provider filter
-      if (selectedProvider === 'king' && !f.proveedor.includes('KING')) return false;
-      if (selectedProvider === 'jorge' && !f.proveedor.includes('JORGE ROJAS')) return false;
-      if (selectedProvider === 'sekaitech' && !f.proveedor.includes('SEKAITECH')) return false;
-
-      // Text search
-      if (search) {
-        const q = search.toLowerCase();
-        const matchParte = f.nro_parte.toLowerCase().includes(q);
-        const matchDesc = f.descripcion.toLowerCase().includes(q);
-        const matchMarca = f.marca.toLowerCase().includes(q);
-        if (!matchParte && !matchDesc && !matchMarca) return false;
-      }
-
-      // Brand filter
-      if (marcaFilter && f.marca.toUpperCase() !== marcaFilter.toUpperCase()) return false;
-
-      return true;
-    });
-  }, [fichas, selectedProvider, search, marcaFilter]);
-
   // Provider summary KPI calculations
   const kpiStats = useMemo(() => {
-    const totalOrdenes = filteredFichas.reduce((acc, curr) => acc + curr.n_ordenes, 0);
-    const totalVendido = filteredFichas.reduce((acc, curr) => acc + curr.total_vendido, 0);
-    const avgPrecio = filteredFichas.length
-      ? filteredFichas.reduce((acc, curr) => acc + curr.precio_referencia, 0) / filteredFichas.length
+    const totalOrdenes = fichas.reduce((acc, curr) => acc + (curr.n_ordenes || 0), 0);
+    const totalVendido = fichas.reduce((acc, curr) => acc + (curr.total_vendido || 0), 0);
+    const avgPrecio = fichas.length
+      ? fichas.reduce((acc, curr) => acc + (curr.precio_referencia || 0), 0) / fichas.length
       : 0;
 
     return {
-      fichasCount: filteredFichas.length,
+      fichasCount: totalFichas || fichas.length,
       totalOrdenes,
       totalVendido,
       avgPrecio
     };
-  }, [filteredFichas]);
+  }, [fichas, totalFichas]);
 
   const activeProviderObj = MAIN_PROVIDERS.find(p => p.id === selectedProvider);
 
@@ -453,13 +435,13 @@ const ProveedorFichas = () => {
 
       {/* Main Table */}
       <div className="card fade-up">
-        <div className="card-header">
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <FileText size={16} style={{ color: 'var(--c-brand)' }} />
             Fichas Técnicas — {activeProviderObj?.name || 'Todos los Proveedores'}
           </span>
           <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>
-            Mostrando <strong>{filteredFichas.length}</strong> fichas encontradas
+            Mostrando <strong>{fichas.length}</strong> de <strong>{totalFichas.toLocaleString('es-PE')}</strong> fichas (Página {page + 1} de {Math.max(1, Math.ceil(totalFichas / limit))})
           </span>
         </div>
 
@@ -479,14 +461,20 @@ const ProveedorFichas = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredFichas.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--c-text-secondary)' }}>
+                    Cargando fichas de proveedores...
+                  </td>
+                </tr>
+              ) : fichas.length === 0 ? (
                 <tr>
                   <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--c-text-tertiary)' }}>
                     No se encontraron fichas para los filtros seleccionados.
                   </td>
                 </tr>
               ) : (
-                filteredFichas.map((f, idx) => (
+                fichas.map((f, idx) => (
                   <tr key={idx} className="fade-up">
                     <td>
                       <span style={{ fontWeight: 600, color: 'var(--c-brand)', fontFamily: 'monospace', fontSize: 12 }}>
@@ -530,6 +518,58 @@ const ProveedorFichas = () => {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Pagination Bar */}
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          padding: '12px 18px', 
+          borderTop: '1px solid var(--c-border)',
+          background: 'var(--c-surface-secondary, #fafafa)',
+          flexWrap: 'wrap',
+          gap: 12
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--c-text-secondary)' }}>
+            <span>Registros por página:</span>
+            <select
+              className="form-select"
+              value={limit}
+              onChange={(e) => { setLimit(Number(e.target.value)); setPage(0); }}
+              style={{ width: 85, padding: '4px 8px' }}
+            >
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={250}>250</option>
+              <option value={500}>500</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button
+              onClick={() => setPage(Math.max(0, page - 1))}
+              disabled={page === 0 || loading}
+              className="btn btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              <ChevronLeft size={16} />
+              Anterior
+            </button>
+            <span className="pagination-info" style={{ fontWeight: 600, fontSize: 13 }}>
+              Página {page + 1} de {Math.max(1, Math.ceil(totalFichas / limit))}
+            </span>
+            <button
+              onClick={() => setPage(page + 1)}
+              disabled={(page + 1) * limit >= totalFichas || loading}
+              className="btn btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              Siguiente
+              <ChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

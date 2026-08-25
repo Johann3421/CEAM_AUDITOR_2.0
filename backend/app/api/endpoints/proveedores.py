@@ -14,7 +14,7 @@ def get_proveedor_fichas(
     search: Optional[str] = Query(None, description="Búsqueda rápida por nro_parte o descripción"),
     marca: Optional[str] = Query(None, description="Filtro por marca"),
     page: int = Query(1, ge=1),
-    limit: int = Query(25, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
     """
