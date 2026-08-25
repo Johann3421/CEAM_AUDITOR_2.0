@@ -264,7 +264,7 @@ async def descubrir_todas_las_combinaciones(
     combinaciones = []
 
     try:
-        await page.wait_for_selector("#ajaxAcuerdo", state="visible", timeout=20000)
+        await page.wait_for_selector("#ajaxAcuerdo", state="visible", timeout=25000)
 
         # 1. Obtener todos los acuerdos
         acuerdos = await page.evaluate("""() => {
@@ -278,20 +278,23 @@ async def descubrir_todas_las_combinaciones(
         _safe_log(f"📋 Encontrados {len(acuerdos)} Acuerdos Marco en la cuenta.", log_func)
 
         for ac in acuerdos:
-            # Seleccionar Acuerdo
-            await page.evaluate("""(val) => {
-                const sel = document.querySelector('#ajaxAcuerdo');
-                if (sel) {
-                    sel.value = val;
-                    sel.dispatchEvent(new Event('change', { bubbles: true }));
-                    if (window.jQuery) { window.jQuery(sel).trigger('change'); }
-                }
-            }""", ac["value"])
+            _safe_log(f"🔍 Explorando Acuerdo [{ac['value']}] {ac['text']}...", log_func)
+            try:
+                await page.select_option("#ajaxAcuerdo", value=ac["value"])
+            except Exception:
+                await page.evaluate("""(val) => {
+                    const sel = document.querySelector('#ajaxAcuerdo');
+                    if (sel) {
+                        sel.value = val;
+                        sel.dispatchEvent(new Event('change', { bubbles: true }));
+                        if (window.jQuery) { window.jQuery(sel).trigger('change'); }
+                    }
+                }""", ac["value"])
 
             # Esperar a que se pueble #ajaxCatalogo
             catalogos = []
-            for _ in range(12):
-                await page.wait_for_timeout(800)
+            for _ in range(15):
+                await page.wait_for_timeout(1000)
                 catalogos = await page.evaluate("""() => {
                     const sel = document.querySelector('#ajaxCatalogo');
                     if (!sel || sel.options.length <= 1) return [];
@@ -302,23 +305,26 @@ async def descubrir_todas_las_combinaciones(
                 if catalogos:
                     break
 
-            _safe_log(f"  📂 Acuerdo [{ac['value']}] {ac['text']}: {len(catalogos)} catálogos detectados.", log_func)
+            _safe_log(f"  📂 Acuerdo [{ac['value']}]: {len(catalogos)} catálogos detectados: {[c['text'] for c in catalogos]}", log_func)
 
             for cat in catalogos:
-                # Seleccionar Catálogo
-                await page.evaluate("""(val) => {
-                    const sel = document.querySelector('#ajaxCatalogo');
-                    if (sel) {
-                        sel.value = val;
-                        sel.dispatchEvent(new Event('change', { bubbles: true }));
-                        if (window.jQuery) { window.jQuery(sel).trigger('change'); }
-                    }
-                }""", cat["value"])
+                _safe_log(f"    🔎 Cambiando a Catálogo [{cat['value']}] {cat['text']}...", log_func)
+                try:
+                    await page.select_option("#ajaxCatalogo", value=cat["value"])
+                except Exception:
+                    await page.evaluate("""(val) => {
+                        const sel = document.querySelector('#ajaxCatalogo');
+                        if (sel) {
+                            sel.value = val;
+                            sel.dispatchEvent(new Event('change', { bubbles: true }));
+                            if (window.jQuery) { window.jQuery(sel).trigger('change'); }
+                        }
+                    }""", cat["value"])
 
                 # Esperar a que se pueble #ajaxCategoria
                 categorias = []
-                for _ in range(12):
-                    await page.wait_for_timeout(800)
+                for _ in range(15):
+                    await page.wait_for_timeout(1000)
                     categorias = await page.evaluate("""() => {
                         const sel = document.querySelector('#ajaxCategoria');
                         if (!sel || sel.options.length <= 1) return [];
@@ -328,6 +334,8 @@ async def descubrir_todas_las_combinaciones(
                     }""")
                     if categorias:
                         break
+
+                _safe_log(f"    🏷️ Categorías detectadas para [{cat['text']}]: {[c['text'] for c in categorias]}", log_func)
 
                 for categ in categorias:
                     combinaciones.append({

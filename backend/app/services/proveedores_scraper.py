@@ -140,6 +140,21 @@ async def async_login_and_get_cookies(
                         log_func=add_status_log
                     )
 
+                    # Si el endpoint directo retornó 0, disparar por interfaz gráfica
+                    if not products:
+                        add_status_log(f"🔄 Disparando búsqueda interactiva para [{cat_nom} ➔ {categ_nom}]...")
+                        menu_res = await completar_menu_dinamico(
+                            page,
+                            acuerdo=acuerdo_nom,
+                            catalogo=cat_nom,
+                            categoria=categ_nom,
+                            log_func=add_status_log,
+                            screenshot_callback=update_live_screenshot,
+                            max_wait_table_sec=180
+                        )
+                        if menu_res and menu_res.get("products"):
+                            products = menu_res["products"]
+
                     if products and db:
                         # Enriquecer productos con la metadata de catálogo y categoría
                         for prod_item in products:
