@@ -53,6 +53,40 @@ try:
             ).fetchone()
             if not exists:
                 _c.execute(text(f'ALTER TABLE {table} ADD COLUMN "{col}" {coltype}'))
+
+        # 3. Auto-clasificar categorías existentes en ofertas_proveedor_history
+        try:
+            _c.execute(text("""
+                UPDATE ofertas_proveedor_history 
+                SET catalogo = 'COMPUTADORAS DE ESCRITORIO', categoria = 'COMPUTADORA TODO EN UNO'
+                WHERE (UPPER(descripcion_producto) LIKE '%TODO EN UNO%' 
+                   OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%' 
+                   OR UPPER(descripcion_producto) LIKE '%ALL-IN-ONE%');
+
+                UPDATE ofertas_proveedor_history 
+                SET catalogo = 'COMPUTADORAS PORTATILES', categoria = 'COMPUTADORA PORTATIL'
+                WHERE (UPPER(descripcion_producto) LIKE '%PORTATIL%' 
+                   OR UPPER(descripcion_producto) LIKE '%PORTÁTIL%' 
+                   OR UPPER(descripcion_producto) LIKE '%LAPTOP%' 
+                   OR UPPER(descripcion_producto) LIKE '%NOTEBOOK%')
+                  AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%';
+
+                UPDATE ofertas_proveedor_history 
+                SET catalogo = 'ESCANERES', categoria = 'ESCANER'
+                WHERE (UPPER(descripcion_producto) LIKE '%ESCANER%' 
+                   OR UPPER(descripcion_producto) LIKE '%ESCÁNER%');
+
+                UPDATE ofertas_proveedor_history 
+                SET catalogo = 'COMPUTADORAS DE ESCRITORIO', categoria = 'COMPUTADORA DE ESCRITORIO'
+                WHERE (UPPER(descripcion_producto) LIKE 'COMPUTADORA DE ESCRITORIO%' 
+                   OR UPPER(descripcion_producto) LIKE '%ESCRITORIO%' 
+                   OR UPPER(descripcion_producto) LIKE '%MINI PC%')
+                  AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
+                  AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
+                  AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%';
+            """))
+        except Exception:
+            pass
 except Exception:
     pass  # SQLite in tests / table not created yet
 

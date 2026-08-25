@@ -7,7 +7,7 @@ import {
   ExternalLink, Tag, DollarSign, Package, TrendingUp, X, RefreshCw,
   Code, Copy, Check, Cpu, HardDrive, Monitor, Download,
   ArrowUp, ArrowDown, ChevronsUpDown, Filter, Layers, CheckCircle2, ChevronDown, ChevronUp,
-  Laptop, MonitorCheck, Printer
+  Laptop, MonitorCheck, Printer, Sparkles
 } from 'lucide-react';
 
 const MAIN_PROVIDERS = [
@@ -17,19 +17,11 @@ const MAIN_PROVIDERS = [
   { id: 'jorge', name: 'DISTRIBUIDORA JORGE ROJAS S.A.C.', ruc: '20509876543', short: 'Jorge Rojas' },
 ];
 
-const CATEGORY_TABS = [
-  { id: 'all', label: 'Todas las Categorías', icon: Layers },
-  { id: 'desktop', label: '🖥️ Computadoras de Escritorio', catalogo: 'COMPUTADORAS DE ESCRITORIO', categoria: 'ESCRITORIO', icon: Monitor },
-  { id: 'laptop', label: '💻 Laptops / Portátiles', catalogo: 'PORTATIL', categoria: '', icon: Laptop },
-  { id: 'aio', label: '🖥️ Todo en Uno (AIO)', catalogo: '', categoria: 'TODO EN UNO', icon: MonitorCheck },
-  { id: 'escaner', label: '📠 Escáneres', catalogo: 'ESCANER', categoria: '', icon: Printer },
-];
-
 const fmt = (n) =>
   n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const parseSpecs = (desc = '') => {
-  if (!desc) return { marca: 'VARIOS', modelo: 'Computadora / Dispositivo', specsList: [] };
+  if (!desc) return { marca: 'VARIOS', modelo: 'Computadora / Dispositivo' };
 
   const getMatch = (regex) => {
     const m = desc.match(regex);
@@ -124,13 +116,13 @@ const ProveedorFichas = () => {
   const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
   const [marcaFilter, setMarcaFilter] = useState('');
-  const [catalogoFilter, setCatalogoFilter] = useState('');
-  const [categoriaFilter, setCategoriaFilter] = useState('');
   const [stockFilter, setStockFilter] = useState('');
   const [sortBy, setSortBy] = useState('');
   const [fichas, setFichas] = useState([]);
   const [totalFichas, setTotalFichas] = useState(0);
+  const [categoriesCount, setCategoriesCount] = useState({ total: 0, desktop: 0, laptop: 0, aio: 0, escaner: 0 });
   const [loading, setLoading] = useState(false);
+  const [reclassifying, setReclassifying] = useState(false);
   const [scraping, setScraping] = useState(false);
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(50);
@@ -141,25 +133,38 @@ const ProveedorFichas = () => {
   const [exportingJson, setExportingJson] = useState(false);
   const [expandedDescId, setExpandedDescId] = useState(null);
 
-  const handleTabChange = (tabId) => {
-    setActiveTab(tabId);
-    const tabObj = CATEGORY_TABS.find(t => t.id === tabId);
-    if (tabObj) {
-      setCatalogoFilter(tabObj.catalogo || '');
-      setCategoriaFilter(tabObj.categoria || '');
+  const fetchCategoriesCount = () => {
+    proveedoresApi.getCategoriesCount()
+      .then(res => {
+        if (res.data) {
+          setCategoriesCount(res.data);
+        }
+      })
+      .catch(() => {});
+  };
+
+  const handleReclassify = async () => {
+    setReclassifying(true);
+    try {
+      await proveedoresApi.reclassify();
+      fetchCategoriesCount();
+      fetchFichasData();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setReclassifying(false);
     }
-    setPage(0);
   };
 
   const fetchFichasData = () => {
     setLoading(true);
     const provName = MAIN_PROVIDERS.find(p => p.id === selectedProvider)?.name || '';
+    
     proveedoresApi.getFichas({
       proveedor: selectedProvider !== 'all' ? provName : undefined,
       search: search || undefined,
       marca: marcaFilter || undefined,
-      catalogo: catalogoFilter || undefined,
-      categoria: categoriaFilter || undefined,
+      categoria: activeTab !== 'all' ? activeTab : undefined,
       stock_filter: stockFilter || undefined,
       sort_by: sortBy || undefined,
       page: page + 1,
@@ -182,8 +187,12 @@ const ProveedorFichas = () => {
   };
 
   useEffect(() => {
+    fetchCategoriesCount();
+  }, []);
+
+  useEffect(() => {
     fetchFichasData();
-  }, [selectedProvider, catalogoFilter, categoriaFilter, search, marcaFilter, stockFilter, sortBy, page, limit]);
+  }, [selectedProvider, activeTab, search, marcaFilter, stockFilter, sortBy, page, limit]);
 
   useEffect(() => {
     let interval = null;
@@ -197,6 +206,7 @@ const ProveedorFichas = () => {
               setScraping(true);
             } else if (res.data.status === 'completed' || res.data.status === 'error') {
               setScraping(false);
+              fetchCategoriesCount();
               fetchFichasData();
             }
           }
@@ -270,13 +280,11 @@ const ProveedorFichas = () => {
     setPage(0);
   };
 
-  const hasActiveFilters = Boolean(search || marcaFilter || catalogoFilter || categoriaFilter || stockFilter || sortBy || selectedProvider !== 'all' || activeTab !== 'all');
+  const hasActiveFilters = Boolean(search || marcaFilter || stockFilter || sortBy || selectedProvider !== 'all' || activeTab !== 'all');
 
   const clearAllFilters = () => {
     setSearch('');
     setMarcaFilter('');
-    setCatalogoFilter('');
-    setCategoriaFilter('');
     setStockFilter('');
     setSortBy('');
     setSelectedProvider('all');
@@ -297,6 +305,14 @@ const ProveedorFichas = () => {
     };
   }, [fichas, totalFichas]);
 
+  const CATEGORY_BUTTONS = [
+    { id: 'all', label: 'Todas las Ofertas', count: categoriesCount.total, icon: Layers },
+    { id: 'desktop', label: '🖥️ Computadoras de Escritorio', count: categoriesCount.desktop, icon: Monitor },
+    { id: 'laptop', label: '💻 Laptops / Portátiles', count: categoriesCount.laptop, icon: Laptop },
+    { id: 'aio', label: '🖥️ Todo en Uno (AIO)', count: categoriesCount.aio, icon: MonitorCheck },
+    { id: 'escaner', label: '📠 Escáneres', count: categoriesCount.escaner, icon: Printer },
+  ];
+
   return (
     <div style={{ maxWidth: 1440, margin: '0 auto', paddingBottom: 40 }}>
       {/* Header */}
@@ -307,16 +323,27 @@ const ProveedorFichas = () => {
             Ofertas y Fichas de Proveedores — Perú Compras
           </h1>
           <p style={{ margin: '4px 0 0 0', color: 'var(--c-text-secondary)', fontSize: 13 }}>
-            Extracción secuencial ordenada: Computadoras de Escritorio, Laptops, AIO y Catálogo Completo
+            Catálogo completo con clasificación estructurada por tipo de producto (Desktop, Laptops, AIO y Escáneres)
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-secondary"
+            onClick={handleReclassify}
+            disabled={reclassifying}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600 }}
+            title="Reorganizar automáticamente todas las ofertas según especificaciones técnicas"
+          >
+            <Sparkles size={15} className={reclassifying ? 'spin' : ''} />
+            {reclassifying ? 'Reclasificando...' : 'Reclasificar Catálogo'}
+          </button>
+
           <button
             className="btn btn-secondary"
             onClick={handleDownloadFullJson}
             disabled={exportingJson || totalFichas === 0}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600 }}
             title="Descargar todas las ofertas en un archivo .json"
           >
             <Download size={15} />
@@ -335,16 +362,16 @@ const ProveedorFichas = () => {
         </div>
       </div>
 
-      {/* Category Quick Tabs */}
-      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 10, marginBottom: 16 }}>
-        {CATEGORY_TABS.map(tab => {
+      {/* Category Quick Tabs with Real Counts */}
+      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 16 }}>
+        {CATEGORY_BUTTONS.map(tab => {
           const isSelected = activeTab === tab.id;
           return (
             <button
               key={tab.id}
-              onClick={() => handleTabChange(tab.id)}
+              onClick={() => { setActiveTab(tab.id); setPage(0); }}
               style={{
-                padding: '7px 14px',
+                padding: '8px 16px',
                 borderRadius: 20,
                 fontSize: 13,
                 fontWeight: 600,
@@ -353,10 +380,24 @@ const ProveedorFichas = () => {
                 background: isSelected ? 'var(--c-brand)' : 'var(--c-surface)',
                 color: isSelected ? '#fff' : 'var(--c-text-secondary)',
                 whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                boxShadow: isSelected ? '0 2px 6px rgba(37,99,235,0.2)' : 'none',
                 transition: 'all 0.15s ease'
               }}
             >
-              {tab.label}
+              <span>{tab.label}</span>
+              <span style={{
+                background: isSelected ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.06)',
+                color: isSelected ? '#fff' : 'var(--c-text-primary)',
+                padding: '1px 7px',
+                borderRadius: 10,
+                fontSize: 11,
+                fontWeight: 700
+              }}>
+                {tab.count ? tab.count.toLocaleString('es-PE') : (categoriesCount.total ? '0' : '...')}
+              </span>
             </button>
           );
         })}
@@ -440,7 +481,7 @@ const ProveedorFichas = () => {
           </div>
           <div>
             <div className="stat-value">{kpiStats.fichasCount.toLocaleString('es-PE')}</div>
-            <div className="stat-label">Total Ofertas Extraídas</div>
+            <div className="stat-label">Ofertas en Vista Actual</div>
           </div>
         </div>
 
@@ -450,7 +491,7 @@ const ProveedorFichas = () => {
           </div>
           <div>
             <div className="stat-value">{kpiStats.totalStock} unid.</div>
-            <div className="stat-label">Stock en Vista Actual</div>
+            <div className="stat-label">Stock en Página Actual</div>
           </div>
         </div>
 
@@ -530,7 +571,7 @@ const ProveedorFichas = () => {
         <div className="card-header" style={{ padding: '12px 18px', borderBottom: '1px solid var(--c-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
           <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}>
             <FileText size={16} style={{ color: 'var(--c-brand)' }} />
-            Listado de Ofertas de Proveedores
+            Listado de Ofertas ({CATEGORY_BUTTONS.find(b => b.id === activeTab)?.label})
           </span>
           <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>
             Mostrando <strong>{fichas.length}</strong> de <strong>{totalFichas.toLocaleString('es-PE')}</strong> ofertas (Pág. {page + 1} de {Math.max(1, Math.ceil(totalFichas / limit))})
@@ -615,7 +656,7 @@ const ProveedorFichas = () => {
               ) : fichas.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
-                    No se encontraron registros para los filtros seleccionados. Haz clic en <strong>⚡ Extraer Todo el Catálogo</strong>.
+                    No se encontraron ofertas en esta categoría. Puedes hacer clic en <strong>Reclasificar Catálogo</strong> o <strong>⚡ Extraer Todo el Catálogo</strong>.
                   </td>
                 </tr>
               ) : (

@@ -46,12 +46,28 @@ def get_proveedor_fichas(
         params["nro_parte"] = f"%{nro_parte}%"
 
     if catalogo:
-        where_clauses.append("UPPER(f.catalogo) LIKE UPPER(:catalogo)")
-        params["catalogo"] = f"%{catalogo}%"
+        cat_lower = catalogo.lower()
+        if cat_lower in ("portatil", "laptop", "notebook"):
+            where_clauses.append("(UPPER(f.catalogo) LIKE '%PORTATIL%' OR UPPER(f.categoria) LIKE '%PORTATIL%' OR UPPER(f.categoria) LIKE '%LAPTOP%' OR UPPER(f.descripcion_producto) LIKE '%PORTATIL%' OR UPPER(f.descripcion_producto) LIKE '%PORTÁTIL%' OR UPPER(f.descripcion_producto) LIKE '%LAPTOP%' OR UPPER(f.descripcion_producto) LIKE '%NOTEBOOK%') AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%'")
+        elif cat_lower in ("escaner", "escáner", "scanner"):
+            where_clauses.append("(UPPER(f.catalogo) LIKE '%ESCANER%' OR UPPER(f.categoria) LIKE '%ESCANER%' OR UPPER(f.descripcion_producto) LIKE '%ESCANER%' OR UPPER(f.descripcion_producto) LIKE '%ESCÁNER%')")
+        else:
+            where_clauses.append("(UPPER(f.catalogo) LIKE UPPER(:catalogo) OR UPPER(f.descripcion_producto) LIKE UPPER(:catalogo))")
+            params["catalogo"] = f"%{catalogo}%"
 
     if categoria:
-        where_clauses.append("UPPER(f.categoria) LIKE UPPER(:categoria)")
-        params["categoria"] = f"%{categoria}%"
+        categ_lower = categoria.lower()
+        if categ_lower == "desktop":
+            where_clauses.append("(UPPER(f.categoria) LIKE '%ESCRITORIO%' OR UPPER(f.descripcion_producto) LIKE '%ESCRITORIO%' OR UPPER(f.descripcion_producto) LIKE '%MINI PC%') AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%' AND UPPER(f.descripcion_producto) NOT LIKE '%PORTATIL%' AND UPPER(f.descripcion_producto) NOT LIKE '%PORTÁTIL%'")
+        elif categ_lower in ("laptop", "portatil", "notebook"):
+            where_clauses.append("(UPPER(f.catalogo) LIKE '%PORTATIL%' OR UPPER(f.categoria) LIKE '%PORTATIL%' OR UPPER(f.categoria) LIKE '%LAPTOP%' OR UPPER(f.descripcion_producto) LIKE '%PORTATIL%' OR UPPER(f.descripcion_producto) LIKE '%PORTÁTIL%' OR UPPER(f.descripcion_producto) LIKE '%LAPTOP%' OR UPPER(f.descripcion_producto) LIKE '%NOTEBOOK%') AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%'")
+        elif categ_lower in ("aio", "todo_en_uno", "todo en uno"):
+            where_clauses.append("(UPPER(f.categoria) LIKE '%TODO EN UNO%' OR UPPER(f.descripcion_producto) LIKE '%TODO EN UNO%' OR UPPER(f.descripcion_producto) LIKE '%ALL IN ONE%' OR UPPER(f.descripcion_producto) LIKE '%ALL-IN-ONE%')")
+        elif categ_lower in ("escaner", "escáner", "scanner"):
+            where_clauses.append("(UPPER(f.catalogo) LIKE '%ESCANER%' OR UPPER(f.categoria) LIKE '%ESCANER%' OR UPPER(f.descripcion_producto) LIKE '%ESCANER%' OR UPPER(f.descripcion_producto) LIKE '%ESCÁNER%')")
+        else:
+            where_clauses.append("(UPPER(f.categoria) LIKE UPPER(:categoria) OR UPPER(f.catalogo) LIKE UPPER(:categoria) OR UPPER(f.descripcion_producto) LIKE UPPER(:categoria))")
+            params["categoria"] = f"%{categoria}%"
 
     if stock_filter == "with_stock":
         where_clauses.append("f.existencia_stock > 0")
@@ -149,6 +165,83 @@ def export_all_fichas_json(db: Session = Depends(get_db)):
         import logging
         logging.getLogger("ceam.proveedores").error("Error en export_all_fichas_json: %s", e)
         return {"error": str(e)}
+
+@router.get("/categories-count")
+def get_categories_count(db: Session = Depends(get_db)):
+    """Devuelve el conteo de ofertas distribuidas por categoría."""
+    try:
+        total = db.execute(text("SELECT COUNT(*) FROM ofertas_proveedor_history;")).scalar() or 0
+        desktop = db.execute(text("""
+            SELECT COUNT(*) FROM ofertas_proveedor_history 
+            WHERE (UPPER(categoria) LIKE '%ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%MINI PC%')
+              AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
+              AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
+              AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%';
+        """)).scalar() or 0
+
+        laptop = db.execute(text("""
+            SELECT COUNT(*) FROM ofertas_proveedor_history 
+            WHERE (UPPER(catalogo) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTÁTIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%' OR UPPER(descripcion_producto) LIKE '%NOTEBOOK%')
+              AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%';
+        """)).scalar() or 0
+
+        aio = db.execute(text("""
+            SELECT COUNT(*) FROM ofertas_proveedor_history 
+            WHERE (UPPER(categoria) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%' OR UPPER(descripcion_producto) LIKE '%ALL-IN-ONE%');
+        """)).scalar() or 0
+
+        escaner = db.execute(text("""
+            SELECT COUNT(*) FROM ofertas_proveedor_history 
+            WHERE (UPPER(catalogo) LIKE '%ESCANER%' OR UPPER(categoria) LIKE '%ESCANER%' OR UPPER(descripcion_producto) LIKE '%ESCANER%' OR UPPER(descripcion_producto) LIKE '%ESCÁNER%');
+        """)).scalar() or 0
+
+        return {
+            "total": total,
+            "desktop": desktop,
+            "laptop": laptop,
+            "aio": aio,
+            "escaner": escaner
+        }
+    except Exception as e:
+        return {"total": 0, "desktop": 0, "laptop": 0, "aio": 0, "escaner": 0, "error": str(e)}
+
+@router.post("/reclassify")
+def reclassify_existing_offers(db: Session = Depends(get_db)):
+    """Reclasifica en lote todas las ofertas existentes analizando su descripción."""
+    try:
+        db.execute(text("""
+            UPDATE ofertas_proveedor_history 
+            SET catalogo = 'COMPUTADORAS DE ESCRITORIO', categoria = 'COMPUTADORA TODO EN UNO'
+            WHERE (UPPER(descripcion_producto) LIKE '%TODO EN UNO%' 
+               OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%' 
+               OR UPPER(descripcion_producto) LIKE '%ALL-IN-ONE%');
+
+            UPDATE ofertas_proveedor_history 
+            SET catalogo = 'COMPUTADORAS PORTATILES', categoria = 'COMPUTADORA PORTATIL'
+            WHERE (UPPER(descripcion_producto) LIKE '%PORTATIL%' 
+               OR UPPER(descripcion_producto) LIKE '%PORTÁTIL%' 
+               OR UPPER(descripcion_producto) LIKE '%LAPTOP%' 
+               OR UPPER(descripcion_producto) LIKE '%NOTEBOOK%')
+              AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%';
+
+            UPDATE ofertas_proveedor_history 
+            SET catalogo = 'ESCANERES', categoria = 'ESCANER'
+            WHERE (UPPER(descripcion_producto) LIKE '%ESCANER%' 
+               OR UPPER(descripcion_producto) LIKE '%ESCÁNER%');
+
+            UPDATE ofertas_proveedor_history 
+            SET catalogo = 'COMPUTADORAS DE ESCRITORIO', categoria = 'COMPUTADORA DE ESCRITORIO'
+            WHERE (UPPER(descripcion_producto) LIKE 'COMPUTADORA DE ESCRITORIO%' 
+               OR UPPER(descripcion_producto) LIKE '%ESCRITORIO%' 
+               OR UPPER(descripcion_producto) LIKE '%MINI PC%')
+              AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
+              AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
+              AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%';
+        """))
+        db.commit()
+        return {"success": True, "message": "Reclasificación ejecutada con éxito"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 @router.get("/kpis")
 def get_proveedor_kpis(
