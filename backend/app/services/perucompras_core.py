@@ -397,10 +397,10 @@ async def completar_menu_dinamico(
 
             # Verificar si la tabla ya tiene filas con productos renderizados
             check_dom = await page.evaluate("""() => {
-                const container = document.querySelector('#divBuscar_ajax') || document.querySelector('table');
-                const rows = document.querySelectorAll('#divBuscar_ajax tr, table tbody tr, .dataTables_wrapper tr');
+                const container = document.querySelector('#OfertasPanelDiv') || document.querySelector('#TablaProductos') || document.querySelector('table');
+                const rows = container ? container.querySelectorAll('tr') : document.querySelectorAll('tr');
                 const hasDataRows = Array.from(rows).some(r => r.querySelectorAll('td').length >= 5);
-                const html = container ? container.outerHTML : '';
+                const html = container ? container.innerHTML : '';
                 return { hasDataRows, rowCount: rows.length, html };
             }""")
 
@@ -420,8 +420,19 @@ async def completar_menu_dinamico(
                 last_log_time = now
                 _safe_log(f"⏳ Esperando que el servidor estatal procese y devuelva los datos... ({elapsed}s / {max_wait_table_sec}s)", log_func)
 
-        if not found_rows:
-            _safe_log(f"⚠️ Tiempo de espera agotado ({max_wait_table_sec}s). Continuando con extracción vía fetch alternativo...", log_func)
+        # Si el DOM no extrajo los productos, extraerlos directamente de la ruta _ListaProductosOfertados
+        if not res_selection.get("products") and res_selection.get("n_acuerdo") and res_selection.get("n_catalogo") and res_selection.get("n_categoria"):
+            _safe_log("📡 Obteniendo dataset completo de la ruta directa /MejoraBasica/_ListaProductosOfertados...", log_func)
+            direct_items = await consultar_json_productos(
+                page,
+                n_acuerdo=res_selection["n_acuerdo"],
+                n_catalogo=res_selection["n_catalogo"],
+                n_categoria=res_selection["n_categoria"],
+                log_func=log_func
+            )
+            if direct_items:
+                res_selection["products"] = direct_items
+                _safe_log(f"📦 Extraídos {len(direct_items)} productos completos de un solo golpe desde la ruta directa.", log_func)
 
         res_selection["success"] = True
         return res_selection

@@ -77,9 +77,14 @@ def add_status_log(msg: str):
         EXTRACTION_STATUS["logs"] = EXTRACTION_STATUS["logs"][-200:]
     EXTRACTION_STATUS["progress_message"] = clean_msg
 
-async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = DEFAULT_PASS) -> Dict[str, str]:
+async def async_login_and_get_cookies(
+    user: str = DEFAULT_USER, 
+    password: str = DEFAULT_PASS,
+    db: Optional[Session] = None
+) -> Dict[str, str]:
     """
-    Inicia sesión en Perú Compras usando Playwright + CAPTCHA OCR (perucompras_core) y retorna un diccionario con las cookies (.ASPXAUTH, ASP.NET_SessionId).
+    Inicia sesión en Perú Compras usando Playwright + CAPTCHA OCR (perucompras_core),
+    completa los desplegables dinámicos, extrae el dataset y retorna las cookies de sesión.
     """
     from playwright.async_api import async_playwright
     
@@ -108,7 +113,7 @@ async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = 
                     screenshot_callback=update_live_screenshot
                 )
                 # Completar selección dinámica en los dropdowns de MejoraBasica con espera activa hasta 10 min
-                await completar_menu_dinamico(
+                menu_res = await completar_menu_dinamico(
                     page,
                     acuerdo="EXT-CE-2022-5",
                     catalogo="COMPUTADORAS DE ESCRITORIO",
@@ -117,6 +122,13 @@ async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = 
                     screenshot_callback=update_live_screenshot,
                     max_wait_table_sec=600
                 )
+
+                if menu_res and menu_res.get("products") and db:
+                    prods = menu_res["products"]
+                    inserted_now = upsert_ofertas_history_db(db, prods)
+                    EXTRACTION_STATUS["items_inserted"] += inserted_now
+                    add_status_log(f"🎉 Insertadas {inserted_now} ofertas de proveedores en la base de datos!")
+
                 raw_cookies = await context.cookies()
                 for c in raw_cookies:
                     cookies_dict[c["name"]] = c["value"]
@@ -295,7 +307,7 @@ async def run_worker_pool_extraction(
 
     try:
         if not cookies:
-            cookies = await async_login_and_get_cookies()
+            cookies = await async_login_and_get_cookies(db=db)
             if not cookies:
                 EXTRACTION_STATUS["is_running"] = False
                 EXTRACTION_STATUS["status"] = "error"
