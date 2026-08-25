@@ -6,7 +6,7 @@ import {
   Building2, Search, FileText, ChevronLeft, ChevronRight,
   ExternalLink, Tag, DollarSign, Package, TrendingUp, X, RefreshCw,
   Code, Copy, Check, Cpu, HardDrive, Monitor, Download,
-  ArrowUp, ArrowDown, ChevronsUpDown, Filter
+  ArrowUp, ArrowDown, ChevronsUpDown, Filter, Layers, CheckCircle2, ChevronDown, ChevronUp
 } from 'lucide-react';
 
 const MAIN_PROVIDERS = [
@@ -20,28 +20,92 @@ const fmt = (n) =>
   n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const parseSpecs = (desc = '') => {
-  if (!desc) return {};
+  if (!desc) return { marca: 'VARIOS', modelo: 'Computadora Todo en Uno', specsList: [] };
+
   const getMatch = (regex) => {
     const m = desc.match(regex);
     return m ? m[1].trim() : null;
   };
 
-  const procesador = getMatch(/PROCESADOR:\s*([^;]+?)(?=\s+RAM:|\s+ALMACENAMIENTO:|$)/i);
-  const ram = getMatch(/RAM:\s*([^;]+?)(?=\s+ALMACENAMIENTO:|\s+PANTALLA:|$)/i);
-  const disco = getMatch(/ALMACENAMIENTO:\s*([^;]+?)(?=\s+PANTALLA:|\s+LAN:|$)/i);
-  const pantalla = getMatch(/PANTALLA:\s*([^;]+?)(?=\s+LAN:|\s+WLAN:|$)/i);
-  const so = getMatch(/SIST\.\s*OPER:\s*([^;]+?)(?=\s+UNIDAD|\s+TECLADO:|$)/i);
-  const garantia = getMatch(/G\.\s*F:\s*([^;]+?)(?=\s+UNIDAD|\s+SIST\.|$)/i);
-  const modelo = getMatch(/UNIDAD\s+([A-Z0-9_-]+)\s+([A-Z0-9\s_-]+?)(?=\s+[A-Z0-9_*#/-]+\s+SIST\.\s+MANEJO|$)/i);
+  // 1. Procesador
+  let proc = getMatch(/PROCESADOR:\s*([^;]+?)(?=\s+RAM:|\s+ALMACENAMIENTO:|$)/i);
+  if (proc) {
+    proc = proc.replace(/INTEL CORE/i, '').replace(/AMD RYZEN/i, 'Ryzen').trim();
+    proc = proc.replace(/\s+/g, ' ');
+  }
+
+  // 2. RAM
+  let ram = getMatch(/RAM:\s*([^;]+?)(?=\s+ALMACENAMIENTO:|\s+PANTALLA:|$)/i);
+  if (ram) {
+    const mRam = ram.match(/(\d+\s*GB(?:\s+DDR\d)?)/i);
+    ram = mRam ? mRam[1] : `${ram.split(' ')[0]} GB`;
+  }
+
+  // 3. Disco
+  let disco = getMatch(/ALMACENAMIENTO:\s*([^;]+?)(?=\s+PANTALLA:|\s+LAN:|$)/i);
+  if (disco) {
+    const mDisco = disco.match(/(\d+\s*(?:GB|TB)(?:\s*(?:SSD|HDD|NVMe))?)/i);
+    disco = mDisco ? mDisco[1] : disco.split(' ')[0];
+  }
+
+  // 4. Pantalla
+  let pantalla = getMatch(/PANTALLA:\s*([^;]+?)(?=\s+LAN:|\s+WLAN:|$)/i);
+  if (pantalla) {
+    const mPan = pantalla.match(/(\d+(?:\.\d+)?\s*(?:\"|PULGADAS)?)/i);
+    const size = mPan ? mPan[1].replace(/PULGADAS/i, '"') : '';
+    const isFhd = /1920X1080|FHD/i.test(pantalla);
+    pantalla = `${size}${size && !size.includes('"') ? '"' : ''} ${isFhd ? 'FHD' : ''}`.trim();
+  }
+
+  // 5. Sistema Operativo
+  let so = getMatch(/SIST\.\s*OPER:\s*([^;]+?)(?=\s+UNIDAD|\s+TECLADO:|$)/i);
+  if (so) {
+    const soUp = so.toUpperCase();
+    if (soUp.includes('WINDOWS 11 PRO') || soUp.includes('W11 PRO')) so = 'Win 11 Pro';
+    else if (soUp.includes('WINDOWS 11 HOME') || soUp.includes('W11H')) so = 'Win 11 Home';
+    else if (soUp.includes('WINDOWS 10')) so = 'Win 10 Pro';
+    else if (soUp.includes('UBUNTU')) so = 'Ubuntu';
+    else if (soUp.includes('FREE') || soUp.includes('NO TIENE') || soUp.includes('DOS')) so = 'FreeDOS';
+    else so = so.split(' ').slice(0, 2).join(' ');
+  }
+
+  // 6. Modelo y Marca desde bloque UNIDAD
+  let marca = '';
+  let modelo = '';
+  const unidadMatch = desc.match(/UNIDAD\s+([A-Z0-9_-]+)\s+(.+?)(?:\s+SIST\.\s+MANEJO|$)/i);
+  if (unidadMatch) {
+    marca = unidadMatch[1].toUpperCase();
+    const rest = unidadMatch[2].trim();
+    const tokens = rest.split(/\s+/);
+    if (tokens.length > 1) {
+      let rawMod = tokens.slice(0, -1).join(' ');
+      if (rawMod.toUpperCase().startsWith(marca)) {
+        rawMod = rawMod.slice(marca.length).trim();
+      }
+      modelo = rawMod;
+    } else {
+      modelo = rest;
+    }
+  }
+
+  // Fallback de Marca
+  if (!marca || marca === 'VARIOS' || marca === 'OPTICA') {
+    for (const b of ['HP', 'LENOVO', 'DELL', 'ADVANCE', 'M4X', 'ASUS', 'ACER']) {
+      if (new RegExp(`\\b${b}\\b`, 'i').test(desc)) {
+        marca = b;
+        break;
+      }
+    }
+  }
 
   return {
-    procesador,
+    marca: marca || 'VARIOS',
+    modelo: modelo || 'Computadora Todo en Uno',
+    proc,
     ram,
     disco,
     pantalla,
-    so,
-    garantia,
-    modelo: modelo ? modelo.replace(/\s+/g, ' ') : null
+    so
   };
 };
 
@@ -50,8 +114,8 @@ const ProveedorFichas = () => {
   const [selectedProvider, setSelectedProvider] = useState('all');
   const [search, setSearch] = useState('');
   const [marcaFilter, setMarcaFilter] = useState('');
-  const [stockFilter, setStockFilter] = useState(''); // '', 'with_stock', 'zero_stock'
-  const [sortBy, setSortBy] = useState(''); // 'precio_asc', 'precio_desc', 'stock_desc', 'marca_asc'
+  const [stockFilter, setStockFilter] = useState('');
+  const [sortBy, setSortBy] = useState('');
   const [fichas, setFichas] = useState([]);
   const [totalFichas, setTotalFichas] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -64,6 +128,7 @@ const ProveedorFichas = () => {
   const [selectedJsonItem, setSelectedJsonItem] = useState(null);
   const [copied, setCopied] = useState(false);
   const [exportingJson, setExportingJson] = useState(false);
+  const [expandedDescId, setExpandedDescId] = useState(null);
 
   const fetchFichasData = () => {
     setLoading(true);
@@ -212,18 +277,16 @@ const ProveedorFichas = () => {
     };
   }, [fichas, totalFichas]);
 
-  const activeProviderObj = MAIN_PROVIDERS.find(p => p.id === selectedProvider);
-
   return (
-    <div style={{ maxWidth: 1400, margin: '0 auto', paddingBottom: 40 }}>
+    <div style={{ maxWidth: 1440, margin: '0 auto', paddingBottom: 40 }}>
       {/* Header */}
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
         <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 24, fontWeight: 700, margin: 0 }}>
-            <Building2 size={26} style={{ color: 'var(--c-brand)' }} />
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 22, fontWeight: 700, margin: 0 }}>
+            <Building2 size={24} style={{ color: 'var(--c-brand)' }} />
             Ofertas y Fichas de Proveedores — Perú Compras
           </h1>
-          <p style={{ margin: '6px 0 0 0', color: 'var(--c-text-secondary)', fontSize: 14 }}>
+          <p style={{ margin: '4px 0 0 0', color: 'var(--c-text-secondary)', fontSize: 13 }}>
             Catálogo completo extraído directamente del portal oficial (Acuerdo Marco EXT-CE-2022-5)
           </p>
         </div>
@@ -233,20 +296,20 @@ const ProveedorFichas = () => {
             className="btn btn-secondary"
             onClick={handleDownloadFullJson}
             disabled={exportingJson || totalFichas === 0}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 15px', fontWeight: 600 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600 }}
             title="Descargar todas las ofertas en un archivo .json"
           >
-            <Download size={16} />
-            {exportingJson ? 'Generando...' : '📥 Descargar JSON Completo'}
+            <Download size={15} />
+            {exportingJson ? 'Generando...' : '📥 Descargar JSON'}
           </button>
 
           <button
             className="btn btn-primary"
             onClick={handleStartScrape}
             disabled={scraping}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 18px', fontWeight: 600 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600 }}
           >
-            <RefreshCw size={16} className={scraping ? 'spin' : ''} />
+            <RefreshCw size={15} className={scraping ? 'spin' : ''} />
             {scraping ? 'Extrayendo en 2do Plano...' : '⚡ Actualizar Ofertas (Scraper)'}
           </button>
         </div>
@@ -254,10 +317,10 @@ const ProveedorFichas = () => {
 
       {/* Live Extraction Log & Status Panel */}
       {(showLogModal || scraping || (scrapeStatus && scrapeStatus.logs?.length > 0)) && (
-        <div className="card fade-up" style={{ marginBottom: 20, padding: 18, border: '1px solid var(--c-brand)', background: 'var(--c-surface)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, margin: 0, color: 'var(--c-brand)' }}>
-              <RefreshCw size={18} className={scraping ? 'spin' : ''} />
+        <div className="card fade-up" style={{ marginBottom: 20, padding: 16, border: '1px solid var(--c-brand)', background: 'var(--c-surface)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, margin: 0, color: 'var(--c-brand)' }}>
+              <RefreshCw size={16} className={scraping ? 'spin' : ''} />
               Monitoreo de Extracción en Vivo
             </h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -268,33 +331,30 @@ const ProveedorFichas = () => {
                 onClick={() => setShowLogModal(false)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-tertiary)' }}
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
           </div>
 
           {scrapeStatus?.progress_message && (
-            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10, color: 'var(--c-text-primary)' }}>
+            <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8, color: 'var(--c-text-primary)' }}>
               📌 {scrapeStatus.progress_message}
             </div>
           )}
 
           {scrapeStatus?.last_error && (
-            <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', padding: '10px 14px', borderRadius: 6, fontSize: 13, marginBottom: 10 }}>
+            <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', padding: '8px 12px', borderRadius: 6, fontSize: 12, marginBottom: 8 }}>
               <strong>❌ Error detectado:</strong> {scrapeStatus.last_error}
             </div>
           )}
 
           {/* Live Browser Screenshot Preview */}
           {scrapeStatus?.latest_screenshot && (
-            <div style={{ marginBottom: 14, background: '#f8fafc', border: '1px solid var(--c-border)', borderRadius: 8, padding: 10, textAlign: 'center' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                <span>🖥️ Vista en Vivo del Navegador (Perú Compras)</span>
-              </div>
+            <div style={{ marginBottom: 12, background: '#f8fafc', border: '1px solid var(--c-border)', borderRadius: 6, padding: 8, textAlign: 'center' }}>
               <img 
                 src={scrapeStatus.latest_screenshot} 
                 alt="Vista en vivo del navegador" 
-                style={{ maxWidth: '100%', maxHeight: 260, borderRadius: 6, border: '1px solid #cbd5e1', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} 
+                style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 4, border: '1px solid #cbd5e1' }} 
               />
             </div>
           )}
@@ -304,13 +364,13 @@ const ProveedorFichas = () => {
             background: '#0f172a', 
             color: '#38bdf8', 
             fontFamily: 'monospace', 
-            fontSize: 12, 
-            padding: 14, 
-            borderRadius: 8, 
-            maxHeight: 180, 
+            fontSize: 11, 
+            padding: 12, 
+            borderRadius: 6, 
+            maxHeight: 160, 
             overflowY: 'auto',
             whiteSpace: 'pre-wrap',
-            lineHeight: 1.5
+            lineHeight: 1.4
           }}>
             {scrapeStatus?.logs && scrapeStatus.logs.length > 0 ? (
               scrapeStatus.logs.map((log, i) => (
@@ -326,57 +386,49 @@ const ProveedorFichas = () => {
       )}
 
       {/* KPI Stats Bar */}
-      <div className="stats-grid" style={{ marginBottom: 20 }}>
+      <div className="stats-grid" style={{ marginBottom: 16 }}>
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'rgba(37,99,235,0.1)', color: 'var(--c-brand)' }}>
-            <Package size={20} />
+            <Package size={18} />
           </div>
           <div>
             <div className="stat-value">{kpiStats.fichasCount.toLocaleString('es-PE')}</div>
             <div className="stat-label">Total Ofertas Extraídas</div>
-            <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
-              Dataset oficial Perú Compras
-            </div>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'rgba(5,150,105,0.1)', color: 'var(--c-success)' }}>
-            <TrendingUp size={20} />
+            <TrendingUp size={18} />
           </div>
           <div>
             <div className="stat-value">{kpiStats.totalStock} unid.</div>
             <div className="stat-label">Stock en Página Actual</div>
-            <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
-              Existencias vigentes
-            </div>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'rgba(217,119,6,0.1)', color: 'var(--c-warning)' }}>
-            <DollarSign size={20} />
+            <DollarSign size={18} />
           </div>
           <div>
             <div className="stat-value">USD {fmt(kpiStats.avgPrecio)}</div>
             <div className="stat-label">Precio Promedio Ofertado</div>
-            <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
-              Promedio unitario vigente
-            </div>
           </div>
         </div>
       </div>
 
       {/* Toolbar Filters */}
-      <div className="card fade-up" style={{ marginBottom: 16, padding: '14px 18px' }}>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div className="card fade-up" style={{ marginBottom: 16, padding: '12px 16px' }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <div className="toolbar-search" style={{ flex: 1, minWidth: 260 }}>
-            <Search size={16} />
+            <Search size={15} />
             <input
               className="form-input"
               placeholder="Buscar por N° Parte, Marca, Procesador o Modelo…"
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+              style={{ fontSize: 13 }}
             />
             {search && (
               <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
@@ -385,27 +437,27 @@ const ProveedorFichas = () => {
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--c-text-secondary)' }}>Stock:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--c-text-secondary)' }}>Stock:</span>
             <select
               className="form-select"
               value={stockFilter}
               onChange={(e) => { setStockFilter(e.target.value); setPage(0); }}
-              style={{ width: 150 }}
+              style={{ width: 140, fontSize: 12, padding: '4px 8px' }}
             >
-              <option value="">Todos los stocks</option>
+              <option value="">Todos</option>
               <option value="with_stock">Con stock (&gt; 0)</option>
-              <option value="zero_stock">Sin stock (0 unid.)</option>
+              <option value="zero_stock">Sin stock (0)</option>
             </select>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--c-text-secondary)' }}>Proveedor:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--c-text-secondary)' }}>Proveedor:</span>
             <select
               className="form-select"
               value={selectedProvider}
               onChange={(e) => { setSelectedProvider(e.target.value); setPage(0); }}
-              style={{ minWidth: 170 }}
+              style={{ minWidth: 160, fontSize: 12, padding: '4px 8px' }}
             >
               {MAIN_PROVIDERS.map(p => (
                 <option key={p.id} value={p.id}>{p.short || p.name}</option>
@@ -417,33 +469,33 @@ const ProveedorFichas = () => {
             <button
               className="btn btn-secondary btn-sm"
               onClick={clearAllFilters}
-              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 12 }}
             >
-              <X size={14} />
-              Limpiar Filtros
+              <X size={13} />
+              Limpiar
             </button>
           )}
         </div>
       </div>
 
       {/* Main Table */}
-      <div className="card fade-up" style={{ padding: 0, overflow: 'visible' }}>
-        <div className="card-header" style={{ padding: '14px 20px', borderBottom: '1px solid var(--c-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 600 }}>
-            <FileText size={17} style={{ color: 'var(--c-brand)' }} />
+      <div className="card fade-up" style={{ padding: 0, overflow: 'visible', border: '1px solid var(--c-border)' }}>
+        <div className="card-header" style={{ padding: '12px 18px', borderBottom: '1px solid var(--c-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}>
+            <FileText size={16} style={{ color: 'var(--c-brand)' }} />
             Listado de Fichas de Productos Ofertados
           </span>
-          <span style={{ fontSize: 13, color: 'var(--c-text-secondary)' }}>
+          <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>
             Mostrando <strong>{fichas.length}</strong> de <strong>{totalFichas.toLocaleString('es-PE')}</strong> ofertas (Pág. {page + 1} de {Math.max(1, Math.ceil(totalFichas / limit))})
           </span>
         </div>
 
         <div className="table-wrap" style={{ overflow: 'visible' }}>
-          <table className="data-table" style={{ fontSize: '0.86rem', width: '100%', borderCollapse: 'collapse' }}>
+          <table className="data-table" style={{ fontSize: '0.84rem', width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '2px solid var(--c-border)' }}>
                 {/* 1. Marca & Código */}
-                <th style={{ width: 170, padding: '12px 14px' }}>
+                <th style={{ width: 160, padding: '10px 14px' }}>
                   <HeaderFilter
                     title="Marca & Código"
                     column="marca"
@@ -454,101 +506,88 @@ const ProveedorFichas = () => {
                 </th>
 
                 {/* 2. Ficha Técnica / Especificaciones */}
-                <th style={{ padding: '12px 14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>Ficha Técnica / Especificaciones</span>
-                  </div>
+                <th style={{ padding: '10px 14px' }}>
+                  <span>Ficha Técnica / Especificaciones</span>
                 </th>
 
                 {/* 3. Estado */}
-                <th style={{ width: 110, textAlign: 'center', padding: '12px 14px' }}>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                    <span>Estado</span>
-                  </div>
+                <th style={{ width: 90, textAlign: 'center', padding: '10px 14px' }}>
+                  <span>Estado</span>
                 </th>
 
-                {/* 4. Precio Ofertado (con Sorting) */}
+                {/* 4. Precio Ofertado */}
                 <th 
                   onClick={() => toggleSort('precio')}
-                  style={{ width: 150, textAlign: 'right', padding: '12px 14px', cursor: 'pointer', userSelect: 'none' }}
+                  style={{ width: 140, textAlign: 'right', padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}
                   title="Ordenar por Precio"
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
                     <span>Precio Ofertado</span>
                     {sortBy === 'precio_asc' ? (
-                      <ArrowUp size={13} style={{ color: 'var(--c-brand)' }} />
+                      <ArrowUp size={12} style={{ color: 'var(--c-brand)' }} />
                     ) : sortBy === 'precio_desc' ? (
-                      <ArrowDown size={13} style={{ color: 'var(--c-brand)' }} />
+                      <ArrowDown size={12} style={{ color: 'var(--c-brand)' }} />
                     ) : (
-                      <ChevronsUpDown size={13} style={{ color: 'var(--c-text-tertiary)' }} />
+                      <ChevronsUpDown size={12} style={{ color: 'var(--c-text-tertiary)' }} />
                     )}
                   </div>
                 </th>
 
-                {/* 5. Stock (con Sorting) */}
+                {/* 5. Stock */}
                 <th 
                   onClick={() => toggleSort('stock')}
-                  style={{ width: 110, textAlign: 'center', padding: '12px 14px', cursor: 'pointer', userSelect: 'none' }}
+                  style={{ width: 90, textAlign: 'center', padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}
                   title="Ordenar por Existencias"
                 >
-                  <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                     <span>Stock</span>
                     {sortBy === 'stock_desc' ? (
-                      <ArrowDown size={13} style={{ color: 'var(--c-brand)' }} />
+                      <ArrowDown size={12} style={{ color: 'var(--c-brand)' }} />
                     ) : (
-                      <ChevronsUpDown size={13} style={{ color: 'var(--c-text-tertiary)' }} />
+                      <ChevronsUpDown size={12} style={{ color: 'var(--c-text-tertiary)' }} />
                     )}
                   </div>
                 </th>
 
-                {/* 6. Datos / Proveedor */}
-                <th style={{ width: 140, textAlign: 'center', padding: '12px 14px' }}>
-                  <HeaderFilter
-                    title="Proveedor / Datos"
-                    column="proveedor"
-                    currentFilter={selectedProvider !== 'all' ? selectedProvider : ''}
-                    onFilterChange={(v) => {
-                      const match = MAIN_PROVIDERS.find(p => p.name === v || p.short === v);
-                      setSelectedProvider(match ? match.id : (v ? v : 'all'));
-                      setPage(0);
-                    }}
-                    apiCall={proveedoresApi.getColumnFilter}
-                  />
+                {/* 6. Datos / Acciones */}
+                <th style={{ width: 100, textAlign: 'center', padding: '10px 14px' }}>
+                  <span>Datos</span>
                 </th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-secondary)' }}>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-secondary)' }}>
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
-                      <RefreshCw size={18} className="spin" />
+                      <RefreshCw size={16} className="spin" />
                       <span>Cargando ofertas de la base de datos...</span>
                     </div>
                   </td>
                 </tr>
               ) : fichas.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-tertiary)' }}>
-                    No se encontraron registros para los filtros seleccionados.
+                  <td colSpan={6} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
+                    No se encontraron registros. Haz clic en <strong>⚡ Actualizar Ofertas (Scraper)</strong> para extraer la lista de Perú Compras.
                   </td>
                 </tr>
               ) : (
                 fichas.map((f, idx) => {
                   const specs = parseSpecs(f.descripcion);
+                  const isExpanded = expandedDescId === f.id;
                   return (
-                    <tr key={idx} style={{ borderBottom: '1px solid var(--c-border)', transition: 'background 0.15s' }}>
+                    <tr key={idx} style={{ borderBottom: '1px solid var(--c-border)', transition: 'background 0.1s' }}>
                       {/* Marca & Nro Parte */}
-                      <td style={{ padding: '12px 14px', verticalAlign: 'top' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <td style={{ padding: '10px 14px', verticalAlign: 'middle' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                           <span style={{ 
                             display: 'inline-block',
-                            padding: '2px 8px', 
+                            padding: '1px 6px', 
                             borderRadius: 4, 
-                            fontSize: 11, 
+                            fontSize: 10, 
                             fontWeight: 700, 
-                            background: f.marca === 'HP' ? '#eff6ff' : f.marca === 'LENOVO' ? '#fef2f2' : f.marca === 'DELL' ? '#f0fdf4' : '#f1f5f9',
-                            color: f.marca === 'HP' ? '#1d4ed8' : f.marca === 'LENOVO' ? '#b91c1c' : f.marca === 'DELL' ? '#15803d' : '#334155',
+                            background: f.marca === 'HP' ? '#eff6ff' : f.marca === 'LENOVO' ? '#fef2f2' : f.marca === 'DELL' ? '#f0fdf4' : f.marca === 'ADVANCE' ? '#fdf2f8' : '#f1f5f9',
+                            color: f.marca === 'HP' ? '#1d4ed8' : f.marca === 'LENOVO' ? '#b91c1c' : f.marca === 'DELL' ? '#15803d' : f.marca === 'ADVANCE' ? '#be185d' : '#334155',
                             width: 'fit-content'
                           }}>
                             {f.marca || 'VARIOS'}
@@ -559,59 +598,77 @@ const ProveedorFichas = () => {
                         </div>
                       </td>
 
-                      {/* Specs / Descripcion */}
-                      <td style={{ padding: '12px 14px', verticalAlign: 'top' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {/* Ficha Tecnica / Especificaciones */}
+                      <td style={{ padding: '10px 14px', verticalAlign: 'middle' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                          {/* Titulo Limpio (sin repetir marca) */}
                           <div style={{ fontWeight: 600, color: 'var(--c-text-primary)', fontSize: 13 }}>
-                            {specs.modelo ? `${f.marca} ${specs.modelo}` : (f.descripcion?.split(':')[0] || 'Computadora Todo en Uno')}
+                            {f.marca} {specs.modelo}
                           </div>
 
-                          {/* Tech Specs Chips */}
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                            {specs.procesador && (
-                              <span style={{ background: '#f1f5f9', color: '#1e293b', fontSize: 11, padding: '2px 7px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                <Cpu size={12} style={{ color: 'var(--c-brand)' }} />
-                                {specs.procesador}
+                          {/* Chips Compactos de Specs */}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                            {specs.proc && (
+                              <span style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#1e293b', fontSize: 11, padding: '1px 6px', borderRadius: 4, fontWeight: 500 }}>
+                                ⚡ {specs.proc}
                               </span>
                             )}
                             {specs.ram && (
-                              <span style={{ background: '#f1f5f9', color: '#1e293b', fontSize: 11, padding: '2px 7px', borderRadius: 4 }}>
-                                RAM: <strong>{specs.ram}</strong>
+                              <span style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#1e293b', fontSize: 11, padding: '1px 6px', borderRadius: 4, fontWeight: 500 }}>
+                                💾 {specs.ram}
                               </span>
                             )}
                             {specs.disco && (
-                              <span style={{ background: '#f1f5f9', color: '#1e293b', fontSize: 11, padding: '2px 7px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                <HardDrive size={12} />
-                                {specs.disco}
+                              <span style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#1e293b', fontSize: 11, padding: '1px 6px', borderRadius: 4, fontWeight: 500 }}>
+                                💽 {specs.disco}
                               </span>
                             )}
                             {specs.pantalla && (
-                              <span style={{ background: '#f1f5f9', color: '#1e293b', fontSize: 11, padding: '2px 7px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                <Monitor size={12} />
-                                {specs.pantalla}
+                              <span style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#1e293b', fontSize: 11, padding: '1px 6px', borderRadius: 4, fontWeight: 500 }}>
+                                🖥️ {specs.pantalla}
                               </span>
                             )}
                             {specs.so && (
-                              <span style={{ background: '#f1f5f9', color: '#1e293b', fontSize: 11, padding: '2px 7px', borderRadius: 4 }}>
-                                {specs.so}
+                              <span style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#1e293b', fontSize: 11, padding: '1px 6px', borderRadius: 4, fontWeight: 500 }}>
+                                🪟 {specs.so}
                               </span>
                             )}
+                            <button
+                              onClick={() => setExpandedDescId(isExpanded ? null : f.id)}
+                              style={{ 
+                                background: 'none', 
+                                border: 'none', 
+                                cursor: 'pointer', 
+                                padding: '1px 4px', 
+                                fontSize: 10, 
+                                color: 'var(--c-brand)', 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                gap: 2 
+                              }}
+                              title="Ver texto técnico completo"
+                            >
+                              {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                              <span>{isExpanded ? 'Ocultar' : 'Detalles'}</span>
+                            </button>
                           </div>
 
-                          {/* Raw text preview */}
-                          <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', maxWidth: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.descripcion}>
-                            {f.descripcion}
-                          </div>
+                          {/* Detalle Desplegable si el usuario hace click */}
+                          {isExpanded && (
+                            <div style={{ marginTop: 4, padding: '6px 10px', background: '#f1f5f9', borderRadius: 4, fontSize: 11, color: '#334155', lineHeight: 1.4 }}>
+                              {f.descripcion}
+                            </div>
+                          )}
                         </div>
                       </td>
 
                       {/* Estado */}
-                      <td style={{ padding: '12px 14px', textAlign: 'center', verticalAlign: 'top' }}>
+                      <td style={{ padding: '10px 14px', textAlign: 'center', verticalAlign: 'middle' }}>
                         <span style={{ 
                           display: 'inline-block',
-                          padding: '3px 8px', 
-                          borderRadius: 12, 
-                          fontSize: 11, 
+                          padding: '2px 7px', 
+                          borderRadius: 10, 
+                          fontSize: 10, 
                           fontWeight: 600, 
                           background: '#ecfdf5', 
                           color: '#047857',
@@ -622,23 +679,23 @@ const ProveedorFichas = () => {
                       </td>
 
                       {/* Precio */}
-                      <td style={{ padding: '12px 14px', textAlign: 'right', verticalAlign: 'top' }}>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', verticalAlign: 'middle' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--c-text-primary)', fontFamily: 'monospace' }}>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)', fontFamily: 'monospace' }}>
                             {f.moneda || 'USD'} {fmt(f.precio_ofertado || f.precio_referencia)}
                           </span>
-                          <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)' }}>
+                          <span style={{ fontSize: 9, color: 'var(--c-text-tertiary)' }}>
                             P. Unitario Vigente
                           </span>
                         </div>
                       </td>
 
                       {/* Stock */}
-                      <td style={{ padding: '12px 14px', textAlign: 'center', verticalAlign: 'top' }}>
+                      <td style={{ padding: '10px 14px', textAlign: 'center', verticalAlign: 'middle' }}>
                         <span style={{ 
                           display: 'inline-block',
-                          padding: '3px 8px', 
-                          borderRadius: 6, 
+                          padding: '2px 6px', 
+                          borderRadius: 4, 
                           fontSize: 11, 
                           fontWeight: 600,
                           background: (f.existencia_stock > 0) ? '#eff6ff' : '#f8fafc',
@@ -650,15 +707,15 @@ const ProveedorFichas = () => {
                       </td>
 
                       {/* Acciones & JSON View */}
-                      <td style={{ padding: '12px 14px', textAlign: 'center', verticalAlign: 'top' }}>
-                        <div style={{ display: 'flex', justifyContent: 'center', gap: 6 }}>
+                      <td style={{ padding: '10px 14px', textAlign: 'center', verticalAlign: 'middle' }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 4 }}>
                           <button
                             className="btn btn-sm"
                             onClick={() => setSelectedJsonItem(f)}
-                            style={{ padding: '4px 8px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                            style={{ padding: '3px 6px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3 }}
                             title="Ver JSON completo de este registro"
                           >
-                            <Code size={13} style={{ color: 'var(--c-brand)' }} />
+                            <Code size={12} style={{ color: 'var(--c-brand)' }} />
                             <span>JSON</span>
                           </button>
 
@@ -668,10 +725,10 @@ const ProveedorFichas = () => {
                               target="_blank"
                               rel="noopener noreferrer"
                               className="btn btn-sm"
-                              style={{ padding: '4px 6px' }}
+                              style={{ padding: '3px 5px' }}
                               title="Ver PDF Ficha Técnica"
                             >
-                              <ExternalLink size={13} />
+                              <ExternalLink size={12} />
                             </a>
                           )}
                         </div>
@@ -689,19 +746,19 @@ const ProveedorFichas = () => {
           display: 'flex', 
           justifyContent: 'space-between', 
           alignItems: 'center', 
-          padding: '14px 20px', 
+          padding: '12px 18px', 
           borderTop: '1px solid var(--c-border)',
           background: '#f8fafc',
           flexWrap: 'wrap',
-          gap: 12
+          gap: 10
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--c-text-secondary)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--c-text-secondary)' }}>
             <span>Registros por página:</span>
             <select
               className="form-select"
               value={limit}
               onChange={(e) => { setLimit(Number(e.target.value)); setPage(0); }}
-              style={{ width: 85, padding: '5px 8px' }}
+              style={{ width: 80, padding: '4px 6px', fontSize: 12 }}
             >
               <option value={25}>25</option>
               <option value={50}>50</option>
@@ -711,27 +768,27 @@ const ProveedorFichas = () => {
             </select>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button
               onClick={() => setPage(Math.max(0, page - 1))}
               disabled={page === 0 || loading}
               className="btn btn-sm"
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', fontSize: 12 }}
             >
-              <ChevronLeft size={16} />
+              <ChevronLeft size={14} />
               Anterior
             </button>
-            <span style={{ fontWeight: 600, fontSize: 13 }}>
+            <span style={{ fontWeight: 600, fontSize: 12 }}>
               Página {page + 1} de {Math.max(1, Math.ceil(totalFichas / limit))}
             </span>
             <button
               onClick={() => setPage(page + 1)}
               disabled={(page + 1) * limit >= totalFichas || loading}
               className="btn btn-sm"
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', fontSize: 12 }}
             >
               Siguiente
-              <ChevronRight size={16} />
+              <ChevronRight size={14} />
             </button>
           </div>
         </div>
@@ -755,7 +812,7 @@ const ProveedorFichas = () => {
         }}>
           <div className="card fade-up" style={{
             width: '100%',
-            maxWidth: 750,
+            maxWidth: 720,
             maxHeight: '85vh',
             display: 'flex',
             flexDirection: 'column',
@@ -765,7 +822,7 @@ const ProveedorFichas = () => {
           }}>
             {/* Modal Header */}
             <div style={{
-              padding: '16px 20px',
+              padding: '14px 18px',
               borderBottom: '1px solid var(--c-border)',
               display: 'flex',
               justifyContent: 'space-between',
@@ -773,8 +830,8 @@ const ProveedorFichas = () => {
               background: '#f8fafc'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Code size={18} style={{ color: 'var(--c-brand)' }} />
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
+                <Code size={16} style={{ color: 'var(--c-brand)' }} />
+                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>
                   Inspección de Objeto JSON — [{selectedJsonItem.marca}] {selectedJsonItem.nro_parte}
                 </h3>
               </div>
@@ -782,18 +839,18 @@ const ProveedorFichas = () => {
                 onClick={() => setSelectedJsonItem(null)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-tertiary)' }}
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
             {/* Modal Body */}
-            <div style={{ padding: 20, overflowY: 'auto', flex: 1, background: '#0f172a' }}>
+            <div style={{ padding: 18, overflowY: 'auto', flex: 1, background: '#0f172a' }}>
               <pre style={{
                 margin: 0,
                 color: '#38bdf8',
                 fontFamily: 'monospace',
-                fontSize: 12,
-                lineHeight: 1.6,
+                fontSize: 11,
+                lineHeight: 1.5,
                 whiteSpace: 'pre-wrap'
               }}>
                 {JSON.stringify(selectedJsonItem, null, 2)}
@@ -802,29 +859,30 @@ const ProveedorFichas = () => {
 
             {/* Modal Footer */}
             <div style={{
-              padding: '12px 20px',
+              padding: '10px 18px',
               borderTop: '1px solid var(--c-border)',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
               background: '#f8fafc'
             }}>
-              <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>
+              <span style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>
                 N° Parte: <strong>{selectedJsonItem.nro_parte}</strong> | Marca: <strong>{selectedJsonItem.marca}</strong>
               </span>
 
-              <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
                 <button
                   className="btn btn-secondary btn-sm"
                   onClick={handleCopyJson}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: 12 }}
                 >
-                  {copied ? <Check size={14} style={{ color: '#16a34a' }} /> : <Copy size={14} />}
+                  {copied ? <Check size={13} style={{ color: '#16a34a' }} /> : <Copy size={13} />}
                   {copied ? '¡Copiado!' : 'Copiar JSON'}
                 </button>
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={() => setSelectedJsonItem(null)}
+                  style={{ padding: '4px 12px', fontSize: 12 }}
                 >
                   Cerrar
                 </button>
