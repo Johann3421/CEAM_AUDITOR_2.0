@@ -12,6 +12,7 @@ import time
 import re
 import json
 import base64
+import html
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -443,15 +444,20 @@ async def completar_menu_dinamico(
 
 
 def _parse_html_products_partial(html_text: str) -> List[Dict[str, Any]]:
-    """Parsea la tabla HTML devuelta por _ListaProductosOfertados."""
+    """
+    Parsea las filas <tr> y columnas <td> de la tabla HTML devuelta por _ListaProductosOfertados
+    usando expresiones regulares nativas y html.unescape para máxima velocidad y sin dependencias externas.
+    """
     try:
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html_text, "html.parser")
-        rows = soup.find_all("tr")
         products = []
-        for r in rows:
-            cols = [td.get_text(strip=True) for td in r.find_all("td")]
-            if len(cols) >= 7:
+        tr_matches = re.findall(r'<tr[^>]*>(.*?)</tr>', html_text, re.DOTALL | re.IGNORECASE)
+
+        for tr_content in tr_matches:
+            td_matches = re.findall(r'<td[^>]*>(.*?)</td>', tr_content, re.DOTALL | re.IGNORECASE)
+            if len(td_matches) >= 7:
+                cols = [html.unescape(re.sub(r'<[^>]+>', ' ', td)).strip() for td in td_matches]
+                cols = [' '.join(c.split()) for c in cols]
+
                 desc = cols[1]
                 estado = cols[2]
                 moneda = cols[3]
@@ -468,10 +474,16 @@ def _parse_html_products_partial(html_text: str) -> List[Dict[str, Any]]:
                 except ValueError:
                     stock = 0
 
-                marca_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)', desc)
-                marca = marca_match.group(1) if marca_match else "VARIOS"
-                words = desc.split()
-                nro_parte = words[-1] if words else "S/N"
+                # Extraer marca y nro_parte del bloque UNIDAD ... SIST. MANEJO
+                marca = "VARIOS"
+                nro_parte = "S/N"
+                unidad_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)(?:\s+(.*?))?(?:\s+([A-Z0-9_*#/-]+))?\s+SIST\.\s+MANEJO', desc, re.IGNORECASE)
+                if unidad_match:
+                    marca = unidad_match.group(1).upper()
+                    nro_parte = unidad_match.group(3) or unidad_match.group(2) or "S/N"
+                else:
+                    words = desc.split()
+                    nro_parte = words[-1] if words else "S/N"
 
                 products.append({
                     "nro_parte": nro_parte,
@@ -499,7 +511,7 @@ async def consultar_json_productos(
     5. Ejecuta una petición fetch interna usando las cookies de la sesión activa en el navegador.
     Soporta formato JSON y Vista Parcial HTML DataTables ASP.NET de Perú Compras.
     """
-    url = f"{BASE_URL}/MejoraBasica/_ListaProductosOfertados?N_Acuerdo={n_acuerdo}&N_Catalogo={n_catalogo}&N_Categoria={n_categoria}&_={int(time.time() * 1000)}"
+    url = f"{BASE_URL}/MejoraBasica/_ListaProductosOfertados?N_Acuerdo={n_acuerdo}&N_Catalogo={n_catalogo}&N_Categoria={n_categoria}&C_Descripcion=&_={int(time.time() * 1000)}"
     _safe_log(f"📡 Pidiendo dataset de productos a: {url}", log_func)
 
     js_code = """

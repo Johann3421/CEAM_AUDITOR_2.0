@@ -52,9 +52,11 @@ def get_proveedor_fichas(
                 precio_ofertado AS precio_max,
                 existencia_stock AS n_ordenes,
                 precio_ofertado AS total_vendido,
-                pdf_url
+                pdf_url,
+                COUNT(*) OVER() AS total_count
             FROM ofertas_proveedor_history f
             WHERE {where_sql}
+            ORDER BY id DESC
             LIMIT :limit OFFSET :offset
         """
         params["limit"] = limit
@@ -62,11 +64,12 @@ def get_proveedor_fichas(
         rows = db.execute(text(sql), params).mappings().all()
 
         if rows and len(rows) > 0:
+            total_items = rows[0]["total_count"] if "total_count" in rows[0] else len(rows)
             return {
                 "items": [dict(r) for r in rows],
                 "page": page,
                 "limit": limit,
-                "total": len(rows)
+                "total": total_items
             }
     except Exception:
         pass
