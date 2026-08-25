@@ -54,6 +54,7 @@ export const preciosFichasApi = {
 export const proveedoresApi = {
   getFichas: (params) => api.get('/proveedores/fichas', { params }),
   getKpis: (params) => api.get('/proveedores/kpis', { params }),
+  getColumnFilter: (col) => api.get(`/proveedores/filters/${col}`),
   scrape: (params) => api.post('/proveedores/scrape', null, { params }),
   getScrapeStatus: () => api.get('/proveedores/scrape-status'),
   exportJson: () => api.get('/proveedores/export-json'),

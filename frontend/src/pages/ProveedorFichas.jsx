@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { purchaseOrdersApi, proveedoresApi } from '../services/api';
+import { proveedoresApi } from '../services/api';
+import HeaderFilter from '../components/HeaderFilter';
 import {
   Building2, Search, FileText, ChevronLeft, ChevronRight,
-  ExternalLink, FileDown, Tag, DollarSign, Package, TrendingUp, X, RefreshCw,
-  Code, Copy, Check, Cpu, HardDrive, Monitor, ShieldCheck, Download
+  ExternalLink, Tag, DollarSign, Package, TrendingUp, X, RefreshCw,
+  Code, Copy, Check, Cpu, HardDrive, Monitor, Download,
+  ArrowUp, ArrowDown, ChevronsUpDown, Filter
 } from 'lucide-react';
 
 const MAIN_PROVIDERS = [
@@ -48,6 +50,8 @@ const ProveedorFichas = () => {
   const [selectedProvider, setSelectedProvider] = useState('all');
   const [search, setSearch] = useState('');
   const [marcaFilter, setMarcaFilter] = useState('');
+  const [stockFilter, setStockFilter] = useState(''); // '', 'with_stock', 'zero_stock'
+  const [sortBy, setSortBy] = useState(''); // 'precio_asc', 'precio_desc', 'stock_desc', 'marca_asc'
   const [fichas, setFichas] = useState([]);
   const [totalFichas, setTotalFichas] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -68,6 +72,8 @@ const ProveedorFichas = () => {
       proveedor: selectedProvider !== 'all' ? provName : undefined,
       search: search || undefined,
       marca: marcaFilter || undefined,
+      stock_filter: stockFilter || undefined,
+      sort_by: sortBy || undefined,
       page: page + 1,
       limit
     })
@@ -89,7 +95,7 @@ const ProveedorFichas = () => {
 
   useEffect(() => {
     fetchFichasData();
-  }, [selectedProvider, search, marcaFilter, page, limit]);
+  }, [selectedProvider, search, marcaFilter, stockFilter, sortBy, page, limit]);
 
   useEffect(() => {
     let interval = null;
@@ -165,6 +171,32 @@ const ProveedorFichas = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const toggleSort = (col) => {
+    if (col === 'precio') {
+      if (sortBy === 'precio_asc') setSortBy('precio_desc');
+      else if (sortBy === 'precio_desc') setSortBy('');
+      else setSortBy('precio_asc');
+    } else if (col === 'stock') {
+      if (sortBy === 'stock_desc') setSortBy('');
+      else setSortBy('stock_desc');
+    } else if (col === 'marca') {
+      if (sortBy === 'marca_asc') setSortBy('');
+      else setSortBy('marca_asc');
+    }
+    setPage(0);
+  };
+
+  const hasActiveFilters = Boolean(search || marcaFilter || stockFilter || sortBy || selectedProvider !== 'all');
+
+  const clearAllFilters = () => {
+    setSearch('');
+    setMarcaFilter('');
+    setStockFilter('');
+    setSortBy('');
+    setSelectedProvider('all');
+    setPage(0);
   };
 
   const kpiStats = useMemo(() => {
@@ -354,19 +386,16 @@ const ProveedorFichas = () => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--c-text-secondary)' }}>Marca:</span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--c-text-secondary)' }}>Stock:</span>
             <select
               className="form-select"
-              value={marcaFilter}
-              onChange={(e) => { setMarcaFilter(e.target.value); setPage(0); }}
-              style={{ width: 140 }}
+              value={stockFilter}
+              onChange={(e) => { setStockFilter(e.target.value); setPage(0); }}
+              style={{ width: 150 }}
             >
-              <option value="">Todas</option>
-              <option value="ADVANCE">ADVANCE</option>
-              <option value="HP">HP</option>
-              <option value="LENOVO">LENOVO</option>
-              <option value="DELL">DELL</option>
-              <option value="M4X">M4X</option>
+              <option value="">Todos los stocks</option>
+              <option value="with_stock">Con stock (&gt; 0)</option>
+              <option value="zero_stock">Sin stock (0 unid.)</option>
             </select>
           </div>
 
@@ -383,11 +412,22 @@ const ProveedorFichas = () => {
               ))}
             </select>
           </div>
+
+          {hasActiveFilters && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={clearAllFilters}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <X size={14} />
+              Limpiar Filtros
+            </button>
+          )}
         </div>
       </div>
 
       {/* Main Table */}
-      <div className="card fade-up" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="card fade-up" style={{ padding: 0, overflow: 'visible' }}>
         <div className="card-header" style={{ padding: '14px 20px', borderBottom: '1px solid var(--c-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
           <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 600 }}>
             <FileText size={17} style={{ color: 'var(--c-brand)' }} />
@@ -398,16 +438,83 @@ const ProveedorFichas = () => {
           </span>
         </div>
 
-        <div className="table-wrap">
+        <div className="table-wrap" style={{ overflow: 'visible' }}>
           <table className="data-table" style={{ fontSize: '0.86rem', width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '2px solid var(--c-border)' }}>
-                <th style={{ width: 170, padding: '12px 14px' }}>Marca & Código</th>
-                <th style={{ padding: '12px 14px' }}>Ficha Técnica / Especificaciones</th>
-                <th style={{ width: 100, textAlign: 'center', padding: '12px 14px' }}>Estado</th>
-                <th style={{ width: 140, textAlign: 'right', padding: '12px 14px' }}>Precio Ofertado</th>
-                <th style={{ width: 100, textAlign: 'center', padding: '12px 14px' }}>Stock</th>
-                <th style={{ width: 90, textAlign: 'center', padding: '12px 14px' }}>Datos</th>
+                {/* 1. Marca & Código */}
+                <th style={{ width: 170, padding: '12px 14px' }}>
+                  <HeaderFilter
+                    title="Marca & Código"
+                    column="marca"
+                    currentFilter={marcaFilter}
+                    onFilterChange={(v) => { setMarcaFilter(v); setPage(0); }}
+                    apiCall={proveedoresApi.getColumnFilter}
+                  />
+                </th>
+
+                {/* 2. Ficha Técnica / Especificaciones */}
+                <th style={{ padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>Ficha Técnica / Especificaciones</span>
+                  </div>
+                </th>
+
+                {/* 3. Estado */}
+                <th style={{ width: 110, textAlign: 'center', padding: '12px 14px' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                    <span>Estado</span>
+                  </div>
+                </th>
+
+                {/* 4. Precio Ofertado (con Sorting) */}
+                <th 
+                  onClick={() => toggleSort('precio')}
+                  style={{ width: 150, textAlign: 'right', padding: '12px 14px', cursor: 'pointer', userSelect: 'none' }}
+                  title="Ordenar por Precio"
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                    <span>Precio Ofertado</span>
+                    {sortBy === 'precio_asc' ? (
+                      <ArrowUp size={13} style={{ color: 'var(--c-brand)' }} />
+                    ) : sortBy === 'precio_desc' ? (
+                      <ArrowDown size={13} style={{ color: 'var(--c-brand)' }} />
+                    ) : (
+                      <ChevronsUpDown size={13} style={{ color: 'var(--c-text-tertiary)' }} />
+                    )}
+                  </div>
+                </th>
+
+                {/* 5. Stock (con Sorting) */}
+                <th 
+                  onClick={() => toggleSort('stock')}
+                  style={{ width: 110, textAlign: 'center', padding: '12px 14px', cursor: 'pointer', userSelect: 'none' }}
+                  title="Ordenar por Existencias"
+                >
+                  <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <span>Stock</span>
+                    {sortBy === 'stock_desc' ? (
+                      <ArrowDown size={13} style={{ color: 'var(--c-brand)' }} />
+                    ) : (
+                      <ChevronsUpDown size={13} style={{ color: 'var(--c-text-tertiary)' }} />
+                    )}
+                  </div>
+                </th>
+
+                {/* 6. Datos / Proveedor */}
+                <th style={{ width: 140, textAlign: 'center', padding: '12px 14px' }}>
+                  <HeaderFilter
+                    title="Proveedor / Datos"
+                    column="proveedor"
+                    currentFilter={selectedProvider !== 'all' ? selectedProvider : ''}
+                    onFilterChange={(v) => {
+                      const match = MAIN_PROVIDERS.find(p => p.name === v || p.short === v);
+                      setSelectedProvider(match ? match.id : (v ? v : 'all'));
+                      setPage(0);
+                    }}
+                    apiCall={proveedoresApi.getColumnFilter}
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -423,7 +530,7 @@ const ProveedorFichas = () => {
               ) : fichas.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-tertiary)' }}>
-                    No se encontraron registros. Haz clic en <strong>⚡ Actualizar Ofertas (Scraper)</strong> para extraer la lista de Perú Compras.
+                    No se encontraron registros para los filtros seleccionados.
                   </td>
                 </tr>
               ) : (
@@ -491,7 +598,7 @@ const ProveedorFichas = () => {
                             )}
                           </div>
 
-                          {/* Raw text collapsible / preview */}
+                          {/* Raw text preview */}
                           <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', maxWidth: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.descripcion}>
                             {f.descripcion}
                           </div>
