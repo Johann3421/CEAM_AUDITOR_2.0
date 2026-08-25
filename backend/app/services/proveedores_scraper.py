@@ -28,6 +28,7 @@ from app.schemas.oferta_proveedor import OfertaPeruComprasSchema
 from app.services.perucompras_core import (
     login_automatico,
     saltar_verificacion,
+    completar_menu_dinamico,
     _parse_html_products_partial
 )
 
