@@ -104,6 +104,15 @@ async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = 
                     log_func=add_status_log,
                     screenshot_callback=update_live_screenshot
                 )
+                # Completar selección dinámica en los dropdowns de MejoraBasica
+                await completar_menu_dinamico(
+                    page,
+                    acuerdo="EXT-CE-2022-5",
+                    catalogo="COMPUTADORAS DE ESCRITORIO",
+                    categoria="COMPUTADORA TODO EN UNO",
+                    log_func=add_status_log,
+                    screenshot_callback=update_live_screenshot
+                )
                 raw_cookies = await context.cookies()
                 for c in raw_cookies:
                     cookies_dict[c["name"]] = c["value"]

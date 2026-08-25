@@ -246,29 +246,144 @@ async def navegar_mejora_basica(
 
 async def completar_menu_dinamico(
     page: Page,
-    acuerdo: str,
-    catalogo: str,
-    categoria: str,
-    log_func: Optional[Callable[[str], None]] = None
-) -> bool:
+    acuerdo: str = "",
+    catalogo: str = "",
+    categoria: str = "",
+    log_func: Optional[Callable[[str], None]] = None,
+    screenshot_callback: Optional[Callable[[str], None]] = None
+) -> Dict[str, Any]:
     """
-    4. Selecciona las opciones en los desplegables dinámicos y presiona #btnBuscar.
+    4. Selecciona en cascada las opciones de los desplegables dinámicos en MejoraBasica:
+       - #ajaxAcuerdo (Acuerdo Marco)
+       - #ajaxCatalogo (Catálogo de Productos)
+       - #ajaxCategoria (Categoría de Productos)
+       Dispara el botón #btnBuscar y retorna los IDs numéricos seleccionados.
     """
-    _safe_log(f"📋 completando menu dinamico: acuerdo={acuerdo}, catalogo={catalogo}, categoria={categoria}", log_func)
-    try:
-        # Esperar dropdowns
-        await page.wait_for_selector("select", timeout=15000)
+    _safe_log(f"📋 Completando menú dinámico: acuerdo='{acuerdo}', catálogo='{catalogo}', categoría='{categoria}'", log_func)
+    res_selection = {"success": False, "n_acuerdo": None, "n_catalogo": None, "n_categoria": None}
 
-        # Disparar búsqueda botón #btnBuscar si existe
-        btn_buscar = await page.query_selector("#btnBuscar, input[value='Iniciar Búsqueda'], .btn-search")
-        if btn_buscar:
-            await btn_buscar.click()
-            _safe_log("🚀 Botón #btnBuscar clickeado.", log_func)
-            await page.wait_for_timeout(2000)
-        return True
+    try:
+        # 1. Esperar y seleccionar #ajaxAcuerdo
+        await page.wait_for_selector("#ajaxAcuerdo", state="visible", timeout=20000)
+        acuerdo_res = await page.evaluate("""(target) => {
+            const sel = document.querySelector('#ajaxAcuerdo');
+            if (!sel) return null;
+            let chosen = null;
+            const normTarget = target.toLowerCase().trim();
+            for (const opt of sel.options) {
+                if (!opt.value || opt.value === '0') continue;
+                const normText = opt.text.toLowerCase().trim();
+                if (normTarget && normText.includes(normTarget)) {
+                    chosen = opt;
+                    break;
+                }
+                if (!chosen) chosen = opt; // Fallback al primero válido
+            }
+            if (chosen) {
+                sel.value = chosen.value;
+                sel.dispatchEvent(new Event('change', { bubbles: true }));
+                if (window.jQuery) { window.jQuery(sel).trigger('change'); }
+                return { value: chosen.value, text: chosen.text.trim() };
+            }
+            return null;
+        }""", acuerdo)
+
+        if not acuerdo_res:
+            _safe_log("❌ No se encontraron opciones válidas en #ajaxAcuerdo.", log_func)
+            return res_selection
+
+        res_selection["n_acuerdo"] = int(acuerdo_res["value"])
+        _safe_log(f"✅ Acuerdo seleccionado: [{acuerdo_res['value']}] {acuerdo_res['text']}", log_func)
+
+        # 2. Esperar que #ajaxCatalogo se pueble mediante AJAX (hasta 10s)
+        catalogo_res = None
+        for _ in range(10):
+            await page.wait_for_timeout(1000)
+            catalogo_res = await page.evaluate("""(target) => {
+                const sel = document.querySelector('#ajaxCatalogo');
+                if (!sel || sel.options.length <= 1) return null;
+                let chosen = null;
+                const normTarget = target.toLowerCase().trim();
+                for (const opt of sel.options) {
+                    if (!opt.value || opt.value === '0' || opt.value === '') continue;
+                    const normText = opt.text.toLowerCase().trim();
+                    if (normTarget && normText.includes(normTarget)) {
+                        chosen = opt;
+                        break;
+                    }
+                    if (!chosen) chosen = opt;
+                }
+                if (chosen) {
+                    sel.value = chosen.value;
+                    sel.dispatchEvent(new Event('change', { bubbles: true }));
+                    if (window.jQuery) { window.jQuery(sel).trigger('change'); }
+                    return { value: chosen.value, text: chosen.text.trim() };
+                }
+                return null;
+            }""", catalogo)
+            if catalogo_res:
+                break
+
+        if not catalogo_res:
+            _safe_log("❌ No se pudo poblar o seleccionar #ajaxCatalogo.", log_func)
+            return res_selection
+
+        res_selection["n_catalogo"] = int(catalogo_res["value"])
+        _safe_log(f"✅ Catálogo seleccionado: [{catalogo_res['value']}] {catalogo_res['text']}", log_func)
+
+        # 3. Esperar que #ajaxCategoria se pueble mediante AJAX (hasta 10s)
+        categoria_res = None
+        for _ in range(10):
+            await page.wait_for_timeout(1000)
+            categoria_res = await page.evaluate("""(target) => {
+                const sel = document.querySelector('#ajaxCategoria');
+                if (!sel || sel.options.length <= 1) return null;
+                let chosen = null;
+                const normTarget = target.toLowerCase().trim();
+                for (const opt of sel.options) {
+                    if (!opt.value || opt.value === '0' || opt.value === '') continue;
+                    const normText = opt.text.toLowerCase().trim();
+                    if (normTarget && normText.includes(normTarget)) {
+                        chosen = opt;
+                        break;
+                    }
+                    if (!chosen) chosen = opt;
+                }
+                if (chosen) {
+                    sel.value = chosen.value;
+                    sel.dispatchEvent(new Event('change', { bubbles: true }));
+                    if (window.jQuery) { window.jQuery(sel).trigger('change'); }
+                    return { value: chosen.value, text: chosen.text.trim() };
+                }
+                return null;
+            }""", categoria)
+            if categoria_res:
+                break
+
+        if not categoria_res:
+            _safe_log("❌ No se pudo poblar o seleccionar #ajaxCategoria.", log_func)
+            return res_selection
+
+        res_selection["n_categoria"] = int(categoria_res["value"])
+        _safe_log(f"✅ Categoría seleccionada: [{categoria_res['value']}] {categoria_res['text']}", log_func)
+
+        # 4. Click en Buscar
+        await page.evaluate("""() => {
+            const btn = document.querySelector('#btnBuscar, #btnBuscarProducto, .btnBuscar, input[value="Buscar"], input[value="Iniciar Búsqueda"]');
+            if (btn) {
+                btn.click();
+            }
+        }""")
+        _safe_log("🚀 Búsqueda disparada (#btnBuscar clickeado).", log_func)
+        await page.wait_for_timeout(3000)
+        await _capture_live_preview(page, screenshot_callback)
+
+        res_selection["success"] = True
+        return res_selection
+
     except Exception as e:
         _safe_log(f"❌ Error en completar_menu_dinamico: {e}", log_func)
-        return False
+        return res_selection
 
 
 def _parse_html_products_partial(html_text: str) -> List[Dict[str, Any]]:
