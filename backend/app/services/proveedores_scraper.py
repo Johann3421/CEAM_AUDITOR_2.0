@@ -90,6 +90,8 @@ async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = 
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
             page = await context.new_page()
+            page.set_default_timeout(600000)
+            page.set_default_navigation_timeout(600000)
 
             ok = await login_automatico(
                 page, 
@@ -105,14 +107,15 @@ async def async_login_and_get_cookies(user: str = DEFAULT_USER, password: str = 
                     log_func=add_status_log,
                     screenshot_callback=update_live_screenshot
                 )
-                # Completar selección dinámica en los dropdowns de MejoraBasica
+                # Completar selección dinámica en los dropdowns de MejoraBasica con espera activa hasta 10 min
                 await completar_menu_dinamico(
                     page,
                     acuerdo="EXT-CE-2022-5",
                     catalogo="COMPUTADORAS DE ESCRITORIO",
                     categoria="COMPUTADORA TODO EN UNO",
                     log_func=add_status_log,
-                    screenshot_callback=update_live_screenshot
+                    screenshot_callback=update_live_screenshot,
+                    max_wait_table_sec=600
                 )
                 raw_cookies = await context.cookies()
                 for c in raw_cookies:
@@ -305,7 +308,9 @@ async def run_worker_pool_extraction(
         total_inserted = 0
         combos_processed = 0
 
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+        # Timeout de 10 minutos para responder a la latencia de los servidores del Estado
+        custom_timeout = httpx.Timeout(600.0, connect=60.0)
+        async with httpx.AsyncClient(timeout=custom_timeout, follow_redirects=False) as client:
             add_status_log("🔍 Verificando alcance del endpoint JSON _ListaProductosOfertados...")
             is_national = await verify_national_scope(client, cookies)
             add_status_log(f"Scope nacional verificado: {is_national}")

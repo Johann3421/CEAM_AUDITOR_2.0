@@ -253,21 +253,23 @@ async def completar_menu_dinamico(
     catalogo: str = "",
     categoria: str = "",
     log_func: Optional[Callable[[str], None]] = None,
-    screenshot_callback: Optional[Callable[[str], None]] = None
+    screenshot_callback: Optional[Callable[[str], None]] = None,
+    max_wait_table_sec: int = 600
 ) -> Dict[str, Any]:
     """
     4. Selecciona en cascada las opciones de los desplegables dinámicos en MejoraBasica:
        - #ajaxAcuerdo (Acuerdo Marco)
        - #ajaxCatalogo (Catálogo de Productos)
        - #ajaxCategoria (Categoría de Productos)
-       Dispara el botón #btnBuscar y retorna los IDs numéricos seleccionados.
+       Dispara el botón #btnBuscar y espera activamente (hasta max_wait_table_sec = 10 min)
+       a que el servidor de Perú Compras procese y renderice la tabla completa de productos.
     """
     _safe_log(f"📋 Completando menú dinámico: acuerdo='{acuerdo}', catálogo='{catalogo}', categoría='{categoria}'", log_func)
-    res_selection = {"success": False, "n_acuerdo": None, "n_catalogo": None, "n_categoria": None}
+    res_selection = {"success": False, "n_acuerdo": None, "n_catalogo": None, "n_categoria": None, "products": []}
 
     try:
         # 1. Esperar y seleccionar #ajaxAcuerdo
-        await page.wait_for_selector("#ajaxAcuerdo", state="visible", timeout=20000)
+        await page.wait_for_selector("#ajaxAcuerdo", state="visible", timeout=30000)
         acuerdo_res = await page.evaluate("""(target) => {
             const sel = document.querySelector('#ajaxAcuerdo');
             if (!sel) return null;
@@ -298,9 +300,9 @@ async def completar_menu_dinamico(
         res_selection["n_acuerdo"] = int(acuerdo_res["value"])
         _safe_log(f"✅ Acuerdo seleccionado: [{acuerdo_res['value']}] {acuerdo_res['text']}", log_func)
 
-        # 2. Esperar que #ajaxCatalogo se pueble mediante AJAX (hasta 10s)
+        # 2. Esperar que #ajaxCatalogo se pueble mediante AJAX (hasta 15s)
         catalogo_res = None
-        for _ in range(10):
+        for _ in range(15):
             await page.wait_for_timeout(1000)
             catalogo_res = await page.evaluate("""(target) => {
                 const sel = document.querySelector('#ajaxCatalogo');
@@ -334,9 +336,9 @@ async def completar_menu_dinamico(
         res_selection["n_catalogo"] = int(catalogo_res["value"])
         _safe_log(f"✅ Catálogo seleccionado: [{catalogo_res['value']}] {catalogo_res['text']}", log_func)
 
-        # 3. Esperar que #ajaxCategoria se pueble mediante AJAX (hasta 10s)
+        # 3. Esperar que #ajaxCategoria se pueble mediante AJAX (hasta 15s)
         categoria_res = None
-        for _ in range(10):
+        for _ in range(15):
             await page.wait_for_timeout(1000)
             categoria_res = await page.evaluate("""(target) => {
                 const sel = document.querySelector('#ajaxCategoria');
@@ -377,9 +379,49 @@ async def completar_menu_dinamico(
                 btn.click();
             }
         }""")
-        _safe_log("🚀 Búsqueda disparada (#btnBuscar clickeado).", log_func)
-        await page.wait_for_timeout(3000)
+        _safe_log("🚀 Búsqueda disparada (#btnBuscar clickeado). Esperando procesamiento de Perú Compras (puede tomar 8-10 min)...", log_func)
         await _capture_live_preview(page, screenshot_callback)
+
+        # 5. Espera activa inteligente hasta que la tabla o datos aparezcan en el DOM
+        start_wait = time.time()
+        last_log_time = start_wait
+        found_rows = False
+
+        while time.time() - start_wait < max_wait_table_sec:
+            await page.wait_for_timeout(3000)
+            now = time.time()
+            elapsed = int(now - start_wait)
+
+            # Transmitir screenshot en vivo
+            await _capture_live_preview(page, screenshot_callback)
+
+            # Verificar si la tabla ya tiene filas con productos renderizados
+            check_dom = await page.evaluate("""() => {
+                const container = document.querySelector('#divBuscar_ajax') || document.querySelector('table');
+                const rows = document.querySelectorAll('#divBuscar_ajax tr, table tbody tr, .dataTables_wrapper tr');
+                const hasDataRows = Array.from(rows).some(r => r.querySelectorAll('td').length >= 5);
+                const html = container ? container.outerHTML : '';
+                return { hasDataRows, rowCount: rows.length, html };
+            }""")
+
+            if check_dom and check_dom.get("hasDataRows"):
+                found_rows = True
+                _safe_log(f"🎉 Tabla cargada exitosamente en el DOM ({elapsed}s transcurridos, {check_dom.get('rowCount')} filas detectadas).", log_func)
+                await _capture_live_preview(page, screenshot_callback)
+                if check_dom.get("html"):
+                    products = _parse_html_products_partial(check_dom["html"])
+                    if products:
+                        res_selection["products"] = products
+                        _safe_log(f"📦 Extraídos {len(products)} productos directamente desde el DOM.", log_func)
+                break
+
+            # Log de progreso cada 15 segundos
+            if now - last_log_time >= 15:
+                last_log_time = now
+                _safe_log(f"⏳ Esperando que el servidor estatal procese y devuelva los datos... ({elapsed}s / {max_wait_table_sec}s)", log_func)
+
+        if not found_rows:
+            _safe_log(f"⚠️ Tiempo de espera agotado ({max_wait_table_sec}s). Continuando con extracción vía fetch alternativo...", log_func)
 
         res_selection["success"] = True
         return res_selection
