@@ -122,6 +122,9 @@ OFFICIAL_PERUCOMPRAS_COMBOS = [
     {"n_acuerdo": "249", "n_catalogo": "251", "n_categoria": "11739", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "ESCÁNERES", "categoria_nombre": "ESCANER DE LIBROS"},
 ]
 
+# =========================================================================
+# FUNCIÓN PRINCIPAL DE EXTRACCIÓN SISTEMÁTICA PASO A PASO
+# =========================================================================
 async def async_login_and_get_cookies(
     provider_key: str = "thekingcomputer",
     user: Optional[str] = None, 
@@ -129,12 +132,26 @@ async def async_login_and_get_cookies(
     db: Optional[Session] = None
 ) -> Dict[str, str]:
     """
-    Inicia sesión en Perú Compras con la cuenta del proveedor seleccionado,
-    recorre de forma sistemática y robusta las 14 combinaciones oficiales de categorías,
-    y guarda todas las ofertas con atribución exacta por proveedor y categoría.
+    PIPELINE MAESTRO DE EXTRACCIÓN PERÚ COMPRAS
+    ===========================================
+    Este flujo ejecuta la extracción completa dividida en 7 pasos atómicos y modulares:
+
+    PASO 1: Carga de credenciales y configuración del proveedor objetivo.
+    PASO 2: Inicialización del motor Playwright con viewport Full HD (1920x1080).
+    PASO 3: Autenticación en /AccesoGeneral con resolución automática de CAPTCHA por OCR.
+    PASO 4: Evasión de modales y navegación a la ruta base de ofertas (/MejoraBasica).
+    PASO 5: Iteración de la matriz de combinaciones (Acuerdo ➔ Catálogo ➔ Categoría).
+            - PASO 5.1: Selección de selectores AJAX en el DOM (#ajaxAcuerdo, #ajaxCatalogo, #ajaxCategoria).
+            - PASO 5.2: Consulta directa al endpoint JSON (_ListaProductosOfertados).
+            - PASO 5.3: Fallback de búsqueda interactiva (Clic en #btnBuscar y parseo DOM).
+    PASO 6: Normalización y enriquecimiento de metadatos (RUC, Proveedor, Catálogo, Categoría).
+    PASO 7: Persistencia en base de datos con Upsert y trazabilidad histórica.
     """
     from playwright.async_api import async_playwright
     
+    # -------------------------------------------------------------------------
+    # PASO 1: CARGA DE CONFIGURACIÓN Y CREDENCIALES DEL PROVEEDOR
+    # -------------------------------------------------------------------------
     prov_cfg = PROVEEDORES_CONFIG.get(provider_key, PROVEEDORES_CONFIG["thekingcomputer"])
     user = user or prov_cfg["user"]
     password = password or prov_cfg["pass"]
@@ -147,17 +164,26 @@ async def async_login_and_get_cookies(
     EXTRACTION_STATUS["is_running"] = True
     EXTRACTION_STATUS["items_inserted"] = 0
 
-    add_status_log(f"🏢 Proveedor Activo: {nombre_proveedor} (RUC: {ruc_proveedor})")
-    add_status_log(f"🔐 Iniciando sesión en Perú Compras con usuario: {user}")
+    add_status_log(f"🏢 [PASO 1] Proveedor Activo: {nombre_proveedor} (RUC: {ruc_proveedor})")
+    add_status_log(f"🔐 [PASO 1] Iniciando sesión con usuario: {user}")
     cookies_dict = {}
+
     try:
+        # ---------------------------------------------------------------------
+        # PASO 2: INICIALIZACIÓN DEL NAVEGADOR PLAYWRIGHT (HEADLESS FULL HD)
+        # ---------------------------------------------------------------------
         async with async_playwright() as p:
+            add_status_log("🌐 [PASO 2] Lanzando navegador Chromium headless (1920x1080)...")
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(viewport={'width': 1920, 'height': 1080})
             page = await context.new_page()
             page.set_default_timeout(600000)
             page.set_default_navigation_timeout(600000)
 
+            # -----------------------------------------------------------------
+            # PASO 3: AUTENTICACIÓN AUTOMATIZADA CON OCR DE CAPTCHA
+            # -----------------------------------------------------------------
+            add_status_log("🔑 [PASO 3] Ejecutando login_automatico con resolución de CAPTCHA...")
             ok = await login_automatico(
                 page, 
                 user, 
@@ -166,18 +192,25 @@ async def async_login_and_get_cookies(
                 log_func=add_status_log,
                 screenshot_callback=update_live_screenshot
             )
+
             if ok:
+                # -------------------------------------------------------------
+                # PASO 4: SALTO DE VERIFICACIÓN Y ACCESO A LA RUTA /MejoraBasica
+                # -------------------------------------------------------------
+                add_status_log("🚪 [PASO 4] Evadiendo verificación y navegando a /MejoraBasica...")
                 await saltar_verificacion(
                     page, 
                     log_func=add_status_log,
                     screenshot_callback=update_live_screenshot
                 )
                 
+                # -------------------------------------------------------------
+                # PASO 5: ITERACIÓN DE CATEGORÍAS Y EXTRACCIÓN DE PRODUCTOS
+                # -------------------------------------------------------------
                 combos = OFFICIAL_PERUCOMPRAS_COMBOS
                 EXTRACTION_STATUS["combos_total"] = len(combos)
                 EXTRACTION_STATUS["combos_completed"] = 0
 
-                # 2. Extraer ordenadamente cada una de las 14 combinaciones oficiales
                 for i, combo in enumerate(combos, 1):
                     n_acuerdo = combo["n_acuerdo"]
                     n_catalogo = combo["n_catalogo"]
@@ -186,9 +219,9 @@ async def async_login_and_get_cookies(
                     categ_nom = combo["categoria_nombre"]
                     acuerdo_nom = combo["acuerdo_nombre"]
 
-                    add_status_log(f"⚡ [{i}/{len(combos)}] Extrayendo: [{cat_nom}] ➔ [{categ_nom}]...")
+                    add_status_log(f"⚡ [PASO 5: {i}/{len(combos)}] Procesando: [{cat_nom}] ➔ [{categ_nom}]...")
                     
-                    # 1. Establecer selección en DOM para preparar el contexto del servidor
+                    # PASO 5.1: Establecer selección en DOM para preparar el contexto del servidor
                     try:
                         await page.evaluate("""({acuerdo, catalogo, categoria}) => {
                             const selAc = document.querySelector('#ajaxAcuerdo');
@@ -199,10 +232,10 @@ async def async_login_and_get_cookies(
                             if (selCateg) { selCateg.value = categoria; selCateg.dispatchEvent(new Event('change', { bubbles: true })); }
                         }""", {"acuerdo": n_acuerdo, "catalogo": n_catalogo, "categoria": n_categoria})
                         await page.wait_for_timeout(300)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Aviso al seleccionar combos DOM: %s", e)
 
-                    # 2. Consultar directamente el endpoint de productos
+                    # PASO 5.2: Consultar directamente el endpoint de productos JSON (_ListaProductosOfertados)
                     products = await consultar_json_productos(
                         page,
                         n_acuerdo=int(n_acuerdo),
@@ -211,9 +244,9 @@ async def async_login_and_get_cookies(
                         log_func=add_status_log
                     )
 
-                    # 3. Si el endpoint directo retornó 0, disparar por interfaz gráfica con botón buscar
+                    # PASO 5.3: Fallback interactivo si el endpoint directo no trajo registros
                     if not products:
-                        add_status_log(f"🔄 Disparando búsqueda interactiva para [{cat_nom} ➔ {categ_nom}]...")
+                        add_status_log(f"🔄 [PASO 5.3] Fallback interactivo: Clic en #btnBuscar para [{cat_nom} ➔ {categ_nom}]...")
                         try:
                             await page.click("#btnBuscar", timeout=5000)
                             await page.wait_for_timeout(3000)
@@ -226,8 +259,11 @@ async def async_login_and_get_cookies(
                         except Exception as e:
                             add_status_log(f"⚠️ Aviso en click interactivo: {e}")
 
+                    # ---------------------------------------------------------
+                    # PASO 6 Y 7: NORMALIZACIÓN Y PERSISTENCIA EN BASE DE DATOS
+                    # ---------------------------------------------------------
                     if products and db:
-                        # Enriquecer productos con la metadata de catálogo, categoría y proveedor
+                        # PASO 6: Enriquecer con metadatos del proveedor y categoría oficial
                         for prod_item in products:
                             prod_item["catalogo"] = cat_nom
                             prod_item["categoria"] = categ_nom
@@ -235,11 +271,12 @@ async def async_login_and_get_cookies(
                             prod_item["nombre_proveedor"] = nombre_proveedor
                             prod_item["ruc_proveedor"] = ruc_proveedor
 
+                        # PASO 7: Guardar en base de datos con Upsert
                         inserted_now = upsert_ofertas_history_db(db, products)
                         EXTRACTION_STATUS["items_inserted"] += inserted_now
-                        add_status_log(f"✅ [{i}/{len(combos)}] Guardados {len(products)} productos de '{categ_nom}' para '{nombre_proveedor}'.")
+                        add_status_log(f"✅ [PASO 7: {i}/{len(combos)}] Guardados {len(products)} productos de '{categ_nom}' para '{nombre_proveedor}'.")
                     else:
-                        add_status_log(f"ℹ️ [{i}/{len(combos)}] 0 productos disponibles en '{categ_nom}'.")
+                        add_status_log(f"ℹ️ [PASO 7: {i}/{len(combos)}] 0 productos disponibles en '{categ_nom}'.")
 
                     EXTRACTION_STATUS["combos_completed"] = i
                     await asyncio.sleep(0.5)
@@ -250,11 +287,11 @@ async def async_login_and_get_cookies(
                 
                 EXTRACTION_STATUS["status"] = "completed"
                 EXTRACTION_STATUS["is_running"] = False
-                add_status_log(f"🎉 Extracción finalizada para {nombre_proveedor}. {EXTRACTION_STATUS['items_inserted']} ofertas guardadas en total.")
+                add_status_log(f"🎉 [FIN] Extracción finalizada para {nombre_proveedor}. {EXTRACTION_STATUS['items_inserted']} ofertas guardadas en total.")
             else:
                 EXTRACTION_STATUS["status"] = "error"
                 EXTRACTION_STATUS["is_running"] = False
-                add_status_log(f"❌ Falló la autenticación para {nombre_proveedor} ({user}).")
+                add_status_log(f"❌ [PASO 3] Falló la autenticación para {nombre_proveedor} ({user}).")
 
             await browser.close()
     except Exception as e:
