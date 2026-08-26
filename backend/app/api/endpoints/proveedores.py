@@ -134,42 +134,98 @@ def get_proveedor_fichas(
         where_clauses.append("(f.existencia_stock IS NULL OR f.existencia_stock = 0)")
 
     where_sql = " AND ".join(where_clauses)
+    is_consolidated = (not proveedor or proveedor.lower() == "all")
 
-    order_by_sql = "id DESC"
-    if sort_by == "precio_asc":
-        order_by_sql = "precio_ofertado ASC NULLS LAST"
-    elif sort_by == "precio_desc":
-        order_by_sql = "precio_ofertado DESC NULLS LAST"
-    elif sort_by == "stock_desc":
-        order_by_sql = "existencia_stock DESC NULLS LAST"
-    elif sort_by == "marca_asc":
-        order_by_sql = "marca ASC"
+    if is_consolidated:
+        order_by_sql = "MIN(f.id) DESC"
+        if sort_by == "precio_asc":
+            order_by_sql = "min_precio ASC NULLS LAST"
+        elif sort_by == "precio_desc":
+            order_by_sql = "min_precio DESC NULLS LAST"
+        elif sort_by == "stock_desc":
+            order_by_sql = "existencia_stock DESC NULLS LAST"
+        elif sort_by == "marca_asc":
+            order_by_sql = "MAX(f.marca) ASC"
 
-    # First try query from ofertas_proveedor_history
-    try:
         sql = f"""
             SELECT 
-                id,
-                nro_parte,
-                descripcion_producto AS descripcion,
-                marca,
-                catalogo,
-                categoria,
-                acuerdo_marco,
-                nombre_proveedor AS proveedor,
-                ruc_proveedor,
-                precio_ofertado,
-                existencia_stock,
-                plazo_entrega_dias,
-                pdf_url,
-                raw_json,
-                fecha_extraccion,
+                MIN(f.id) AS id,
+                f.nro_parte,
+                MAX(f.descripcion_producto) AS descripcion,
+                MAX(f.marca) AS marca,
+                MAX(f.catalogo) AS catalogo,
+                MAX(f.categoria) AS categoria,
+                MAX(f.acuerdo_marco) AS acuerdo_marco,
+                MIN(f.precio_ofertado) AS min_precio,
+                MAX(f.precio_ofertado) AS max_precio,
+                SUM(COALESCE(f.existencia_stock, 0)) AS existencia_stock,
+                COUNT(DISTINCT f.ruc_proveedor) AS total_proveedores,
+                json_agg(json_build_object(
+                    'id', f.id,
+                    'nombre_proveedor', f.nombre_proveedor,
+                    'ruc_proveedor', f.ruc_proveedor,
+                    'precio_ofertado', f.precio_ofertado,
+                    'existencia_stock', f.existencia_stock,
+                    'plazo_entrega_dias', f.plazo_entrega_dias,
+                    'pdf_url', f.pdf_url,
+                    'estado', f.estado,
+                    'fecha_extraccion', f.fecha_extraccion
+                ) ORDER BY f.precio_ofertado ASC NULLS LAST) AS ofertas,
+                COUNT(*) OVER() AS total_count
+            FROM ofertas_proveedor_history f
+            WHERE {where_sql}
+            GROUP BY f.nro_parte
+            ORDER BY {order_by_sql}
+            LIMIT :limit OFFSET :offset
+        """
+    else:
+        order_by_sql = "f.id DESC"
+        if sort_by == "precio_asc":
+            order_by_sql = "f.precio_ofertado ASC NULLS LAST"
+        elif sort_by == "precio_desc":
+            order_by_sql = "f.precio_ofertado DESC NULLS LAST"
+        elif sort_by == "stock_desc":
+            order_by_sql = "f.existencia_stock DESC NULLS LAST"
+        elif sort_by == "marca_asc":
+            order_by_sql = "f.marca ASC"
+
+        sql = f"""
+            SELECT 
+                f.id,
+                f.nro_parte,
+                f.descripcion_producto AS descripcion,
+                f.marca,
+                f.catalogo,
+                f.categoria,
+                f.acuerdo_marco,
+                f.nombre_proveedor AS proveedor,
+                f.ruc_proveedor,
+                f.precio_ofertado,
+                f.existencia_stock,
+                f.plazo_entrega_dias,
+                f.pdf_url,
+                f.raw_json,
+                f.fecha_extraccion,
+                1 AS total_proveedores,
+                json_build_array(json_build_object(
+                    'id', f.id,
+                    'nombre_proveedor', f.nombre_proveedor,
+                    'ruc_proveedor', f.ruc_proveedor,
+                    'precio_ofertado', f.precio_ofertado,
+                    'existencia_stock', f.existencia_stock,
+                    'plazo_entrega_dias', f.plazo_entrega_dias,
+                    'pdf_url', f.pdf_url,
+                    'estado', f.estado,
+                    'fecha_extraccion', f.fecha_extraccion
+                )) AS ofertas,
                 COUNT(*) OVER() AS total_count
             FROM ofertas_proveedor_history f
             WHERE {where_sql}
             ORDER BY {order_by_sql}
             LIMIT :limit OFFSET :offset
         """
+
+    try:
         params["limit"] = limit
         params["offset"] = offset
         rows = db.execute(text(sql), params).mappings().all()
@@ -180,13 +236,14 @@ def get_proveedor_fichas(
                 "items": [dict(r) for r in rows],
                 "page": page,
                 "limit": limit,
-                "total": total_items
+                "total": total_items,
+                "is_consolidated": is_consolidated
             }
     except Exception as e:
         import logging
         logging.getLogger("ceam.proveedores").error("Error en get_proveedor_fichas: %s", e)
 
-    return {"items": [], "page": page, "limit": limit, "total": 0}
+    return {"items": [], "page": page, "limit": limit, "total": 0, "is_consolidated": is_consolidated}
 
 @router.post("/clear")
 def clear_proveedor_data(
