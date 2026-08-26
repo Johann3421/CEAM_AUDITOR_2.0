@@ -218,34 +218,48 @@ def _safe_log(msg: str, log_func: Optional[Callable[[str], None]] = None):
 
 async def saltar_verificacion(
     page: Page,
+    target_url: str = MEJORA_BASICA_URL,
     log_func: Optional[Callable[[str], None]] = None,
     screenshot_callback: Optional[Callable[[str], None]] = None
 ) -> bool:
     """
-    2. Maniobra de retroceso seguro y navegación limpia a MejoraBasica.
+    2. Maniobra de retroceso seguro y navegación limpia a la ruta destino.
+    Permite especificar cualquier URL destino (por defecto /MejoraBasica).
     """
-    _safe_log("🔄 Ejecutando saltar_verificacion...", log_func)
+    _safe_log(f"🔄 Ejecutando saltar_verificacion hacia: {target_url}...", log_func)
     try:
         await page.go_back()
         await page.wait_for_timeout(1000)
         await page.goto(BASE_URL, timeout=30000)
-        await page.goto(MEJORA_BASICA_URL, timeout=30000, wait_until="networkidle")
+        await page.goto(target_url, timeout=30000, wait_until="networkidle")
         await _capture_live_preview(page, screenshot_callback)
-        _safe_log("✅ Navegación a MejoraBasica completada con éxito.", log_func)
+        _safe_log(f"✅ Navegación a {target_url} completada con éxito.", log_func)
         return True
     except Exception as e:
-        _safe_log(f"⚠️ Error en saltar_verificacion: {e}", log_func)
+        _safe_log(f"⚠️ Error en saltar_verificacion hacia {target_url}: {e}", log_func)
         return False
+
+
+async def navegar_a_ruta(
+    page: Page,
+    ruta: str = "/MejoraBasica",
+    log_func: Optional[Callable[[str], None]] = None,
+    screenshot_callback: Optional[Callable[[str], None]] = None
+) -> bool:
+    """
+    3. Navegación directa y segura a cualquier ruta del portal de Perú Compras.
+    Ejemplos de rutas: '/MejoraBasica', '/OrdenCompra', '/Cotizaciones', etc.
+    """
+    url_completa = ruta if ruta.startswith("http") else f"{BASE_URL}{ruta}"
+    return await saltar_verificacion(page, target_url=url_completa, log_func=log_func, screenshot_callback=screenshot_callback)
 
 
 async def navegar_mejora_basica(
     page: Page,
     log_func: Optional[Callable[[str], None]] = None
 ) -> bool:
-    """
-    3. Navegación directa a MejoraBasica.
-    """
-    return await saltar_verificacion(page, log_func=log_func)
+    """Navegación directa a MejoraBasica."""
+    return await saltar_verificacion(page, target_url=MEJORA_BASICA_URL, log_func=log_func)
 
 
 async def descubrir_todas_las_combinaciones(

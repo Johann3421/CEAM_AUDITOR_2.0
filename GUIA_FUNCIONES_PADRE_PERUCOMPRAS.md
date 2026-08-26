@@ -320,9 +320,13 @@ async def extraer_catalogo_generico(usuario: str, password: str, ruc: str, nombr
             return []
 
         # ---------------------------------------------------------
-        # PASO 4: Evasión de modales y entrada a /MejoraBasica
+        # PASO 4: Evasión de modales y entrada a la RUTA DESTINO
         # ---------------------------------------------------------
-        await saltar_verificacion(page)
+        # 👉 AQUÍ DEFINES LA RUTA A LA QUE QUIERES QUE VAYA EL BOT:
+        # Por defecto: "https://catalogos.perucompras.gob.pe/MejoraBasica"
+        # O cualquier otra: "/OrdenCompra", "/Cotizaciones", "/ContratacionDirecta", etc.
+        ruta_personalizada = "https://catalogos.perucompras.gob.pe/MejoraBasica"
+        await saltar_verificacion(page, target_url=ruta_personalizada)
 
         # ---------------------------------------------------------
         # PASO 5: Iteración sistemática de combinaciones
