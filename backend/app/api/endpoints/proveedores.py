@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -137,44 +138,81 @@ def get_proveedor_fichas(
     is_consolidated = (not proveedor or proveedor.lower() == "all")
 
     if is_consolidated:
-        order_by_sql = "MIN(f.id) DESC"
+        order_by_sql = "g.id DESC"
         if sort_by == "precio_asc":
-            order_by_sql = "min_precio ASC NULLS LAST"
+            order_by_sql = "g.min_precio ASC NULLS LAST"
         elif sort_by == "precio_desc":
-            order_by_sql = "min_precio DESC NULLS LAST"
+            order_by_sql = "g.min_precio DESC NULLS LAST"
         elif sort_by == "stock_desc":
-            order_by_sql = "existencia_stock DESC NULLS LAST"
+            order_by_sql = "g.existencia_stock DESC NULLS LAST"
         elif sort_by == "marca_asc":
-            order_by_sql = "MAX(f.marca) ASC"
+            order_by_sql = "g.marca ASC"
 
         sql = f"""
+            WITH raw_matched AS (
+                SELECT 
+                    f.id,
+                    f.nro_parte,
+                    f.descripcion_producto AS descripcion,
+                    f.marca,
+                    f.catalogo,
+                    f.categoria,
+                    f.acuerdo_marco,
+                    f.nombre_proveedor,
+                    f.ruc_proveedor,
+                    f.precio_ofertado,
+                    f.existencia_stock,
+                    f.plazo_entrega_dias,
+                    f.pdf_url,
+                    f.estado,
+                    f.fecha_extraccion
+                FROM ofertas_proveedor_history f
+                WHERE {where_sql}
+            ),
+            grouped_items AS (
+                SELECT 
+                    r.nro_parte,
+                    MIN(r.id) AS id,
+                    MAX(r.descripcion) AS descripcion,
+                    MAX(r.marca) AS marca,
+                    MAX(r.catalogo) AS catalogo,
+                    MAX(r.categoria) AS categoria,
+                    MAX(r.acuerdo_marco) AS acuerdo_marco,
+                    MIN(r.precio_ofertado) AS min_precio,
+                    MAX(r.precio_ofertado) AS max_precio,
+                    SUM(COALESCE(r.existencia_stock, 0)) AS existencia_stock,
+                    COUNT(DISTINCT r.ruc_proveedor) AS total_proveedores,
+                    json_agg(
+                        json_build_object(
+                            'id', r.id,
+                            'nombre_proveedor', r.nombre_proveedor,
+                            'ruc_proveedor', r.ruc_proveedor,
+                            'precio_ofertado', r.precio_ofertado,
+                            'existencia_stock', r.existencia_stock,
+                            'plazo_entrega_dias', r.plazo_entrega_dias,
+                            'pdf_url', r.pdf_url,
+                            'estado', r.estado,
+                            'fecha_extraccion', r.fecha_extraccion::text
+                        )
+                    ) AS ofertas
+                FROM raw_matched r
+                GROUP BY r.nro_parte
+            )
             SELECT 
-                MIN(f.id) AS id,
-                f.nro_parte,
-                MAX(f.descripcion_producto) AS descripcion,
-                MAX(f.marca) AS marca,
-                MAX(f.catalogo) AS catalogo,
-                MAX(f.categoria) AS categoria,
-                MAX(f.acuerdo_marco) AS acuerdo_marco,
-                MIN(f.precio_ofertado) AS min_precio,
-                MAX(f.precio_ofertado) AS max_precio,
-                SUM(COALESCE(f.existencia_stock, 0)) AS existencia_stock,
-                COUNT(DISTINCT f.ruc_proveedor) AS total_proveedores,
-                json_agg(json_build_object(
-                    'id', f.id,
-                    'nombre_proveedor', f.nombre_proveedor,
-                    'ruc_proveedor', f.ruc_proveedor,
-                    'precio_ofertado', f.precio_ofertado,
-                    'existencia_stock', f.existencia_stock,
-                    'plazo_entrega_dias', f.plazo_entrega_dias,
-                    'pdf_url', f.pdf_url,
-                    'estado', f.estado,
-                    'fecha_extraccion', f.fecha_extraccion
-                ) ORDER BY f.precio_ofertado ASC NULLS LAST) AS ofertas,
+                g.id,
+                g.nro_parte,
+                g.descripcion,
+                g.marca,
+                g.catalogo,
+                g.categoria,
+                g.acuerdo_marco,
+                g.min_precio,
+                g.max_precio,
+                g.existencia_stock,
+                g.total_proveedores,
+                g.ofertas,
                 COUNT(*) OVER() AS total_count
-            FROM ofertas_proveedor_history f
-            WHERE {where_sql}
-            GROUP BY f.nro_parte
+            FROM grouped_items g
             ORDER BY {order_by_sql}
             LIMIT :limit OFFSET :offset
         """
@@ -201,11 +239,12 @@ def get_proveedor_fichas(
                 f.nombre_proveedor AS proveedor,
                 f.ruc_proveedor,
                 f.precio_ofertado,
+                f.precio_ofertado AS min_precio,
                 f.existencia_stock,
                 f.plazo_entrega_dias,
                 f.pdf_url,
                 f.raw_json,
-                f.fecha_extraccion,
+                f.fecha_extraccion::text AS fecha_extraccion,
                 1 AS total_proveedores,
                 json_build_array(json_build_object(
                     'id', f.id,
@@ -216,7 +255,7 @@ def get_proveedor_fichas(
                     'plazo_entrega_dias', f.plazo_entrega_dias,
                     'pdf_url', f.pdf_url,
                     'estado', f.estado,
-                    'fecha_extraccion', f.fecha_extraccion
+                    'fecha_extraccion', f.fecha_extraccion::text
                 )) AS ofertas,
                 COUNT(*) OVER() AS total_count
             FROM ofertas_proveedor_history f
@@ -232,8 +271,18 @@ def get_proveedor_fichas(
 
         if rows and len(rows) > 0:
             total_items = rows[0]["total_count"] if "total_count" in rows[0] else len(rows)
+            items = []
+            for r in rows:
+                item_dict = dict(r)
+                if isinstance(item_dict.get("ofertas"), str):
+                    try:
+                        item_dict["ofertas"] = json.loads(item_dict["ofertas"])
+                    except Exception:
+                        item_dict["ofertas"] = []
+                items.append(item_dict)
+
             return {
-                "items": [dict(r) for r in rows],
+                "items": items,
                 "page": page,
                 "limit": limit,
                 "total": total_items,
