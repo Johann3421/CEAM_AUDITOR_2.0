@@ -78,7 +78,16 @@ def get_proveedor_fichas(
     if categoria:
         categ_lower = categoria.lower()
         if categ_lower == "desktop":
-            where_clauses.append("(UPPER(f.categoria) LIKE '%ESCRITORIO%' OR UPPER(f.descripcion_producto) LIKE '%ESCRITORIO%' OR UPPER(f.descripcion_producto) LIKE '%MINI PC%' OR UPPER(f.descripcion_producto) LIKE '%SFF%') AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%' AND UPPER(f.descripcion_producto) NOT LIKE '%PORTATIL%' AND UPPER(f.descripcion_producto) NOT LIKE '%PORTÁTIL%' AND UPPER(f.descripcion_producto) NOT LIKE 'MONITOR%'")
+            where_clauses.append("""(
+                (UPPER(f.categoria) = 'COMPUTADORA DE ESCRITORIO' OR UPPER(f.descripcion_producto) LIKE 'COMPUTADORA DE ESCRITORIO%' OR UPPER(f.descripcion_producto) LIKE '%ESCRITORIO%' OR UPPER(f.descripcion_producto) LIKE '%MINI PC%' OR UPPER(f.descripcion_producto) LIKE '%SFF%')
+                AND UPPER(f.categoria) NOT LIKE '%TODO EN UNO%'
+                AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%'
+                AND UPPER(f.descripcion_producto) NOT LIKE '%ALL IN ONE%'
+                AND UPPER(f.descripcion_producto) NOT LIKE '%ALL-IN-ONE%'
+                AND UPPER(f.descripcion_producto) NOT LIKE '%PORTATIL%'
+                AND UPPER(f.descripcion_producto) NOT LIKE '%PORTÁTIL%'
+                AND UPPER(f.descripcion_producto) NOT LIKE 'MONITOR%'
+            )""")
         elif categ_lower in ("laptop", "portatil", "notebook"):
             where_clauses.append("(UPPER(f.catalogo) LIKE '%PORTATIL%' OR UPPER(f.categoria) LIKE '%PORTATIL%' OR UPPER(f.categoria) LIKE '%LAPTOP%' OR UPPER(f.descripcion_producto) LIKE '%PORTATIL%' OR UPPER(f.descripcion_producto) LIKE '%PORTÁTIL%' OR UPPER(f.descripcion_producto) LIKE '%LAPTOP%' OR UPPER(f.descripcion_producto) LIKE '%NOTEBOOK%') AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%'")
         elif categ_lower in ("aio", "todo_en_uno", "todo en uno"):
@@ -201,70 +210,101 @@ def export_all_fichas_json(db: Session = Depends(get_db)):
         return {"error": str(e)}
 
 @router.get("/categories-count")
-def get_categories_count(db: Session = Depends(get_db)):
-    """Devuelve el conteo de ofertas distribuidas por todas las categorías."""
+def get_categories_count(
+    proveedor: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Devuelve el conteo de ofertas distribuidas por todas las categorías oficiales de Perú Compras."""
+    prov_where = ""
+    params = {}
+    if proveedor and proveedor.lower() != "all":
+        prov_l = proveedor.lower()
+        if prov_l in ("thekingcomputer", "king"):
+            prov_where = " AND (UPPER(nombre_proveedor) LIKE '%KING%' OR UPPER(ruc_proveedor) = '20601234567')"
+        elif prov_l in ("jorge_rojas", "jorge", "rojas"):
+            prov_where = " AND (UPPER(nombre_proveedor) LIKE '%ROJAS%' OR UPPER(nombre_proveedor) LIKE '%JORGE%' OR UPPER(ruc_proveedor) = '10408899991')"
+        else:
+            prov_where = " AND UPPER(nombre_proveedor) LIKE UPPER(:prov)"
+            params["prov"] = f"%{proveedor}%"
+
     try:
-        total = db.execute(text("SELECT COUNT(*) FROM ofertas_proveedor_history;")).scalar() or 0
-        desktop = db.execute(text("""
+        total = db.execute(text(f"SELECT COUNT(*) FROM ofertas_proveedor_history WHERE 1=1 {prov_where};"), params).scalar() or 0
+        desktop = db.execute(text(f"""
             SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE (UPPER(categoria) LIKE '%ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%MINI PC%' OR UPPER(descripcion_producto) LIKE '%SFF%')
-              AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
-              AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
-              AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%'
-              AND UPPER(descripcion_producto) NOT LIKE 'MONITOR%';
-        """)).scalar() or 0
+            WHERE 1=1 {prov_where}
+              AND (
+                (UPPER(categoria) = 'COMPUTADORA DE ESCRITORIO' OR UPPER(descripcion_producto) LIKE 'COMPUTADORA DE ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%MINI PC%' OR UPPER(descripcion_producto) LIKE '%SFF%')
+                AND UPPER(categoria) NOT LIKE '%TODO EN UNO%'
+                AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
+                AND UPPER(descripcion_producto) NOT LIKE '%ALL IN ONE%'
+                AND UPPER(descripcion_producto) NOT LIKE '%ALL-IN-ONE%'
+                AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
+                AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%'
+                AND UPPER(descripcion_producto) NOT LIKE 'MONITOR%'
+              );
+        """), params).scalar() or 0
 
-        laptop = db.execute(text("""
+        laptop = db.execute(text(f"""
             SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE (UPPER(catalogo) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTÁTIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%' OR UPPER(descripcion_producto) LIKE '%NOTEBOOK%')
+            WHERE 1=1 {prov_where}
+              AND (UPPER(catalogo) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTÁTIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%' OR UPPER(descripcion_producto) LIKE '%NOTEBOOK%')
               AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%';
-        """)).scalar() or 0
+        """), params).scalar() or 0
 
-        aio = db.execute(text("""
+        aio = db.execute(text(f"""
             SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE (UPPER(categoria) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%' OR UPPER(descripcion_producto) LIKE '%ALL-IN-ONE%');
-        """)).scalar() or 0
+            WHERE 1=1 {prov_where}
+              AND (UPPER(categoria) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%' OR UPPER(descripcion_producto) LIKE '%ALL-IN-ONE%');
+        """), params).scalar() or 0
 
-        monitor = db.execute(text("""
+        monitor = db.execute(text(f"""
             SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE (UPPER(catalogo) LIKE '%MONITOR%' OR UPPER(categoria) LIKE '%MONITOR%' OR UPPER(descripcion_producto) LIKE 'MONITOR%' OR UPPER(descripcion_producto) LIKE '%MONITOR LED%')
+            WHERE 1=1 {prov_where}
+              AND (UPPER(catalogo) LIKE '%MONITOR%' OR UPPER(categoria) LIKE '%MONITOR%' OR UPPER(descripcion_producto) LIKE 'MONITOR%' OR UPPER(descripcion_producto) LIKE '%MONITOR LED%')
               AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%';
-        """)).scalar() or 0
+        """), params).scalar() or 0
 
-        impresora = db.execute(text("""
+        impresora = db.execute(text(f"""
             SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE (UPPER(catalogo) LIKE '%IMPRESORA%' OR UPPER(categoria) LIKE '%IMPRESORA%' OR UPPER(descripcion_producto) LIKE '%IMPRESORA%' OR UPPER(descripcion_producto) LIKE '%MULTIFUNCIONAL%');
-        """)).scalar() or 0
+            WHERE 1=1 {prov_where}
+              AND (UPPER(catalogo) LIKE '%IMPRESORA%' OR UPPER(categoria) LIKE '%IMPRESORA%' OR UPPER(descripcion_producto) LIKE '%IMPRESORA%' OR UPPER(descripcion_producto) LIKE '%MULTIFUNCIONAL%');
+        """), params).scalar() or 0
 
-        escaner = db.execute(text("""
+        escaner = db.execute(text(f"""
             SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE (UPPER(catalogo) LIKE '%ESCANER%' OR UPPER(categoria) LIKE '%ESCANER%' OR UPPER(descripcion_producto) LIKE '%ESCANER%' OR UPPER(descripcion_producto) LIKE '%ESCÁNER%');
-        """)).scalar() or 0
+            WHERE 1=1 {prov_where}
+              AND (UPPER(catalogo) LIKE '%ESCANER%' OR UPPER(categoria) LIKE '%ESCANER%' OR UPPER(descripcion_producto) LIKE '%ESCANER%' OR UPPER(descripcion_producto) LIKE '%ESCÁNER%');
+        """), params).scalar() or 0
 
-        tablet = db.execute(text("""
+        tablet = db.execute(text(f"""
             SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE (UPPER(catalogo) LIKE '%TABLET%' OR UPPER(categoria) LIKE '%TABLET%' OR UPPER(descripcion_producto) LIKE '%TABLET%');
-        """)).scalar() or 0
+            WHERE 1=1 {prov_where}
+              AND (UPPER(catalogo) LIKE '%TABLET%' OR UPPER(categoria) LIKE '%TABLET%' OR UPPER(descripcion_producto) LIKE '%TABLET%');
+        """), params).scalar() or 0
 
-        workstation = db.execute(text("""
+        workstation = db.execute(text(f"""
             SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE (UPPER(catalogo) LIKE '%ESTACION%' OR UPPER(descripcion_producto) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%');
-        """)).scalar() or 0
+            WHERE 1=1 {prov_where}
+              AND (UPPER(catalogo) LIKE '%ESTACION%' OR UPPER(descripcion_producto) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%');
+        """), params).scalar() or 0
 
-        servidor = db.execute(text("""
+        servidor = db.execute(text(f"""
             SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE (UPPER(catalogo) LIKE '%SERVIDOR%' OR UPPER(descripcion_producto) LIKE '%SERVIDOR%' OR UPPER(descripcion_producto) LIKE '%SERVER%');
-        """)).scalar() or 0
+            WHERE 1=1 {prov_where}
+              AND (UPPER(catalogo) LIKE '%SERVIDOR%' OR UPPER(descripcion_producto) LIKE '%SERVIDOR%' OR UPPER(descripcion_producto) LIKE '%SERVER%');
+        """), params).scalar() or 0
 
-        proyector = db.execute(text("""
+        proyector = db.execute(text(f"""
             SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE (UPPER(catalogo) LIKE '%PROYECTOR%' OR UPPER(descripcion_producto) LIKE '%PROYECTOR%');
-        """)).scalar() or 0
+            WHERE 1=1 {prov_where}
+              AND (UPPER(catalogo) LIKE '%PROYECTOR%' OR UPPER(descripcion_producto) LIKE '%PROYECTOR%');
+        """), params).scalar() or 0
 
-        ups = db.execute(text("""
+        ups = db.execute(text(f"""
             SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE (UPPER(catalogo) LIKE '%UPS%' OR UPPER(descripcion_producto) LIKE '%UPS%' OR UPPER(descripcion_producto) LIKE '%ENERGIA ININTERRUMPIDA%');
-        """)).scalar() or 0
+            WHERE 1=1 {prov_where}
+              AND (UPPER(catalogo) LIKE '%UPS%' OR UPPER(descripcion_producto) LIKE '%UPS%' OR UPPER(descripcion_producto) LIKE '%ENERGIA ININTERRUMPIDA%');
+        """), params).scalar() or 0
 
         return {
             "total": total,

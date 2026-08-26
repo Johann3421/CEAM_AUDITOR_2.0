@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 const MAIN_PROVIDERS = [
-  { id: 'all', name: 'Todos los Proveedores', tag: 'Global' },
+  { id: 'all', name: 'Todos los Proveedores (Consolidado)', tag: 'Global', short: 'Todos los Proveedores' },
   { id: 'thekingcomputer', name: 'THE KING COMPUTER E.I.R.L.', ruc: '20601234567', short: 'The King Computer', user: 'estalin.huamali01' },
   { id: 'jorge_rojas', name: 'ROJAS VILLANUEVA JORGE LUIS', ruc: '10408899991', short: 'Jorge Rojas Villanueva', user: 'neison.chacas' },
 ];
@@ -126,7 +126,6 @@ const ProveedorFichas = () => {
   });
   const [loading, setLoading] = useState(false);
   const [reclassifying, setReclassifying] = useState(false);
-  const [scrapeProvider, setScrapeProvider] = useState('thekingcomputer');
   const [scraping, setScraping] = useState(false);
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(50);
@@ -137,8 +136,8 @@ const ProveedorFichas = () => {
   const [exportingJson, setExportingJson] = useState(false);
   const [expandedDescId, setExpandedDescId] = useState(null);
 
-  const fetchCategoriesCount = () => {
-    proveedoresApi.getCategoriesCount()
+  const fetchCategoriesCount = (prov = selectedProvider) => {
+    proveedoresApi.getCategoriesCount({ proveedor: prov !== 'all' ? prov : undefined })
       .then(res => {
         if (res.data) {
           setCategoriesCount(res.data);
@@ -151,7 +150,7 @@ const ProveedorFichas = () => {
     setReclassifying(true);
     try {
       await proveedoresApi.reclassify();
-      fetchCategoriesCount();
+      fetchCategoriesCount(selectedProvider);
       fetchFichasData();
     } catch (e) {
       console.error(e);
@@ -191,8 +190,8 @@ const ProveedorFichas = () => {
   };
 
   useEffect(() => {
-    fetchCategoriesCount();
-  }, []);
+    fetchCategoriesCount(selectedProvider);
+  }, [selectedProvider]);
 
   useEffect(() => {
     fetchFichasData();
@@ -210,7 +209,7 @@ const ProveedorFichas = () => {
               setScraping(true);
             } else if (res.data.status === 'completed' || res.data.status === 'error') {
               setScraping(false);
-              fetchCategoriesCount();
+              fetchCategoriesCount(selectedProvider);
               fetchFichasData();
             }
           }
@@ -224,11 +223,12 @@ const ProveedorFichas = () => {
     };
   }, [scraping, showLogModal]);
 
-  const handleStartScrape = async () => {
+  const handleStartScrape = async (targetProviderKey = null) => {
+    const provToScrape = targetProviderKey || (selectedProvider !== 'all' ? selectedProvider : 'thekingcomputer');
     setScraping(true);
     setShowLogModal(true);
     try {
-      await proveedoresApi.scrape({ proveedor: scrapeProvider });
+      await proveedoresApi.scrape({ proveedor: provToScrape });
     } catch (err) {
       console.error(err);
       setScraping(false);
@@ -309,19 +309,20 @@ const ProveedorFichas = () => {
     };
   }, [fichas, totalFichas]);
 
+  // Nombres oficiales exactos de Perú Compras
   const CATEGORY_BUTTONS = [
     { id: 'all', label: 'Todas las Ofertas', count: categoriesCount.total, icon: Layers },
-    { id: 'desktop', label: '🖥️ Computadoras de Escritorio', count: categoriesCount.desktop, icon: Monitor },
-    { id: 'laptop', label: '💻 Laptops / Portátiles', count: categoriesCount.laptop, icon: Laptop },
-    { id: 'aio', label: '🖥️ Todo en Uno (AIO)', count: categoriesCount.aio, icon: MonitorCheck },
-    { id: 'monitor', label: '📺 Monitores', count: categoriesCount.monitor, icon: Tv },
-    { id: 'impresora', label: '🖨️ Impresoras / Multifuncionales', count: categoriesCount.impresora, icon: Printer },
-    { id: 'escaner', label: '📠 Escáneres', count: categoriesCount.escaner, icon: Printer },
-    { id: 'tablet', label: '📱 Tablets', count: categoriesCount.tablet, icon: Smartphone },
-    { id: 'workstation', label: '⚙️ Estaciones de Trabajo', count: categoriesCount.workstation, icon: Cpu },
-    { id: 'servidor', label: '🗄️ Servidores', count: categoriesCount.servidor, icon: Server },
-    { id: 'proyector', label: '📽️ Proyectores', count: categoriesCount.proyector, icon: Projector },
-    { id: 'ups', label: '🔋 UPS / Energía', count: categoriesCount.ups, icon: Zap },
+    { id: 'desktop', label: '🖥️ COMPUTADORAS DE ESCRITORIO', count: categoriesCount.desktop, icon: Monitor },
+    { id: 'laptop', label: '💻 COMPUTADORAS PORTÁTILES', count: categoriesCount.laptop, icon: Laptop },
+    { id: 'aio', label: '🖥️ COMPUTADORAS TODO EN UNO', count: categoriesCount.aio, icon: MonitorCheck },
+    { id: 'escaner', label: '📠 ESCÁNERES', count: categoriesCount.escaner, icon: Printer },
+    { id: 'monitor', label: '📺 MONITORES', count: categoriesCount.monitor, icon: Tv },
+    { id: 'impresora', label: '🖨️ IMPRESORAS', count: categoriesCount.impresora, icon: Printer },
+    { id: 'tablet', label: '📱 TABLETS', count: categoriesCount.tablet, icon: Smartphone },
+    { id: 'workstation', label: '⚙️ ESTACIONES DE TRABAJO', count: categoriesCount.workstation, icon: Cpu },
+    { id: 'servidor', label: '🗄️ SERVIDORES', count: categoriesCount.servidor, icon: Server },
+    { id: 'proyector', label: '📽️ PROYECTORES', count: categoriesCount.proyector, icon: Projector },
+    { id: 'ups', label: '🔋 ENERGÍA Y UPS', count: categoriesCount.ups, icon: Zap },
   ];
 
   return (
@@ -334,7 +335,7 @@ const ProveedorFichas = () => {
             Ofertas y Fichas de Proveedores — Perú Compras
           </h1>
           <p style={{ margin: '4px 0 0 0', color: 'var(--c-text-secondary)', fontSize: 13 }}>
-            Catálogo completo con clasificación estructurada por tipo de producto (Desktop, Laptops, AIO y Escáneres)
+            Gestión multicuentas y catálogo oficial estructurado por categorías de Acuerdo Marco
           </p>
         </div>
 
@@ -361,76 +362,102 @@ const ProveedorFichas = () => {
             {exportingJson ? 'Generando...' : '📥 Descargar JSON'}
           </button>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc', border: '1px solid var(--c-border)', padding: '3px 8px', borderRadius: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', textTransform: 'uppercase' }}>
-              Cuenta:
-            </span>
-            <select
-              className="form-select"
-              value={scrapeProvider}
-              onChange={(e) => setScrapeProvider(e.target.value)}
-              disabled={scraping}
-              style={{ fontSize: 12, padding: '4px 6px', fontWeight: 600, minWidth: 200 }}
-            >
-              {MAIN_PROVIDERS.filter(p => p.id !== 'all').map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.short} ({p.user})
-                </option>
-              ))}
-            </select>
-          </div>
-
           <button
             className="btn btn-primary"
-            onClick={handleStartScrape}
+            onClick={() => handleStartScrape()}
             disabled={scraping}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600 }}
           >
             <RefreshCw size={15} className={scraping ? 'spin' : ''} />
-            {scraping ? 'Extrayendo Catálogos...' : `⚡ Extraer Catálogo (${MAIN_PROVIDERS.find(p => p.id === scrapeProvider)?.short || ''})`}
+            {scraping ? 'Extrayendo Catálogos...' : `⚡ Extraer Catálogo (${selectedProvider !== 'all' ? MAIN_PROVIDERS.find(p => p.id === selectedProvider)?.short : 'The King Computer'})`}
           </button>
         </div>
       </div>
 
-      {/* Category Quick Tabs with Real Counts */}
-      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 16 }}>
-        {CATEGORY_BUTTONS.map(tab => {
-          const isSelected = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => { setActiveTab(tab.id); setPage(0); }}
-              style={{
-                padding: '8px 16px',
-                borderRadius: 20,
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-                border: isSelected ? '1px solid var(--c-brand)' : '1px solid var(--c-border)',
-                background: isSelected ? 'var(--c-brand)' : 'var(--c-surface)',
-                color: isSelected ? '#fff' : 'var(--c-text-secondary)',
-                whiteSpace: 'nowrap',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                boxShadow: isSelected ? '0 2px 6px rgba(37,99,235,0.2)' : 'none',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <span>{tab.label}</span>
-              <span style={{
-                background: isSelected ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.06)',
-                color: isSelected ? '#fff' : 'var(--c-text-primary)',
-                padding: '1px 7px',
-                borderRadius: 10,
-                fontSize: 11,
-                fontWeight: 700
-              }}>
-                {tab.count ? tab.count.toLocaleString('es-PE') : (categoriesCount.total ? '0' : '...')}
-              </span>
-            </button>
-          );
-        })}
+      {/* Row 1: Provider Filter Pills (Estilo pestañas con indicador activo) */}
+      <div className="card fade-up" style={{ marginBottom: 12, padding: '10px 14px', background: 'var(--c-surface)', border: '1px solid var(--c-border)' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          <Building2 size={14} style={{ color: 'var(--c-brand)' }} />
+          <span>Proveedor Seleccionado:</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+          {MAIN_PROVIDERS.map(prov => {
+            const isSelected = selectedProvider === prov.id;
+            return (
+              <button
+                key={prov.id}
+                onClick={() => { setSelectedProvider(prov.id); setPage(0); }}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: isSelected ? '2px solid var(--c-brand)' : '1px solid var(--c-border)',
+                  background: isSelected ? 'rgba(37,99,235,0.08)' : '#fff',
+                  color: isSelected ? 'var(--c-brand)' : 'var(--c-text-primary)',
+                  whiteSpace: 'nowrap',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  boxShadow: isSelected ? '0 2px 6px rgba(37,99,235,0.15)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <Building2 size={14} style={{ color: isSelected ? 'var(--c-brand)' : 'var(--c-text-tertiary)' }} />
+                <span>{prov.name}</span>
+                {prov.user && (
+                  <span style={{ fontSize: 11, color: isSelected ? 'var(--c-brand)' : 'var(--c-text-tertiary)', fontFamily: 'monospace', fontWeight: 500 }}>
+                    ({prov.user})
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Row 2: Official Peru Compras Category Quick Tabs with Real Counts */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6 }}>
+          {CATEGORY_BUTTONS.map(tab => {
+            const isSelected = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => { setActiveTab(tab.id); setPage(0); }}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 20,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: isSelected ? '1px solid var(--c-brand)' : '1px solid var(--c-border)',
+                  background: isSelected ? 'var(--c-brand)' : 'var(--c-surface)',
+                  color: isSelected ? '#fff' : 'var(--c-text-secondary)',
+                  whiteSpace: 'nowrap',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  boxShadow: isSelected ? '0 2px 6px rgba(37,99,235,0.2)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>{tab.label}</span>
+                <span style={{
+                  background: isSelected ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.06)',
+                  color: isSelected ? '#fff' : 'var(--c-text-primary)',
+                  padding: '1px 6px',
+                  borderRadius: 10,
+                  fontSize: 10,
+                  fontWeight: 700
+                }}>
+                  {tab.count != null ? tab.count.toLocaleString('es-PE') : '...'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Live Extraction Log & Status Panel */}
@@ -439,7 +466,7 @@ const ProveedorFichas = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, margin: 0, color: 'var(--c-brand)' }}>
               <RefreshCw size={16} className={scraping ? 'spin' : ''} />
-              Extracción Multicatálogo en Vivo (Perú Compras)
+              Extracción en Vivo — {scrapeStatus?.provider_name || 'Perú Compras'}
             </h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span className={`tag ${scraping ? 'tag-primary' : scrapeStatus?.status === 'error' ? 'tag-danger' : 'tag-success'}`}>
@@ -511,7 +538,7 @@ const ProveedorFichas = () => {
           </div>
           <div>
             <div className="stat-value">{kpiStats.fichasCount.toLocaleString('es-PE')}</div>
-            <div className="stat-label">Ofertas en Vista Actual</div>
+            <div className="stat-label">Ofertas en Vista ({selectedProvider !== 'all' ? MAIN_PROVIDERS.find(p => p.id === selectedProvider)?.short : 'Global'})</div>
           </div>
         </div>
 
@@ -569,20 +596,6 @@ const ProveedorFichas = () => {
             </select>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--c-text-secondary)' }}>Proveedor:</span>
-            <select
-              className="form-select"
-              value={selectedProvider}
-              onChange={(e) => { setSelectedProvider(e.target.value); setPage(0); }}
-              style={{ minWidth: 160, fontSize: 12, padding: '4px 8px' }}
-            >
-              {MAIN_PROVIDERS.map(p => (
-                <option key={p.id} value={p.id}>{p.short || p.name}</option>
-              ))}
-            </select>
-          </div>
-
           {hasActiveFilters && (
             <button
               className="btn btn-secondary btn-sm"
@@ -590,7 +603,7 @@ const ProveedorFichas = () => {
               style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 12 }}
             >
               <X size={13} />
-              Limpiar
+              Limpiar Filtros
             </button>
           )}
         </div>
@@ -601,7 +614,7 @@ const ProveedorFichas = () => {
         <div className="card-header" style={{ padding: '12px 18px', borderBottom: '1px solid var(--c-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
           <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}>
             <FileText size={16} style={{ color: 'var(--c-brand)' }} />
-            Listado de Ofertas ({CATEGORY_BUTTONS.find(b => b.id === activeTab)?.label})
+            Listado de Ofertas ({CATEGORY_BUTTONS.find(b => b.id === activeTab)?.label}) — {selectedProvider !== 'all' ? MAIN_PROVIDERS.find(p => p.id === selectedProvider)?.name : 'Todos los Proveedores'}
           </span>
           <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>
             Mostrando <strong>{fichas.length}</strong> de <strong>{totalFichas.toLocaleString('es-PE')}</strong> ofertas (Pág. {page + 1} de {Math.max(1, Math.ceil(totalFichas / limit))})
@@ -613,7 +626,7 @@ const ProveedorFichas = () => {
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '2px solid var(--c-border)' }}>
                 {/* 1. Marca & Código */}
-                <th style={{ width: 160, padding: '10px 14px' }}>
+                <th style={{ width: 170, padding: '10px 14px' }}>
                   <HeaderFilter
                     title="Marca & Código"
                     column="marca"
@@ -625,7 +638,7 @@ const ProveedorFichas = () => {
 
                 {/* 2. Ficha Técnica / Especificaciones */}
                 <th style={{ padding: '10px 14px' }}>
-                  <span>Ficha Técnica / Especificaciones</span>
+                  <span>Ficha Técnica / Especificaciones Oficiales</span>
                 </th>
 
                 {/* 3. Estado */}
@@ -686,16 +699,17 @@ const ProveedorFichas = () => {
               ) : fichas.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
-                    No se encontraron ofertas en esta categoría. Puedes hacer clic en <strong>Reclasificar Catálogo</strong> o <strong>⚡ Extraer Todo el Catálogo</strong>.
+                    No se encontraron ofertas para este proveedor en esta categoría. Puedes hacer clic en <strong>⚡ Extraer Catálogo</strong> para iniciar la extracción.
                   </td>
                 </tr>
               ) : (
                 fichas.map((f, idx) => {
                   const specs = parseSpecs(f.descripcion);
                   const isExpanded = expandedDescId === f.id;
+                  const isJorge = (f.proveedor?.includes('JORGE') || f.nombre_proveedor?.includes('JORGE'));
                   return (
                     <tr key={idx} style={{ borderBottom: '1px solid var(--c-border)', transition: 'background 0.1s' }}>
-                      {/* Marca & Nro Parte */}
+                      {/* Marca & Nro Parte & Proveedor */}
                       <td style={{ padding: '10px 14px', verticalAlign: 'middle' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -717,15 +731,15 @@ const ProveedorFichas = () => {
                           </span>
                           <span style={{ 
                             fontSize: 10, 
-                            color: (f.proveedor?.includes('JORGE') || f.nombre_proveedor?.includes('JORGE')) ? '#0284c7' : '#475569', 
+                            color: isJorge ? '#0284c7' : '#475569', 
                             fontWeight: 600, 
-                            background: (f.proveedor?.includes('JORGE') || f.nombre_proveedor?.includes('JORGE')) ? '#f0f9ff' : '#f8fafc', 
-                            border: `1px solid ${(f.proveedor?.includes('JORGE') || f.nombre_proveedor?.includes('JORGE')) ? '#bae6fd' : '#e2e8f0'}`,
+                            background: isJorge ? '#f0f9ff' : '#f8fafc', 
+                            border: `1px solid ${isJorge ? '#bae6fd' : '#e2e8f0'}`,
                             padding: '1px 5px', 
                             borderRadius: 3, 
                             width: 'fit-content'
                           }}>
-                            🏢 {(f.proveedor?.includes('JORGE') || f.nombre_proveedor?.includes('JORGE')) ? 'Jorge Rojas' : 'The King Computer'}
+                            🏢 {isJorge ? 'Jorge Rojas' : 'The King Computer'}
                           </span>
                         </div>
                       </td>
@@ -999,7 +1013,7 @@ const ProveedorFichas = () => {
               background: '#f8fafc'
             }}>
               <span style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>
-                N° Parte: <strong>{selectedJsonItem.nro_parte}</strong> | Marca: <strong>{selectedJsonItem.marca}</strong>
+                N° Parte: <strong>{selectedJsonItem.nro_parte}</strong> | Proveedor: <strong>{selectedJsonItem.proveedor || selectedJsonItem.nombre_proveedor}</strong>
               </span>
 
               <div style={{ display: 'flex', gap: 8 }}>
