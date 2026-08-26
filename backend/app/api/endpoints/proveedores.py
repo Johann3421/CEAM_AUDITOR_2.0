@@ -53,60 +53,50 @@ def get_proveedor_fichas(
         params["nro_parte"] = f"%{nro_parte}%"
 
     if catalogo:
-        cat_lower = catalogo.lower()
-        if cat_lower in ("portatil", "laptop", "notebook"):
-            where_clauses.append("(UPPER(f.catalogo) LIKE '%PORTATIL%' OR UPPER(f.categoria) LIKE '%PORTATIL%' OR UPPER(f.categoria) LIKE '%LAPTOP%' OR UPPER(f.descripcion_producto) LIKE '%PORTATIL%' OR UPPER(f.descripcion_producto) LIKE '%PORTÁTIL%' OR UPPER(f.descripcion_producto) LIKE '%LAPTOP%' OR UPPER(f.descripcion_producto) LIKE '%NOTEBOOK%') AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%'")
-        elif cat_lower in ("monitor", "monitores", "pantalla"):
-            where_clauses.append("(UPPER(f.catalogo) LIKE '%MONITOR%' OR UPPER(f.categoria) LIKE '%MONITOR%' OR UPPER(f.descripcion_producto) LIKE 'MONITOR%' OR UPPER(f.descripcion_producto) LIKE '%MONITOR LED%') AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%'")
-        elif cat_lower in ("impresora", "impresoras", "multifuncional"):
-            where_clauses.append("(UPPER(f.catalogo) LIKE '%IMPRESORA%' OR UPPER(f.categoria) LIKE '%IMPRESORA%' OR UPPER(f.descripcion_producto) LIKE '%IMPRESORA%' OR UPPER(f.descripcion_producto) LIKE '%MULTIFUNCIONAL%')")
-        elif cat_lower in ("escaner", "escáner", "scanner", "escaneres"):
-            where_clauses.append("(UPPER(f.catalogo) LIKE '%ESCANER%' OR UPPER(f.categoria) LIKE '%ESCANER%' OR UPPER(f.descripcion_producto) LIKE '%ESCANER%' OR UPPER(f.descripcion_producto) LIKE '%ESCÁNER%')")
-        elif cat_lower in ("tablet", "tablets"):
-            where_clauses.append("(UPPER(f.catalogo) LIKE '%TABLET%' OR UPPER(f.categoria) LIKE '%TABLET%' OR UPPER(f.descripcion_producto) LIKE '%TABLET%')")
-        elif cat_lower in ("workstation", "estacion de trabajo", "estacion"):
-            where_clauses.append("(UPPER(f.catalogo) LIKE '%ESTACION%' OR UPPER(f.descripcion_producto) LIKE '%ESTACION DE TRABAJO%' OR UPPER(f.descripcion_producto) LIKE '%WORKSTATION%')")
-        elif cat_lower in ("servidor", "servidores", "server"):
-            where_clauses.append("(UPPER(f.catalogo) LIKE '%SERVIDOR%' OR UPPER(f.descripcion_producto) LIKE '%SERVIDOR%' OR UPPER(f.descripcion_producto) LIKE '%SERVER%')")
-        elif cat_lower in ("proyector", "proyectores"):
-            where_clauses.append("(UPPER(f.catalogo) LIKE '%PROYECTOR%' OR UPPER(f.descripcion_producto) LIKE '%PROYECTOR%')")
-        elif cat_lower in ("ups", "energia", "estabilizador"):
-            where_clauses.append("(UPPER(f.catalogo) LIKE '%UPS%' OR UPPER(f.descripcion_producto) LIKE '%UPS%' OR UPPER(f.descripcion_producto) LIKE '%ENERGIA ININTERRUMPIDA%')")
-        else:
-            where_clauses.append("(UPPER(f.catalogo) LIKE UPPER(:catalogo) OR UPPER(f.descripcion_producto) LIKE UPPER(:catalogo))")
-            params["catalogo"] = f"%{catalogo}%"
+        where_clauses.append("UPPER(f.catalogo) = UPPER(:catalogo)")
+        params["catalogo"] = catalogo
 
     if categoria:
-        categ_lower = categoria.lower()
-        if categ_lower in ("escritorio", "computadora de escritorio", "desktop"):
+        categ_lower = categoria.lower().strip()
+        if categ_lower in ("escritorio", "computadora de escritorio"):
             where_clauses.append("""(
                 UPPER(f.categoria) = 'COMPUTADORA DE ESCRITORIO'
                 OR (
-                    (UPPER(f.categoria) LIKE '%ESCRITORIO%' OR UPPER(f.descripcion_producto) LIKE '%ESCRITORIO%' OR UPPER(f.descripcion_producto) LIKE '%MINI PC%' OR UPPER(f.descripcion_producto) LIKE '%SFF%')
+                    (UPPER(f.catalogo) LIKE '%ESCRITORIO%' OR UPPER(f.categoria) LIKE '%ESCRITORIO%' OR UPPER(f.descripcion_producto) LIKE '%ESCRITORIO%')
                     AND UPPER(f.categoria) NOT LIKE '%TODO EN UNO%'
+                    AND UPPER(f.categoria) NOT LIKE '%MONITOR%'
+                    AND UPPER(f.categoria) NOT LIKE '%ESTACION%'
+                    AND UPPER(f.categoria) NOT LIKE '%ALMACENAMIENTO%'
+                    AND UPPER(f.categoria) NOT LIKE '%PANTALLA%'
                     AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%'
                     AND UPPER(f.descripcion_producto) NOT LIKE '%ALL IN ONE%'
-                    AND UPPER(f.descripcion_producto) NOT LIKE '%ALL-IN-ONE%'
-                    AND UPPER(f.descripcion_producto) NOT LIKE '%PORTATIL%'
-                    AND UPPER(f.descripcion_producto) NOT LIKE '%PORTÁTIL%'
-                    AND UPPER(f.descripcion_producto) NOT LIKE 'MONITOR%'
+                    AND UPPER(f.descripcion_producto) NOT LIKE '%MONITOR%'
                 )
             )""")
-        elif categ_lower in ("aio", "computadora todo en uno", "todo_en_uno", "todo en uno"):
-            where_clauses.append("(UPPER(f.categoria) LIKE '%TODO EN UNO%' OR UPPER(f.descripcion_producto) LIKE '%TODO EN UNO%' OR UPPER(f.descripcion_producto) LIKE '%ALL IN ONE%' OR UPPER(f.descripcion_producto) LIKE '%ALL-IN-ONE%')")
+        elif categ_lower in ("aio", "todo en uno", "all in one", "computadora todo en uno"):
+            where_clauses.append("""(
+                UPPER(f.categoria) LIKE '%TODO EN UNO%'
+                OR UPPER(f.descripcion_producto) LIKE '%TODO EN UNO%'
+                OR UPPER(f.descripcion_producto) LIKE '%ALL IN ONE%'
+                OR UPPER(f.descripcion_producto) LIKE '%ALL-IN-ONE%'
+            )""")
         elif categ_lower in ("workstation", "estacion de trabajo", "estacion"):
-            where_clauses.append("(UPPER(f.categoria) = 'ESTACION DE TRABAJO' OR (UPPER(f.descripcion_producto) LIKE '%ESTACION DE TRABAJO%' AND UPPER(f.categoria) NOT LIKE '%PORTATIL%'))")
+            where_clauses.append("(UPPER(f.categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(f.descripcion_producto) LIKE '%WORKSTATION%')")
         elif categ_lower in ("monitor", "monitores"):
-            where_clauses.append("(UPPER(f.categoria) = 'MONITOR' OR (UPPER(f.descripcion_producto) LIKE 'MONITOR%' AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%'))")
+            where_clauses.append("""(
+                (UPPER(f.categoria) = 'MONITOR' OR UPPER(f.categoria) LIKE '%MONITOR%' OR UPPER(f.catalogo) LIKE '%MONITOR%' OR UPPER(f.descripcion_producto) LIKE 'MONITOR%' OR UPPER(f.descripcion_producto) LIKE '%MONITOR LED%')
+                AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%'
+                AND UPPER(f.categoria) NOT LIKE '%TODO EN UNO%'
+            )""")
         elif categ_lower in ("pantalla_pub", "pantalla publicitaria"):
             where_clauses.append("UPPER(f.categoria) LIKE '%PANTALLA PUBLICITARIA%'")
         elif categ_lower in ("pantalla_int", "pantalla interactiva"):
             where_clauses.append("UPPER(f.categoria) LIKE '%PANTALLA INTERACTIVA%'")
         elif categ_lower in ("almacenamiento_int", "dispositivos de almacenamiento interno"):
-            where_clauses.append("UPPER(f.categoria) LIKE '%ALMACENAMIENTO INTERNO%'")
+            where_clauses.append("(UPPER(f.categoria) LIKE '%ALMACENAMIENTO INTERNO%' OR UPPER(f.descripcion_producto) LIKE '%ALMACENAMIENTO INTERNO%')")
         elif categ_lower in ("almacenamiento_ext", "dispositivos de almacenamiento externo"):
-            where_clauses.append("UPPER(f.categoria) LIKE '%ALMACENAMIENTO EXTERNO%'")
-        elif categ_lower in ("portatil", "computadora portatil", "laptop", "notebook"):
+            where_clauses.append("(UPPER(f.categoria) LIKE '%ALMACENAMIENTO EXTERNO%' OR UPPER(f.descripcion_producto) LIKE '%ALMACENAMIENTO EXTERNO%')")
+        elif categ_lower in ("portatil", "laptop", "laptops", "computadora portatil"):
             where_clauses.append("""(
                 UPPER(f.categoria) = 'COMPUTADORA PORTATIL'
                 OR (
@@ -138,6 +128,20 @@ def get_proveedor_fichas(
     is_consolidated = (not proveedor or proveedor.lower() == "all")
 
     if is_consolidated:
+        having_clauses = []
+        if proveedor_filter:
+            pf = proveedor_filter.lower().strip()
+            if pf in ("ambos", "compitiendo", "competencia", "dual"):
+                having_clauses.append("COUNT(DISTINCT r.ruc_proveedor) > 1")
+            elif pf in ("exclusivo", "unico", "single", "1"):
+                having_clauses.append("COUNT(DISTINCT r.ruc_proveedor) = 1")
+            elif pf in ("thekingcomputer", "the_king", "king", "20601234567"):
+                having_clauses.append("BOOL_OR(r.ruc_proveedor = '20601234567' OR UPPER(r.nombre_proveedor) LIKE '%KING%')")
+            elif pf in ("jorge_rojas", "jorge", "rojas", "10408899991"):
+                having_clauses.append("BOOL_OR(r.ruc_proveedor = '10408899991' OR UPPER(r.nombre_proveedor) LIKE '%JORGE%' OR UPPER(r.nombre_proveedor) LIKE '%ROJAS%')")
+
+        having_sql = f"HAVING {' AND '.join(having_clauses)}" if having_clauses else ""
+
         order_by_sql = "g.id DESC"
         if sort_by == "precio_asc":
             order_by_sql = "g.min_precio ASC NULLS LAST"
@@ -164,13 +168,39 @@ def get_proveedor_fichas(
                     f.existencia_stock,
                     f.plazo_entrega_dias,
                     f.pdf_url,
-                    f.fecha_extraccion
+                    f.fecha_extraccion,
+                    CASE 
+                        WHEN UPPER(TRIM(COALESCE(f.nro_parte, ''))) IN ('', '-', 'S/N', 'SN', 'COLECTIVO', 'VARIOS', '0', 'NO TIENE', 'SIN NUMERO', 'SIN NUMERO DE PARTE', 'NO APLICA') 
+                        THEN CONCAT(COALESCE(NULLIF(TRIM(f.nro_parte), ''), 'S/N'), '::', MD5(COALESCE(f.descripcion_producto, f.id::text)))
+                        ELSE UPPER(TRIM(f.nro_parte))
+                    END AS group_key
                 FROM ofertas_proveedor_history f
                 WHERE {where_sql}
             ),
+            dedup_provider_offers AS (
+                SELECT DISTINCT ON (r.group_key, r.ruc_proveedor)
+                    r.group_key,
+                    r.id,
+                    r.nro_parte,
+                    r.descripcion,
+                    r.marca,
+                    r.catalogo,
+                    r.categoria,
+                    r.acuerdo_marco,
+                    r.nombre_proveedor,
+                    r.ruc_proveedor,
+                    r.precio_ofertado,
+                    r.existencia_stock,
+                    r.plazo_entrega_dias,
+                    r.pdf_url,
+                    r.fecha_extraccion
+                FROM raw_matched r
+                ORDER BY r.group_key, r.ruc_proveedor, r.precio_ofertado ASC NULLS LAST, r.id DESC
+            ),
             grouped_items AS (
                 SELECT 
-                    r.nro_parte,
+                    r.group_key,
+                    MAX(r.nro_parte) AS nro_parte,
                     MIN(r.id) AS id,
                     MAX(r.descripcion) AS descripcion,
                     MAX(r.marca) AS marca,
@@ -192,10 +222,11 @@ def get_proveedor_fichas(
                             'pdf_url', r.pdf_url,
                             'estado', 'VIGENTE',
                             'fecha_extraccion', r.fecha_extraccion::text
-                        )
+                        ) ORDER BY r.precio_ofertado ASC NULLS LAST
                     ) AS ofertas
-                FROM raw_matched r
-                GROUP BY r.nro_parte
+                FROM dedup_provider_offers r
+                GROUP BY r.group_key
+                {having_sql}
             )
             SELECT 
                 g.id,

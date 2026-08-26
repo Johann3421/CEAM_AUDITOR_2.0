@@ -7,7 +7,7 @@ import {
   ExternalLink, Tag, DollarSign, Package, TrendingUp, X, RefreshCw,
   Code, Copy, Check, Cpu, HardDrive, Monitor, Download, Trash2,
   ArrowUp, ArrowDown, ChevronsUpDown, Filter, Layers, CheckCircle2, ChevronDown, ChevronUp,
-  Laptop, MonitorCheck, Printer, Sparkles, Tv, Smartphone, Server, Zap, Projector, Award, Scale
+  Laptop, MonitorCheck, Printer, Sparkles, Tv, Smartphone, Server, Zap, Projector, Award, Scale, Users
 } from 'lucide-react';
 
 const MAIN_PROVIDERS = [
@@ -19,8 +19,11 @@ const MAIN_PROVIDERS = [
 const fmt = (n) =>
   n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const parseSpecs = (desc = '') => {
-  if (!desc) return { marca: 'VARIOS', modelo: 'Computadora / Dispositivo' };
+const parseSpecs = (desc = '', categoria = '', catalogo = '') => {
+  if (!desc) {
+    const fallbackTitle = categoria || catalogo || 'Dispositivo';
+    return { marca: 'VARIOS', modelo: fallbackTitle };
+  }
 
   const getMatch = (regex) => {
     const m = desc.match(regex);
@@ -53,8 +56,9 @@ const parseSpecs = (desc = '') => {
   if (pantalla) {
     const mPan = pantalla.match(/(\d+(?:\.\d+)?\s*(?:\"|PULGADAS)?)/i);
     const size = mPan ? mPan[1].replace(/PULGADAS/i, '"') : '';
-    const isFhd = /1920X1080|FHD/i.test(pantalla);
-    pantalla = `${size}${size && !size.includes('"') ? '"' : ''} ${isFhd ? 'FHD' : ''}`.trim();
+    const isFhd = /1920X1080|FHD|FULL HD/i.test(desc);
+    const is4k = /3840X2160|4K|UHD/i.test(desc);
+    pantalla = `${size}${size && !size.includes('"') ? '"' : ''} ${is4k ? '4K UHD' : isFhd ? 'FHD' : ''}`.trim();
   }
 
   // 5. Sistema Operativo
@@ -90,7 +94,7 @@ const parseSpecs = (desc = '') => {
 
   // Fallback de Marca
   if (!marca || marca === 'VARIOS' || marca === 'OPTICA') {
-    for (const b of ['HP', 'LENOVO', 'DELL', 'ADVANCE', 'M4X', 'ASUS', 'ACER']) {
+    for (const b of ['HP', 'LENOVO', 'DELL', 'ADVANCE', 'M4X', 'ASUS', 'ACER', 'SAMSUNG', 'LG', 'VIEWSONIC', 'BENQ', 'TEROS', 'EPSON', 'CANON', 'FUJITSU', 'KODAK', 'BROTHER', 'KINGSTON', 'WESTERN DIGITAL', 'SEAGATE', 'CRUCIAL', 'SANDISK', 'AUSTIN', 'HIKVISION', 'DAHUA']) {
       if (new RegExp(`\\b${b}\\b`, 'i').test(desc)) {
         marca = b;
         break;
@@ -98,9 +102,33 @@ const parseSpecs = (desc = '') => {
     }
   }
 
+  // Si no hay modelo claro o dice genérico, extraer el tipo de dispositivo real
+  if (!modelo || modelo.includes('Computadora / Dispositivo')) {
+    const isMonitor = (categoria || '').toUpperCase().includes('MONITOR') || (catalogo || '').toUpperCase().includes('MONITOR') || desc.toUpperCase().includes('MONITOR');
+    const isEscaner = (categoria || '').toUpperCase().includes('ESCANER') || (catalogo || '').toUpperCase().includes('ESCANER') || desc.toUpperCase().includes('ESCANER');
+    const isTablet = (categoria || '').toUpperCase().includes('TABLET') || desc.toUpperCase().includes('TABLET');
+    const isDisco = (categoria || '').toUpperCase().includes('ALMACENAMIENTO') || desc.toUpperCase().includes('DISCO') || desc.toUpperCase().includes('SSD');
+    const isAIO = desc.toUpperCase().includes('TODO EN UNO') || desc.toUpperCase().includes('ALL IN ONE');
+
+    if (isMonitor) {
+      modelo = `Monitor LED ${pantalla || ''}`.trim();
+    } else if (isEscaner) {
+      modelo = categoria || 'Escáner';
+    } else if (isTablet) {
+      modelo = `Tableta ${pantalla || ''}`.trim();
+    } else if (isDisco) {
+      modelo = `Unidad de Almacenamiento ${disco || ''}`.trim();
+    } else if (isAIO) {
+      modelo = `Computadora Todo en Uno ${pantalla || ''}`.trim();
+    } else {
+      const cleanDesc = desc.replace(/^UNIDAD\s+[A-Z0-9_-]+\s+/i, '').split(';')[0].trim();
+      modelo = cleanDesc ? cleanDesc.slice(0, 45) : (categoria || 'Dispositivo');
+    }
+  }
+
   return {
     marca: marca || 'VARIOS',
-    modelo: modelo || 'Computadora / Dispositivo',
+    modelo: modelo || (categoria || 'Dispositivo'),
     proc,
     ram,
     disco,
@@ -112,6 +140,7 @@ const parseSpecs = (desc = '') => {
 const ProveedorFichas = () => {
   const navigate = useNavigate();
   const [selectedProvider, setSelectedProvider] = useState('all');
+  const [proveedorColFilter, setProveedorColFilter] = useState('all');
   const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
   const [marcaFilter, setMarcaFilter] = useState('');
@@ -194,6 +223,7 @@ const ProveedorFichas = () => {
     
     proveedoresApi.getFichas({
       proveedor: provId,
+      proveedor_filter: proveedorColFilter !== 'all' ? proveedorColFilter : undefined,
       search: search || undefined,
       marca: marcaFilter || undefined,
       categoria: activeTab !== 'all' ? activeTab : undefined,
@@ -224,7 +254,7 @@ const ProveedorFichas = () => {
 
   useEffect(() => {
     fetchFichasData();
-  }, [selectedProvider, activeTab, search, marcaFilter, stockFilter, sortBy, page, limit]);
+  }, [selectedProvider, proveedorColFilter, activeTab, search, marcaFilter, stockFilter, sortBy, page, limit]);
 
   useEffect(() => {
     let interval = null;
@@ -319,13 +349,14 @@ const ProveedorFichas = () => {
     setPage(0);
   };
 
-  const hasActiveFilters = Boolean(search || marcaFilter || stockFilter || sortBy || selectedProvider !== 'all' || activeTab !== 'all');
+  const hasActiveFilters = Boolean(search || marcaFilter || stockFilter || sortBy || proveedorColFilter !== 'all' || selectedProvider !== 'all' || activeTab !== 'all');
 
   const clearAllFilters = () => {
     setSearch('');
     setMarcaFilter('');
     setStockFilter('');
     setSortBy('');
+    setProveedorColFilter('all');
     setSelectedProvider('all');
     setActiveTab('all');
     setPage(0);
@@ -452,7 +483,7 @@ const ProveedorFichas = () => {
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {/* Card de precios lado a lado / apilados */}
+          {/* Card de precios lado a lado */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, background: '#f8fafc', padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
             {sorted.map((o, i) => {
               const isBest = i === 0 && !isTie;
@@ -807,6 +838,22 @@ const ProveedorFichas = () => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--c-text-secondary)' }}>Filtro Proveedor:</span>
+            <select
+              className="form-select"
+              value={proveedorColFilter}
+              onChange={(e) => { setProveedorColFilter(e.target.value); setPage(0); }}
+              style={{ width: 170, fontSize: 12, padding: '4px 8px' }}
+            >
+              <option value="all">Todos los Proveedores</option>
+              <option value="ambos">✨ Ambos (Con Competencia)</option>
+              <option value="exclusivo">🔒 Solo 1 (Oferta Exclusiva)</option>
+              <option value="thekingcomputer">🏢 Solo The King Computer</option>
+              <option value="jorge_rojas">🏢 Solo Jorge Rojas</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--c-text-secondary)' }}>Stock:</span>
             <select
               className="form-select"
@@ -865,11 +912,28 @@ const ProveedorFichas = () => {
                   <span>Ficha Técnica / Especificaciones</span>
                 </th>
 
-                {/* 3. Columna de Proveedores Oferentes */}
-                <th style={{ width: 220, padding: '10px 14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Building2 size={13} style={{ color: 'var(--c-brand)' }} />
-                    <span>Proveedores Oferentes</span>
+                {/* 3. Columna de Proveedores Oferentes con Filtro */}
+                <th style={{ width: 230, padding: '10px 14px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <Building2 size={13} style={{ color: 'var(--c-brand)' }} />
+                        <span>Proveedores Oferentes</span>
+                      </div>
+                    </div>
+                    <select
+                      className="form-select"
+                      value={proveedorColFilter}
+                      onChange={(e) => { setProveedorColFilter(e.target.value); setPage(0); }}
+                      style={{ fontSize: 11, padding: '2px 6px', height: 26, background: '#fff' }}
+                      title="Filtrar por competencia o proveedor"
+                    >
+                      <option value="all">Ver Todos</option>
+                      <option value="ambos">✨ Ambos (Con Competencia)</option>
+                      <option value="exclusivo">🔒 Solo 1 Proveedor</option>
+                      <option value="thekingcomputer">👑 Solo The King Computer</option>
+                      <option value="jorge_rojas">🏢 Solo Jorge Rojas</option>
+                    </select>
                   </div>
                 </th>
 
@@ -929,12 +993,12 @@ const ProveedorFichas = () => {
               ) : fichas.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
-                    No hay ofertas en esta categoría. Puedes hacer clic en <strong>⚡ Extraer Catálogo</strong> para iniciar la extracción limpia.
+                    No hay ofertas con los filtros aplicados. Puedes cambiar los filtros o extraer nuevas categorías.
                   </td>
                 </tr>
               ) : (
                 fichas.map((f, idx) => {
-                  const specs = parseSpecs(f.descripcion);
+                  const specs = parseSpecs(f.descripcion, f.categoria, f.catalogo);
                   const isExpanded = expandedDescId === f.id;
                   const isCopiedThis = copiedPart === f.nro_parte;
                   return (
@@ -983,7 +1047,7 @@ const ProveedorFichas = () => {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                           {/* Titulo Limpio */}
                           <div style={{ fontWeight: 600, color: 'var(--c-text-primary)', fontSize: 13 }}>
-                            {f.marca} {specs.modelo}
+                            {specs.marca !== 'VARIOS' ? `${specs.marca} ` : ''}{specs.modelo}
                           </div>
 
                           {/* Chips Compactos de Specs */}
