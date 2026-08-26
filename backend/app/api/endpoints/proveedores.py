@@ -164,7 +164,6 @@ def get_proveedor_fichas(
                     f.existencia_stock,
                     f.plazo_entrega_dias,
                     f.pdf_url,
-                    f.estado,
                     f.fecha_extraccion
                 FROM ofertas_proveedor_history f
                 WHERE {where_sql}
@@ -191,7 +190,7 @@ def get_proveedor_fichas(
                             'existencia_stock', r.existencia_stock,
                             'plazo_entrega_dias', r.plazo_entrega_dias,
                             'pdf_url', r.pdf_url,
-                            'estado', r.estado,
+                            'estado', 'VIGENTE',
                             'fecha_extraccion', r.fecha_extraccion::text
                         )
                     ) AS ofertas
@@ -254,7 +253,7 @@ def get_proveedor_fichas(
                     'existencia_stock', f.existencia_stock,
                     'plazo_entrega_dias', f.plazo_entrega_dias,
                     'pdf_url', f.pdf_url,
-                    'estado', f.estado,
+                    'estado', 'VIGENTE',
                     'fecha_extraccion', f.fecha_extraccion::text
                 )) AS ofertas,
                 COUNT(*) OVER() AS total_count
