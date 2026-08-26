@@ -61,6 +61,7 @@ export const proveedoresApi = {
   scrape: (params) => api.post('/proveedores/scrape', null, { params }),
   getScrapeStatus: () => api.get('/proveedores/scrape-status'),
   exportJson: () => api.get('/proveedores/export-json'),
+  clearData: (params) => api.post('/proveedores/clear', null, { params }),
 };
 
 export default api;

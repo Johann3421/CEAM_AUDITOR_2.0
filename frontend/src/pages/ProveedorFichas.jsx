@@ -5,7 +5,7 @@ import HeaderFilter from '../components/HeaderFilter';
 import {
   Building2, Search, FileText, ChevronLeft, ChevronRight,
   ExternalLink, Tag, DollarSign, Package, TrendingUp, X, RefreshCw,
-  Code, Copy, Check, Cpu, HardDrive, Monitor, Download,
+  Code, Copy, Check, Cpu, HardDrive, Monitor, Download, Trash2,
   ArrowUp, ArrowDown, ChevronsUpDown, Filter, Layers, CheckCircle2, ChevronDown, ChevronUp,
   Laptop, MonitorCheck, Printer, Sparkles, Tv, Smartphone, Server, Zap, Projector
 } from 'lucide-react';
@@ -120,9 +120,21 @@ const ProveedorFichas = () => {
   const [fichas, setFichas] = useState([]);
   const [totalFichas, setTotalFichas] = useState(0);
   const [categoriesCount, setCategoriesCount] = useState({
-    total: 0, desktop: 0, laptop: 0, aio: 0, monitor: 0,
-    impresora: 0, escaner: 0, tablet: 0, workstation: 0,
-    servidor: 0, proyector: 0, ups: 0
+    total: 0,
+    escritorio: 0,
+    aio: 0,
+    workstation: 0,
+    monitor: 0,
+    pantalla_pub: 0,
+    pantalla_int: 0,
+    almacenamiento_int: 0,
+    almacenamiento_ext: 0,
+    portatil: 0,
+    workstation_portatil: 0,
+    tableta: 0,
+    escaner_planos: 0,
+    escaner_docs: 0,
+    escaner_libros: 0
   });
   const [loading, setLoading] = useState(false);
   const [reclassifying, setReclassifying] = useState(false);
@@ -156,6 +168,22 @@ const ProveedorFichas = () => {
       console.error(e);
     } finally {
       setReclassifying(false);
+    }
+  };
+
+  const handleClearData = async () => {
+    const provName = selectedProvider !== 'all' ? MAIN_PROVIDERS.find(p => p.id === selectedProvider)?.name : 'TODOS los proveedores';
+    if (!window.confirm(`¿Estás seguro de que deseas limpiar y reiniciar las ofertas de ${provName}? Esta acción permitirá comenzar una extracción limpia.`)) {
+      return;
+    }
+    try {
+      await proveedoresApi.clearData({ proveedor: selectedProvider !== 'all' ? selectedProvider : undefined });
+      fetchCategoriesCount(selectedProvider);
+      fetchFichasData();
+      alert("Base de datos de ofertas limpiada exitosamente. Listo para una nueva extracción.");
+    } catch (e) {
+      console.error(e);
+      alert("Error al limpiar datos de ofertas.");
     }
   };
 
@@ -309,20 +337,29 @@ const ProveedorFichas = () => {
     };
   }, [fichas, totalFichas]);
 
-  // Nombres oficiales exactos de Perú Compras
+  // Las 14 Categorías Oficiales exactas de Perú Compras (Acuerdo 249)
   const CATEGORY_BUTTONS = [
     { id: 'all', label: 'Todas las Ofertas', count: categoriesCount.total, icon: Layers },
-    { id: 'desktop', label: '🖥️ COMPUTADORAS DE ESCRITORIO', count: categoriesCount.desktop, icon: Monitor },
-    { id: 'laptop', label: '💻 COMPUTADORAS PORTÁTILES', count: categoriesCount.laptop, icon: Laptop },
-    { id: 'aio', label: '🖥️ COMPUTADORAS TODO EN UNO', count: categoriesCount.aio, icon: MonitorCheck },
-    { id: 'escaner', label: '📠 ESCÁNERES', count: categoriesCount.escaner, icon: Printer },
-    { id: 'monitor', label: '📺 MONITORES', count: categoriesCount.monitor, icon: Tv },
-    { id: 'impresora', label: '🖨️ IMPRESORAS', count: categoriesCount.impresora, icon: Printer },
-    { id: 'tablet', label: '📱 TABLETS', count: categoriesCount.tablet, icon: Smartphone },
-    { id: 'workstation', label: '⚙️ ESTACIONES DE TRABAJO', count: categoriesCount.workstation, icon: Cpu },
-    { id: 'servidor', label: '🗄️ SERVIDORES', count: categoriesCount.servidor, icon: Server },
-    { id: 'proyector', label: '📽️ PROYECTORES', count: categoriesCount.proyector, icon: Projector },
-    { id: 'ups', label: '🔋 ENERGÍA Y UPS', count: categoriesCount.ups, icon: Zap },
+    
+    // Catálogo 252: COMPUTADORAS DE ESCRITORIO (8 categorías)
+    { id: 'escritorio', label: '🖥️ COMPUTADORA DE ESCRITORIO', count: categoriesCount.escritorio, icon: Monitor },
+    { id: 'aio', label: '🖥️ COMPUTADORA TODO EN UNO', count: categoriesCount.aio, icon: MonitorCheck },
+    { id: 'workstation', label: '⚙️ ESTACION DE TRABAJO', count: categoriesCount.workstation, icon: Cpu },
+    { id: 'monitor', label: '📺 MONITOR', count: categoriesCount.monitor, icon: Tv },
+    { id: 'pantalla_pub', label: '📺 PANTALLA PUBLICITARIA', count: categoriesCount.pantalla_pub, icon: Tv },
+    { id: 'pantalla_int', label: '📺 PANTALLA INTERACTIVA', count: categoriesCount.pantalla_int, icon: Tv },
+    { id: 'almacenamiento_int', label: '💾 ALMACENAMIENTO INTERNO', count: categoriesCount.almacenamiento_int, icon: HardDrive },
+    { id: 'almacenamiento_ext', label: '💾 ALMACENAMIENTO EXTERNO', count: categoriesCount.almacenamiento_ext, icon: HardDrive },
+
+    // Catálogo 250: COMPUTADORAS PORTÁTILES (3 categorías)
+    { id: 'portatil', label: '💻 COMPUTADORA PORTATIL', count: categoriesCount.portatil, icon: Laptop },
+    { id: 'workstation_portatil', label: '💻 ESTACION DE TRABAJO PORTATIL', count: categoriesCount.workstation_portatil, icon: Laptop },
+    { id: 'tableta', label: '📱 TABLETA', count: categoriesCount.tableta, icon: Smartphone },
+
+    // Catálogo 251: ESCÁNERES (3 categorías)
+    { id: 'escaner_docs', label: '📠 ESCANER DE DOCUMENTOS', count: categoriesCount.escaner_docs, icon: Printer },
+    { id: 'escaner_planos', label: '📠 ESCANER DE PLANOS', count: categoriesCount.escaner_planos, icon: Printer },
+    { id: 'escaner_libros', label: '📠 ESCANER DE LIBROS', count: categoriesCount.escaner_libros, icon: Printer },
   ];
 
   return (
@@ -335,11 +372,21 @@ const ProveedorFichas = () => {
             Ofertas y Fichas de Proveedores — Perú Compras
           </h1>
           <p style={{ margin: '4px 0 0 0', color: 'var(--c-text-secondary)', fontSize: 13 }}>
-            Gestión multicuentas y catálogo oficial estructurado por categorías de Acuerdo Marco
+            Catálogo Oficial EXT-CE-2022-5 con 14 categorías oficiales estructuradas y separación por proveedor
           </p>
         </div>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            className="btn btn-secondary"
+            onClick={handleClearData}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600, color: '#dc2626' }}
+            title="Limpiar y reiniciar la base de datos de ofertas de este proveedor para una extracción limpia"
+          >
+            <Trash2 size={15} />
+            Limpiar Datos
+          </button>
+
           <button
             className="btn btn-secondary"
             onClick={handleReclassify}
@@ -348,7 +395,7 @@ const ProveedorFichas = () => {
             title="Reorganizar automáticamente todas las ofertas según especificaciones técnicas"
           >
             <Sparkles size={15} className={reclassifying ? 'spin' : ''} />
-            {reclassifying ? 'Reclasificando...' : 'Reclasificar Catálogo'}
+            {reclassifying ? 'Reclasificando...' : 'Reclasificar'}
           </button>
 
           <button
@@ -369,7 +416,7 @@ const ProveedorFichas = () => {
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600 }}
           >
             <RefreshCw size={15} className={scraping ? 'spin' : ''} />
-            {scraping ? 'Extrayendo Catálogos...' : `⚡ Extraer Catálogo (${selectedProvider !== 'all' ? MAIN_PROVIDERS.find(p => p.id === selectedProvider)?.short : 'The King Computer'})`}
+            {scraping ? 'Extrayendo 14 Categorías...' : `⚡ Extraer Catálogo (${selectedProvider !== 'all' ? MAIN_PROVIDERS.find(p => p.id === selectedProvider)?.short : 'The King Computer'})`}
           </button>
         </div>
       </div>
@@ -417,7 +464,7 @@ const ProveedorFichas = () => {
         </div>
       </div>
 
-      {/* Row 2: Official Peru Compras Category Quick Tabs with Real Counts */}
+      {/* Row 2: Official Peru Compras 14 Categories Pills with Real Scoped Counts */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6 }}>
           {CATEGORY_BUTTONS.map(tab => {
@@ -470,7 +517,7 @@ const ProveedorFichas = () => {
             </h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span className={`tag ${scraping ? 'tag-primary' : scrapeStatus?.status === 'error' ? 'tag-danger' : 'tag-success'}`}>
-                {scraping ? `Procesando combinaciones (${scrapeStatus?.combos_completed || 0}/${scrapeStatus?.combos_total || '...'})` : scrapeStatus?.status === 'error' ? 'Falla' : 'Completado'}
+                {scraping ? `Procesando 14 categorías oficiales (${scrapeStatus?.combos_completed || 0}/${scrapeStatus?.combos_total || 14})` : scrapeStatus?.status === 'error' ? 'Falla' : 'Completado'}
               </span>
               <button 
                 onClick={() => setShowLogModal(false)}
@@ -699,7 +746,7 @@ const ProveedorFichas = () => {
               ) : fichas.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
-                    No se encontraron ofertas para este proveedor en esta categoría. Puedes hacer clic en <strong>⚡ Extraer Catálogo</strong> para iniciar la extracción.
+                    No hay ofertas en esta categoría. Puedes hacer clic en <strong>⚡ Extraer Catálogo</strong> para iniciar la extracción limpia.
                   </td>
                 </tr>
               ) : (

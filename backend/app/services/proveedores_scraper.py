@@ -100,6 +100,28 @@ def add_status_log(msg: str):
         EXTRACTION_STATUS["logs"] = EXTRACTION_STATUS["logs"][-200:]
     EXTRACTION_STATUS["progress_message"] = clean_msg
 
+OFFICIAL_PERUCOMPRAS_COMBOS = [
+    # 1. COMPUTADORAS DE ESCRITORIO (Catálogo 252 - 8 categorías)
+    {"n_acuerdo": "249", "n_catalogo": "252", "n_categoria": "11735", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "COMPUTADORAS DE ESCRITORIO", "categoria_nombre": "COMPUTADORA DE ESCRITORIO"},
+    {"n_acuerdo": "249", "n_catalogo": "252", "n_categoria": "11736", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "COMPUTADORAS DE ESCRITORIO", "categoria_nombre": "COMPUTADORA TODO EN UNO"},
+    {"n_acuerdo": "249", "n_catalogo": "252", "n_categoria": "11740", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "COMPUTADORAS DE ESCRITORIO", "categoria_nombre": "ESTACION DE TRABAJO"},
+    {"n_acuerdo": "249", "n_catalogo": "252", "n_categoria": "11741", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "COMPUTADORAS DE ESCRITORIO", "categoria_nombre": "MONITOR"},
+    {"n_acuerdo": "249", "n_catalogo": "252", "n_categoria": "11742", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "COMPUTADORAS DE ESCRITORIO", "categoria_nombre": "PANTALLA PUBLICITARIA"},
+    {"n_acuerdo": "249", "n_catalogo": "252", "n_categoria": "11749", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "COMPUTADORAS DE ESCRITORIO", "categoria_nombre": "PANTALLA INTERACTIVA"},
+    {"n_acuerdo": "249", "n_catalogo": "252", "n_categoria": "11751", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "COMPUTADORAS DE ESCRITORIO", "categoria_nombre": "DISPOSITIVOS DE ALMACENAMIENTO INTERNO"},
+    {"n_acuerdo": "249", "n_catalogo": "252", "n_categoria": "11747", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "COMPUTADORAS DE ESCRITORIO", "categoria_nombre": "DISPOSITIVOS DE ALMACENAMIENTO EXTERNO"},
+
+    # 2. COMPUTADORAS PORTÁTILES (Catálogo 250 - 3 categorías)
+    {"n_acuerdo": "249", "n_catalogo": "250", "n_categoria": "11743", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "COMPUTADORAS PORTÁTILES", "categoria_nombre": "COMPUTADORA PORTATIL"},
+    {"n_acuerdo": "249", "n_catalogo": "250", "n_categoria": "11744", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "COMPUTADORAS PORTÁTILES", "categoria_nombre": "ESTACION DE TRABAJO PORTATIL"},
+    {"n_acuerdo": "249", "n_catalogo": "250", "n_categoria": "11745", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "COMPUTADORAS PORTÁTILES", "categoria_nombre": "TABLETA"},
+
+    # 3. ESCÁNERES (Catálogo 251 - 3 categorías)
+    {"n_acuerdo": "249", "n_catalogo": "251", "n_categoria": "11737", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "ESCÁNERES", "categoria_nombre": "ESCANER DE PLANOS"},
+    {"n_acuerdo": "249", "n_catalogo": "251", "n_categoria": "11738", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "ESCÁNERES", "categoria_nombre": "ESCANER DE DOCUMENTOS"},
+    {"n_acuerdo": "249", "n_catalogo": "251", "n_categoria": "11739", "acuerdo_nombre": "EXT-CE-2022-5", "catalogo_nombre": "ESCÁNERES", "categoria_nombre": "ESCANER DE LIBROS"},
+]
+
 async def async_login_and_get_cookies(
     provider_key: str = "thekingcomputer",
     user: Optional[str] = None, 
@@ -108,8 +130,8 @@ async def async_login_and_get_cookies(
 ) -> Dict[str, str]:
     """
     Inicia sesión en Perú Compras con la cuenta del proveedor seleccionado,
-    descubre dinámicamente todos los Acuerdos/Catálogos/Categorías disponibles,
-    y extrae en orden de prioridad todas las ofertas.
+    recorre de forma sistemática y robusta las 14 combinaciones oficiales de categorías,
+    y guarda todas las ofertas con atribución exacta por proveedor y categoría.
     """
     from playwright.async_api import async_playwright
     
@@ -121,9 +143,12 @@ async def async_login_and_get_cookies(
 
     EXTRACTION_STATUS["provider"] = provider_key
     EXTRACTION_STATUS["provider_name"] = nombre_proveedor
+    EXTRACTION_STATUS["status"] = "running"
+    EXTRACTION_STATUS["is_running"] = True
+    EXTRACTION_STATUS["items_inserted"] = 0
 
-    add_status_log(f"🏢 Cuenta de Proveedor: {nombre_proveedor}")
-    add_status_log(f"🔐 Iniciando autenticación en Perú Compras con usuario: {user}")
+    add_status_log(f"🏢 Proveedor Activo: {nombre_proveedor} (RUC: {ruc_proveedor})")
+    add_status_log(f"🔐 Iniciando sesión en Perú Compras con usuario: {user}")
     cookies_dict = {}
     try:
         async with async_playwright() as p:
@@ -148,22 +173,36 @@ async def async_login_and_get_cookies(
                     screenshot_callback=update_live_screenshot
                 )
                 
-                # 1. Descubrir dinámicamente todas las combinaciones y ordenarlas por prioridad
-                combos = await descubrir_todas_las_combinaciones(page, log_func=add_status_log)
+                combos = OFFICIAL_PERUCOMPRAS_COMBOS
                 EXTRACTION_STATUS["combos_total"] = len(combos)
                 EXTRACTION_STATUS["combos_completed"] = 0
 
-                # 2. Extraer ordenadamente cada combinación
+                # 2. Extraer ordenadamente cada una de las 14 combinaciones oficiales
                 for i, combo in enumerate(combos, 1):
                     n_acuerdo = combo["n_acuerdo"]
                     n_catalogo = combo["n_catalogo"]
                     n_categoria = combo["n_categoria"]
-                    cat_nom = combo.get("catalogo_nombre", "")
-                    categ_nom = combo.get("categoria_nombre", "")
-                    acuerdo_nom = combo.get("acuerdo_nombre", "")
+                    cat_nom = combo["catalogo_nombre"]
+                    categ_nom = combo["categoria_nombre"]
+                    acuerdo_nom = combo["acuerdo_nombre"]
 
-                    add_status_log(f"⚡ [{i}/{len(combos)}] Extrayendo: {cat_nom} ➔ {categ_nom}...")
+                    add_status_log(f"⚡ [{i}/{len(combos)}] Extrayendo: [{cat_nom}] ➔ [{categ_nom}]...")
                     
+                    # 1. Establecer selección en DOM para preparar el contexto del servidor
+                    try:
+                        await page.evaluate("""({acuerdo, catalogo, categoria}) => {
+                            const selAc = document.querySelector('#ajaxAcuerdo');
+                            if (selAc) { selAc.value = acuerdo; selAc.dispatchEvent(new Event('change', { bubbles: true })); }
+                            const selCat = document.querySelector('#ajaxCatalogo');
+                            if (selCat) { selCat.value = catalogo; selCat.dispatchEvent(new Event('change', { bubbles: true })); }
+                            const selCateg = document.querySelector('#ajaxCategoria');
+                            if (selCateg) { selCateg.value = categoria; selCateg.dispatchEvent(new Event('change', { bubbles: true })); }
+                        }""", {"acuerdo": n_acuerdo, "catalogo": n_catalogo, "categoria": n_categoria})
+                        await page.wait_for_timeout(300)
+                    except Exception:
+                        pass
+
+                    # 2. Consultar directamente el endpoint de productos
                     products = await consultar_json_productos(
                         page,
                         n_acuerdo=int(n_acuerdo),
@@ -172,20 +211,20 @@ async def async_login_and_get_cookies(
                         log_func=add_status_log
                     )
 
-                    # Si el endpoint directo retornó 0, disparar por interfaz gráfica
+                    # 3. Si el endpoint directo retornó 0, disparar por interfaz gráfica con botón buscar
                     if not products:
                         add_status_log(f"🔄 Disparando búsqueda interactiva para [{cat_nom} ➔ {categ_nom}]...")
-                        menu_res = await completar_menu_dinamico(
-                            page,
-                            acuerdo=acuerdo_nom,
-                            catalogo=cat_nom,
-                            categoria=categ_nom,
-                            log_func=add_status_log,
-                            screenshot_callback=update_live_screenshot,
-                            max_wait_table_sec=180
-                        )
-                        if menu_res and menu_res.get("products"):
-                            products = menu_res["products"]
+                        try:
+                            await page.click("#btnBuscar", timeout=5000)
+                            await page.wait_for_timeout(3000)
+                            dom_res = await page.evaluate("""() => {
+                                const container = document.querySelector('#OfertasPanelDiv') || document.querySelector('table');
+                                return container ? container.innerHTML : '';
+                            }""")
+                            if dom_res:
+                                products = _parse_html_products_partial(dom_res)
+                        except Exception as e:
+                            add_status_log(f"⚠️ Aviso en click interactivo: {e}")
 
                     if products and db:
                         # Enriquecer productos con la metadata de catálogo, categoría y proveedor
@@ -203,17 +242,25 @@ async def async_login_and_get_cookies(
                         add_status_log(f"ℹ️ [{i}/{len(combos)}] 0 productos disponibles en '{categ_nom}'.")
 
                     EXTRACTION_STATUS["combos_completed"] = i
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(0.5)
 
                 raw_cookies = await context.cookies()
                 for c in raw_cookies:
                     cookies_dict[c["name"]] = c["value"]
+                
+                EXTRACTION_STATUS["status"] = "completed"
+                EXTRACTION_STATUS["is_running"] = False
                 add_status_log(f"🎉 Extracción finalizada para {nombre_proveedor}. {EXTRACTION_STATUS['items_inserted']} ofertas guardadas en total.")
             else:
+                EXTRACTION_STATUS["status"] = "error"
+                EXTRACTION_STATUS["is_running"] = False
                 add_status_log(f"❌ Falló la autenticación para {nombre_proveedor} ({user}).")
 
             await browser.close()
     except Exception as e:
+        EXTRACTION_STATUS["status"] = "error"
+        EXTRACTION_STATUS["is_running"] = False
+        EXTRACTION_STATUS["last_error"] = str(e)
         add_status_log(f"❌ Excepción en inicio de sesión / extracción: {e}")
     return cookies_dict
 
