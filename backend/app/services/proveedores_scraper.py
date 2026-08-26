@@ -42,8 +42,27 @@ ENDPOINT_OFERTAS = f"{BASE_URL}/MejoraBasica/_ListaProductosOfertados"
 CHECKPOINT_FILE = Path("checkpoint_proveedores.json")
 COMBOS_CACHE_FILE = Path("combos_cache.json")
 
-DEFAULT_USER = os.getenv("PERUCOMPRAS_USER", "estalin.huamali01")
-DEFAULT_PASS = os.getenv("PERUCOMPRAS_PASS", "PE/CyG6c&1R4T=")
+PROVEEDORES_CONFIG = {
+    "thekingcomputer": {
+        "id": "thekingcomputer",
+        "nombre": "THE KING COMPUTER E.I.R.L.",
+        "short": "The King Computer",
+        "user": os.getenv("PERUCOMPRAS_USER_KING", "estalin.huamali01"),
+        "pass": os.getenv("PERUCOMPRAS_PASS_KING", "PE/CyG6c&1R4T="),
+        "ruc": "20601234567"
+    },
+    "jorge_rojas": {
+        "id": "jorge_rojas",
+        "nombre": "ROJAS VILLANUEVA JORGE LUIS",
+        "short": "Jorge Rojas Villanueva",
+        "user": os.getenv("PERUCOMPRAS_USER_ROJAS", "neison.chacas"),
+        "pass": os.getenv("PERUCOMPRAS_PASS_ROJAS", "DHj585-g47j9#$@"),
+        "ruc": "10408899991"
+    }
+}
+
+DEFAULT_USER = PROVEEDORES_CONFIG["thekingcomputer"]["user"]
+DEFAULT_PASS = PROVEEDORES_CONFIG["thekingcomputer"]["pass"]
 
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -57,6 +76,8 @@ MAX_CONCURRENT_WORKERS = 3
 EXTRACTION_STATUS = {
     "is_running": False,
     "status": "idle",
+    "provider": "thekingcomputer",
+    "provider_name": "THE KING COMPUTER E.I.R.L.",
     "progress_message": "",
     "combos_total": 0,
     "combos_completed": 0,
@@ -80,17 +101,28 @@ def add_status_log(msg: str):
     EXTRACTION_STATUS["progress_message"] = clean_msg
 
 async def async_login_and_get_cookies(
-    user: str = DEFAULT_USER, 
-    password: str = DEFAULT_PASS,
+    provider_key: str = "thekingcomputer",
+    user: Optional[str] = None, 
+    password: Optional[str] = None,
     db: Optional[Session] = None
 ) -> Dict[str, str]:
     """
-    Inicia sesión en Perú Compras usando Playwright + CAPTCHA OCR (perucompras_core),
+    Inicia sesión en Perú Compras con la cuenta del proveedor seleccionado,
     descubre dinámicamente todos los Acuerdos/Catálogos/Categorías disponibles,
-    y extrae en orden de prioridad (Desktop -> Laptops -> AIO -> Demás) todas las ofertas.
+    y extrae en orden de prioridad todas las ofertas.
     """
     from playwright.async_api import async_playwright
     
+    prov_cfg = PROVEEDORES_CONFIG.get(provider_key, PROVEEDORES_CONFIG["thekingcomputer"])
+    user = user or prov_cfg["user"]
+    password = password or prov_cfg["pass"]
+    nombre_proveedor = prov_cfg["nombre"]
+    ruc_proveedor = prov_cfg["ruc"]
+
+    EXTRACTION_STATUS["provider"] = provider_key
+    EXTRACTION_STATUS["provider_name"] = nombre_proveedor
+
+    add_status_log(f"🏢 Cuenta de Proveedor: {nombre_proveedor}")
     add_status_log(f"🔐 Iniciando autenticación en Perú Compras con usuario: {user}")
     cookies_dict = {}
     try:
@@ -156,15 +188,17 @@ async def async_login_and_get_cookies(
                             products = menu_res["products"]
 
                     if products and db:
-                        # Enriquecer productos con la metadata de catálogo y categoría
+                        # Enriquecer productos con la metadata de catálogo, categoría y proveedor
                         for prod_item in products:
                             prod_item["catalogo"] = cat_nom
                             prod_item["categoria"] = categ_nom
                             prod_item["acuerdo_marco"] = acuerdo_nom
+                            prod_item["nombre_proveedor"] = nombre_proveedor
+                            prod_item["ruc_proveedor"] = ruc_proveedor
 
                         inserted_now = upsert_ofertas_history_db(db, products)
                         EXTRACTION_STATUS["items_inserted"] += inserted_now
-                        add_status_log(f"✅ [{i}/{len(combos)}] Guardados {len(products)} productos de '{categ_nom}'.")
+                        add_status_log(f"✅ [{i}/{len(combos)}] Guardados {len(products)} productos de '{categ_nom}' para '{nombre_proveedor}'.")
                     else:
                         add_status_log(f"ℹ️ [{i}/{len(combos)}] 0 productos disponibles en '{categ_nom}'.")
 
@@ -174,18 +208,18 @@ async def async_login_and_get_cookies(
                 raw_cookies = await context.cookies()
                 for c in raw_cookies:
                     cookies_dict[c["name"]] = c["value"]
-                add_status_log(f"🎉 Extracción completa finalizada. {EXTRACTION_STATUS['items_inserted']} ofertas guardadas en total.")
+                add_status_log(f"🎉 Extracción finalizada para {nombre_proveedor}. {EXTRACTION_STATUS['items_inserted']} ofertas guardadas en total.")
             else:
-                add_status_log("❌ Falló la autenticación automática en Perú Compras.")
+                add_status_log(f"❌ Falló la autenticación para {nombre_proveedor} ({user}).")
 
             await browser.close()
     except Exception as e:
         add_status_log(f"❌ Excepción en inicio de sesión / extracción: {e}")
     return cookies_dict
 
-def login_and_get_cookies(user: str = DEFAULT_USER, password: str = DEFAULT_PASS) -> Dict[str, str]:
+def login_and_get_cookies(provider_key: str = "thekingcomputer", user: Optional[str] = None, password: Optional[str] = None) -> Dict[str, str]:
     """Wrapper síncrono para async_login_and_get_cookies."""
-    return asyncio.run(async_login_and_get_cookies(user, password))
+    return asyncio.run(async_login_and_get_cookies(provider_key=provider_key, user=user, password=password))
 
 def load_checkpoint() -> Set[str]:
     """Carga el conjunto de combinaciones ya procesadas exitosamente."""
@@ -332,28 +366,34 @@ async def fetch_single_combo(
 async def run_worker_pool_extraction(
     combos: List[Tuple[str, str, str]],
     db: Session,
+    provider_key: str = "thekingcomputer",
     cookies: Optional[Dict[str, str]] = None
 ) -> Dict[str, int]:
     """
     Orquesta el Worker Pool concurrente procesando las combinaciones con resumibilidad y checkpoints.
     """
+    prov_cfg = PROVEEDORES_CONFIG.get(provider_key, PROVEEDORES_CONFIG["thekingcomputer"])
+    nombre_proveedor = prov_cfg["nombre"]
+
     EXTRACTION_STATUS["is_running"] = True
     EXTRACTION_STATUS["status"] = "running"
+    EXTRACTION_STATUS["provider"] = provider_key
+    EXTRACTION_STATUS["provider_name"] = nombre_proveedor
     EXTRACTION_STATUS["logs"] = []
     EXTRACTION_STATUS["last_error"] = None
     EXTRACTION_STATUS["combos_completed"] = 0
     EXTRACTION_STATUS["items_inserted"] = 0
     EXTRACTION_STATUS["combos_total"] = len(combos)
 
-    add_status_log("⚡ Iniciando flujo de extracción por proveedor...")
+    add_status_log(f"⚡ Iniciando flujo de extracción para [{nombre_proveedor}]...")
 
     try:
         if not cookies:
-            cookies = await async_login_and_get_cookies(db=db)
+            cookies = await async_login_and_get_cookies(provider_key=provider_key, db=db)
             if not cookies:
                 EXTRACTION_STATUS["is_running"] = False
                 EXTRACTION_STATUS["status"] = "error"
-                EXTRACTION_STATUS["last_error"] = "Fallo de autenticación o resolución de CAPTCHA en Perú Compras"
+                EXTRACTION_STATUS["last_error"] = f"Fallo de autenticación en Perú Compras para {nombre_proveedor}"
                 add_status_log("❌ Error fatal: No se pudo obtener sesión activa.")
                 return {"processed_combos": 0, "total_inserted": 0, "error": "Login failed"}
 
@@ -400,7 +440,7 @@ async def run_worker_pool_extraction(
 
         EXTRACTION_STATUS["is_running"] = False
         EXTRACTION_STATUS["status"] = "completed"
-        add_status_log(f"🎉 Extracción finalizada con éxito! Total ofertas insertadas/actualizadas: {total_inserted}")
+        add_status_log(f"🎉 Extracción finalizada con éxito para {nombre_proveedor}! Total ofertas insertadas/actualizadas: {total_inserted}")
 
         return {
             "processed_combos": combos_processed,
@@ -417,7 +457,7 @@ async def run_worker_pool_extraction(
 def upsert_ofertas_history_db(db: Session, ofertas: List[Dict]) -> int:
     """
     Inserta o actualiza las ofertas validadas en la tabla `ofertas_proveedor_history`
-    garantizando trazabilidad histórica y evitando colisiones entre catálogos.
+    garantizando trazabilidad histórica y evitando colisiones entre catálogos y proveedores.
     """
     if not ofertas:
         return 0
@@ -442,8 +482,8 @@ def upsert_ofertas_history_db(db: Session, ofertas: List[Dict]) -> int:
                 "nro_parte": o.get("nro_parte") or "S/N",
                 "descripcion": o.get("descripcion") or o.get("descripcion_producto") or "",
                 "marca": o.get("marca") or "VARIOS",
-                "ruc_proveedor": o.get("ruc_proveedor") or "20000000001",
-                "nombre_proveedor": o.get("nombre_proveedor") or o.get("proveedor") or "SEKAITECH / PROVEEDOR GENERAL",
+                "ruc_proveedor": o.get("ruc_proveedor") or "20601234567",
+                "nombre_proveedor": o.get("nombre_proveedor") or o.get("proveedor") or "THE KING COMPUTER E.I.R.L.",
                 "acuerdo_marco": o.get("acuerdo_marco") or "EXT-CE-2022-5",
                 "catalogo": o.get("catalogo") or "COMPUTADORAS DE ESCRITORIO",
                 "categoria": o.get("categoria") or "ESCRITORIO",

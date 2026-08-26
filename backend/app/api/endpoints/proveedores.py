@@ -30,8 +30,14 @@ def get_proveedor_fichas(
     where_clauses = ["1=1"]
 
     if proveedor and proveedor.lower() != "all":
-        where_clauses.append("UPPER(f.nombre_proveedor) LIKE UPPER(:proveedor)")
-        params["proveedor"] = f"%{proveedor}%"
+        prov_l = proveedor.lower()
+        if prov_l in ("thekingcomputer", "king"):
+            where_clauses.append("(UPPER(f.nombre_proveedor) LIKE '%KING%' OR UPPER(f.ruc_proveedor) = '20601234567')")
+        elif prov_l in ("jorge_rojas", "jorge", "rojas"):
+            where_clauses.append("(UPPER(f.nombre_proveedor) LIKE '%ROJAS%' OR UPPER(f.nombre_proveedor) LIKE '%JORGE%' OR UPPER(f.ruc_proveedor) = '10408899991')")
+        else:
+            where_clauses.append("UPPER(f.nombre_proveedor) LIKE UPPER(:proveedor)")
+            params["proveedor"] = f"%{proveedor}%"
 
     if search:
         where_clauses.append("(UPPER(f.nro_parte) LIKE UPPER(:search) OR UPPER(f.descripcion_producto) LIKE UPPER(:search) OR UPPER(f.marca) LIKE UPPER(:search))")
@@ -400,24 +406,42 @@ def get_proveedor_kpis(
     except Exception:
         return {"total_ordenes": 0, "total_vendido": 0, "fichas_count": 0, "avg_precio": 0}
 
+@router.get("/accounts")
+def get_available_accounts():
+    """Devuelve la lista de cuentas de proveedores configuradas para extracción."""
+    from app.services.proveedores_scraper import PROVEEDORES_CONFIG
+    return [
+        {
+            "id": k,
+            "nombre": v["nombre"],
+            "short": v["short"],
+            "user": v["user"],
+            "ruc": v["ruc"]
+        }
+        for k, v in PROVEEDORES_CONFIG.items()
+    ]
+
 @router.post("/scrape")
 async def trigger_scrape_proveedores(
     background_tasks: BackgroundTasks,
-    n_acuerdo: str = Query("249"),
-    n_catalogo: str = Query("252"),
-    n_categoria: str = Query("11736"),
+    proveedor: str = Query("thekingcomputer", description="ID del proveedor a extraer: thekingcomputer, jorge_rojas"),
     db: Session = Depends(get_db)
 ):
     """
-    Inicia la extracción en segundo plano usando el Worker Pool async concurrente.
+    Inicia la extracción en segundo plano para la cuenta del proveedor especificado.
     """
-    combos = [(n_acuerdo, n_catalogo, n_categoria)]
+    from app.services.proveedores_scraper import PROVEEDORES_CONFIG
+    prov_nombre = PROVEEDORES_CONFIG.get(proveedor, {}).get("nombre", proveedor)
 
     async def _async_task():
-        await run_worker_pool_extraction(combos, db)
+        await run_worker_pool_extraction([], db, provider_key=proveedor)
 
     background_tasks.add_task(_async_task)
-    return {"message": "Worker Pool de extracción por proveedor iniciado en segundo plano"}
+    return {
+        "message": f"Worker Pool de extracción iniciado para '{prov_nombre}'",
+        "proveedor": proveedor,
+        "nombre": prov_nombre
+    }
 
 @router.get("/scrape-status")
 def get_scrape_status():

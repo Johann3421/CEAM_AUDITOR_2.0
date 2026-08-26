@@ -135,8 +135,16 @@ try:
                    OR UPPER(descripcion_producto) LIKE '%SFF%')
                   AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
                   AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
-                  AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%'
                   AND UPPER(descripcion_producto) NOT LIKE '%MONITOR%';
+
+                -- 12. Asignar Proveedor oficial The King Computer a las ofertas extraídas existentes
+                UPDATE ofertas_proveedor_history 
+                SET nombre_proveedor = 'THE KING COMPUTER E.I.R.L.',
+                    ruc_proveedor = '20601234567'
+                WHERE nombre_proveedor LIKE '%SEKAITECH%' 
+                   OR nombre_proveedor LIKE '%PROVEEDOR GENERAL%'
+                   OR nombre_proveedor IS NULL 
+                   OR nombre_proveedor = '';
             """))
         except Exception:
             pass

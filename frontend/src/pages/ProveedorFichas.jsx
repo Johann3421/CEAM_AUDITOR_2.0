@@ -12,9 +12,8 @@ import {
 
 const MAIN_PROVIDERS = [
   { id: 'all', name: 'Todos los Proveedores', tag: 'Global' },
-  { id: 'sekaitech', name: 'SEKAITECH E.I.R.L.', ruc: '20608889991', short: 'Sekaitech' },
-  { id: 'king', name: 'THE KING COMPUTER E.I.R.L.', ruc: '20601234567', short: 'The King Computer' },
-  { id: 'jorge', name: 'DISTRIBUIDORA JORGE ROJAS S.A.C.', ruc: '20509876543', short: 'Jorge Rojas' },
+  { id: 'thekingcomputer', name: 'THE KING COMPUTER E.I.R.L.', ruc: '20601234567', short: 'The King Computer', user: 'estalin.huamali01' },
+  { id: 'jorge_rojas', name: 'ROJAS VILLANUEVA JORGE LUIS', ruc: '10408899991', short: 'Jorge Rojas Villanueva', user: 'neison.chacas' },
 ];
 
 const fmt = (n) =>
@@ -127,6 +126,7 @@ const ProveedorFichas = () => {
   });
   const [loading, setLoading] = useState(false);
   const [reclassifying, setReclassifying] = useState(false);
+  const [scrapeProvider, setScrapeProvider] = useState('thekingcomputer');
   const [scraping, setScraping] = useState(false);
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(50);
@@ -162,10 +162,10 @@ const ProveedorFichas = () => {
 
   const fetchFichasData = () => {
     setLoading(true);
-    const provName = MAIN_PROVIDERS.find(p => p.id === selectedProvider)?.name || '';
+    const provId = selectedProvider !== 'all' ? selectedProvider : undefined;
     
     proveedoresApi.getFichas({
-      proveedor: selectedProvider !== 'all' ? provName : undefined,
+      proveedor: provId,
       search: search || undefined,
       marca: marcaFilter || undefined,
       categoria: activeTab !== 'all' ? activeTab : undefined,
@@ -228,7 +228,7 @@ const ProveedorFichas = () => {
     setScraping(true);
     setShowLogModal(true);
     try {
-      await proveedoresApi.scrape({});
+      await proveedoresApi.scrape({ proveedor: scrapeProvider });
     } catch (err) {
       console.error(err);
       setScraping(false);
@@ -338,7 +338,7 @@ const ProveedorFichas = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <button
             className="btn btn-secondary"
             onClick={handleReclassify}
@@ -361,6 +361,25 @@ const ProveedorFichas = () => {
             {exportingJson ? 'Generando...' : '📥 Descargar JSON'}
           </button>
 
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc', border: '1px solid var(--c-border)', padding: '3px 8px', borderRadius: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', textTransform: 'uppercase' }}>
+              Cuenta:
+            </span>
+            <select
+              className="form-select"
+              value={scrapeProvider}
+              onChange={(e) => setScrapeProvider(e.target.value)}
+              disabled={scraping}
+              style={{ fontSize: 12, padding: '4px 6px', fontWeight: 600, minWidth: 200 }}
+            >
+              {MAIN_PROVIDERS.filter(p => p.id !== 'all').map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.short} ({p.user})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <button
             className="btn btn-primary"
             onClick={handleStartScrape}
@@ -368,7 +387,7 @@ const ProveedorFichas = () => {
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600 }}
           >
             <RefreshCw size={15} className={scraping ? 'spin' : ''} />
-            {scraping ? 'Extrayendo Catálogos...' : '⚡ Extraer Todo el Catálogo'}
+            {scraping ? 'Extrayendo Catálogos...' : `⚡ Extraer Catálogo (${MAIN_PROVIDERS.find(p => p.id === scrapeProvider)?.short || ''})`}
           </button>
         </div>
       </div>
@@ -679,20 +698,34 @@ const ProveedorFichas = () => {
                       {/* Marca & Nro Parte */}
                       <td style={{ padding: '10px 14px', verticalAlign: 'middle' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          <span style={{ 
-                            display: 'inline-block',
-                            padding: '1px 6px', 
-                            borderRadius: 4, 
-                            fontSize: 10, 
-                            fontWeight: 700, 
-                            background: f.marca === 'HP' ? '#eff6ff' : f.marca === 'LENOVO' ? '#fef2f2' : f.marca === 'DELL' ? '#f0fdf4' : f.marca === 'ADVANCE' ? '#fdf2f8' : '#f1f5f9',
-                            color: f.marca === 'HP' ? '#1d4ed8' : f.marca === 'LENOVO' ? '#b91c1c' : f.marca === 'DELL' ? '#15803d' : f.marca === 'ADVANCE' ? '#be185d' : '#334155',
-                            width: 'fit-content'
-                          }}>
-                            {f.marca || 'VARIOS'}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ 
+                              display: 'inline-block',
+                              padding: '1px 6px', 
+                              borderRadius: 4, 
+                              fontSize: 10, 
+                              fontWeight: 700, 
+                              background: f.marca === 'HP' ? '#eff6ff' : f.marca === 'LENOVO' ? '#fef2f2' : f.marca === 'DELL' ? '#f0fdf4' : f.marca === 'ADVANCE' ? '#fdf2f8' : '#f1f5f9',
+                              color: f.marca === 'HP' ? '#1d4ed8' : f.marca === 'LENOVO' ? '#b91c1c' : f.marca === 'DELL' ? '#15803d' : f.marca === 'ADVANCE' ? '#be185d' : '#334155',
+                              width: 'fit-content'
+                            }}>
+                              {f.marca || 'VARIOS'}
+                            </span>
+                          </div>
                           <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12, color: 'var(--c-text-primary)' }}>
                             {f.nro_parte || 'S/N'}
+                          </span>
+                          <span style={{ 
+                            fontSize: 10, 
+                            color: (f.proveedor?.includes('JORGE') || f.nombre_proveedor?.includes('JORGE')) ? '#0284c7' : '#475569', 
+                            fontWeight: 600, 
+                            background: (f.proveedor?.includes('JORGE') || f.nombre_proveedor?.includes('JORGE')) ? '#f0f9ff' : '#f8fafc', 
+                            border: `1px solid ${(f.proveedor?.includes('JORGE') || f.nombre_proveedor?.includes('JORGE')) ? '#bae6fd' : '#e2e8f0'}`,
+                            padding: '1px 5px', 
+                            borderRadius: 3, 
+                            width: 'fit-content'
+                          }}>
+                            🏢 {(f.proveedor?.includes('JORGE') || f.nombre_proveedor?.includes('JORGE')) ? 'Jorge Rojas' : 'The King Computer'}
                           </span>
                         </div>
                       </td>
