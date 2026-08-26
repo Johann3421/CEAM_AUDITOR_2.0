@@ -12,6 +12,7 @@ router = APIRouter(prefix="/proveedores", tags=["proveedores"])
 @router.get("/fichas")
 def get_proveedor_fichas(
     proveedor: Optional[str] = Query(None, description="Filtro por nombre de proveedor"),
+    proveedor_filter: Optional[str] = Query(None, description="Filtro específico: 'ambos', 'exclusivo', 'thekingcomputer', 'jorge_rojas'"),
     search: Optional[str] = Query(None, description="Búsqueda rápida por nro_parte o descripción"),
     marca: Optional[str] = Query(None, description="Filtro por marca"),
     nro_parte: Optional[str] = Query(None, description="Filtro por nro_parte"),
