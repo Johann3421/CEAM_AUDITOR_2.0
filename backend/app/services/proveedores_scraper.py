@@ -789,38 +789,32 @@ async def async_extract_plazos_regionales(
 
                 add_status_log(f"📍 Región: {reg_nom} (Ubigeo: {ubigeo_prov})")
 
-                # Consultar todos los combos en paralelo para esta región (ultra-rápido, ~2-3s por región)
-                try:
-                    results = await page.evaluate("""async ({acuerdoProvId, ubigeoProv, combos}) => {
-                        const promises = combos.map(async (combo) => {
+                reg_actualizados = 0
+
+                for combo in combos_activos:
+                    id_cat = combo["id_catalogo"]
+                    id_subcat = combo["id_subcategoria"]
+                    nom_subcat = combo["nom_subcategoria"]
+
+                    body_post = f"{acuerdo_prov_id}^{id_cat}^{id_subcat}^^{ubigeo_prov}"
+
+                    try:
+                        res_raw = await page.evaluate("""async (bodyPost) => {
                             try {
                                 const res = await fetch('/MejoraPlazo/consultaMejoraPlazoEntrega', {
                                     method: 'POST',
                                     headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                                    body: `${acuerdoProvId}^${combo.id_catalogo}^${combo.id_subcategoria}^^${ubigeoProv}`,
-                                    signal: AbortSignal.timeout(8000)
+                                    body: bodyPost,
+                                    signal: AbortSignal.timeout(6000)
                                 });
                                 if (res.ok) {
-                                    const txt = await res.text();
-                                    return { combo, raw: txt };
+                                    return await res.text();
                                 }
-                                return { combo, raw: null };
-                            } catch(e) {
-                                return { combo, raw: null };
-                            }
-                        });
-                        return await Promise.all(promises);
-                    }""", {"acuerdoProvId": acuerdo_prov_id, "ubigeoProv": ubigeo_prov, "combos": combos_activos})
-                except Exception as e:
-                    add_status_log(f"   ⚠️ Error en consulta paralela {reg_nom}: {e}")
-                    results = []
-
-                reg_actualizados = 0
-
-                for item in results:
-                    combo = item.get("combo") or {}
-                    nom_subcat = combo.get("nom_subcategoria", "")
-                    res_raw = item.get("raw")
+                                return null;
+                            } catch(e) { return null; }
+                        }""", body_post)
+                    except Exception:
+                        res_raw = None
 
                     EXTRACTION_STATUS["combos_completed"] += 1
 
@@ -834,55 +828,55 @@ async def async_extract_plazos_regionales(
                         continue
 
                     filas = datos_str.split("¬")
-                    parsed_in_cat = 0
+                    batch_params = []
 
-                    if db:
-                        for fila in filas:
-                            if not fila.strip():
-                                continue
-                            cols = fila.split("^")
-                            if len(cols) < 7:
-                                continue
+                    for fila in filas:
+                        if not fila.strip():
+                            continue
+                        cols = fila.split("^")
+                        if len(cols) < 7:
+                            continue
 
-                            desc_prod = cols[2].strip()
-                            plazo_str = cols[6].strip()
+                        desc_prod = cols[2].strip()
+                        plazo_str = cols[6].strip()
 
-                            try:
-                                plazo_int = int(float(plazo_str)) if plazo_str else None
-                            except (ValueError, TypeError):
-                                plazo_int = None
+                        try:
+                            plazo_int = int(float(plazo_str)) if plazo_str else None
+                        except (ValueError, TypeError):
+                            plazo_int = None
 
-                            if plazo_int is not None and desc_prod:
-                                clean_desc = re.sub(r'\s+SIST\.\s+MANEJO.*$', '', desc_prod, flags=re.IGNORECASE).strip()
-                                unidad_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)\s+(.+)$', clean_desc, re.IGNORECASE)
-                                if unidad_match:
-                                    part_words = unidad_match.group(2).strip().split()
-                                    possible_part = part_words[-1] if part_words else "S/N"
-                                else:
-                                    desc_words = clean_desc.split()
-                                    possible_part = desc_words[-1] if desc_words else "S/N"
+                        if plazo_int is not None and desc_prod:
+                            clean_desc = re.sub(r'\s+SIST\.\s+MANEJO.*$', '', desc_prod, flags=re.IGNORECASE).strip()
+                            unidad_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)\s+(.+)$', clean_desc, re.IGNORECASE)
+                            if unidad_match:
+                                part_words = unidad_match.group(2).strip().split()
+                                possible_part = part_words[-1] if part_words else "S/N"
+                            else:
+                                desc_words = clean_desc.split()
+                                possible_part = desc_words[-1] if desc_words else "S/N"
 
-                                desc_search = f"%{possible_part}%" if len(possible_part) >= 4 and possible_part != "S/N" else f"%{clean_desc[:40]}%"
+                            desc_search = f"%{possible_part}%" if len(possible_part) >= 4 and possible_part != "S/N" else f"%{clean_desc[:40]}%"
 
-                                db.execute(update_stmt, {
-                                    "plazo": plazo_int,
-                                    "region": reg_key,
-                                    "ruc": ruc,
-                                    "prov_match": prov_search,
-                                    "nro_parte": possible_part,
-                                    "desc_match": desc_search
-                                })
-                                parsed_in_cat += 1
+                            batch_params.append({
+                                "plazo": plazo_int,
+                                "region": reg_key,
+                                "ruc": ruc,
+                                "prov_match": prov_search,
+                                "nro_parte": possible_part,
+                                "desc_match": desc_search
+                            })
 
-                        if parsed_in_cat > 0:
-                            db.commit()
+                    if db and batch_params:
+                        db.execute(update_stmt, batch_params)
+                        db.commit()
 
-                    reg_actualizados += parsed_in_cat
-                    total_actualizados += parsed_in_cat
+                    count_cat = len(batch_params)
+                    reg_actualizados += count_cat
+                    total_actualizados += count_cat
                     EXTRACTION_STATUS["items_inserted"] = total_actualizados
 
-                    if parsed_in_cat > 0:
-                        add_status_log(f"   ✅ [{nom_subcat}] {parsed_in_cat} plazos procesados en {reg_nom}")
+                    if count_cat > 0:
+                        add_status_log(f"   ✅ [{nom_subcat}] {count_cat} plazos procesados en {reg_nom}")
 
                 add_status_log(f"   📊 Resumen {reg_nom}: {reg_actualizados} plazos totales actualizados")
 
