@@ -760,9 +760,26 @@ async def async_extract_plazos_regionales(
                     {"id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11741", "nom_subcategoria": "MONITOR"},
                 ]
 
-            add_status_log(f"📦 {len(combos_activos)} categorías activas detectadas para extracción")
+            # Mapeo subcategoría portal → catalogo/categoria en BD
+            SUBCAT_TO_DB = {
+                "COMPUTADORA PORTATIL": ("COMPUTADORAS PORTATILES", "COMPUTADORA PORTATIL"),
+                "ESTACION DE TRABAJO PORTATIL": ("COMPUTADORAS PORTATILES", "ESTACION DE TRABAJO PORTATIL"),
+                "TABLETA": ("TABLETS", "TABLET"),
+                "COMPUTADORA DE ESCRITORIO": ("COMPUTADORAS DE ESCRITORIO", "COMPUTADORA DE ESCRITORIO"),
+                "COMPUTADORA TODO EN UNO": ("COMPUTADORAS DE ESCRITORIO", "COMPUTADORA TODO EN UNO"),
+                "ESTACION DE TRABAJO": ("ESTACIONES DE TRABAJO", "ESTACION DE TRABAJO"),
+                "MONITOR": ("MONITORES", "MONITOR"),
+                "ESCANER DE DOCUMENTOS": ("ESCANERES", "ESCANER DE DOCUMENTOS"),
+                "ESCANER DE PLANOS": ("ESCANERES", "ESCANER DE PLANOS"),
+                "IMPRESORA": ("IMPRESORAS", "IMPRESORA"),
+                "MULTIFUNCIONAL": ("IMPRESORAS", "MULTIFUNCIONAL"),
+                "SERVIDOR": ("SERVIDORES", "SERVIDOR"),
+                "PROYECTOR": ("PROYECTORES", "PROYECTOR"),
+                "UPS": ("ENERGIA Y UPS", "UPS"),
+            }
 
             if db:
+                # UPDATE masivo: todas las ofertas de un catalogo+categoria del proveedor en esa región
                 update_stmt = text("""
                     UPDATE ofertas_proveedor_history
                     SET raw_json = jsonb_set(
@@ -772,10 +789,7 @@ async def async_extract_plazos_regionales(
                         ),
                         plazo_entrega_dias = COALESCE(plazo_entrega_dias, :plazo)
                     WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
-                      AND (
-                          (UPPER(TRIM(nro_parte)) = UPPER(TRIM(:nro_parte)) AND UPPER(TRIM(nro_parte)) NOT IN ('', '-', 'S/N', 'SN', '0'))
-                          OR (descripcion_producto ILIKE :desc_match AND length(:desc_match) > 10)
-                      )
+                      AND UPPER(categoria) LIKE :cat_match
                 """)
                 prov_search = "%KING%" if "KING" in nombre_proveedor.upper() else "%ROJAS%"
 
@@ -827,58 +841,56 @@ async def async_extract_plazos_regionales(
                     if not datos_str or not datos_str.strip():
                         continue
 
-                    filas = datos_str.split("¬")
-                    batch_params = []
+                    # Solo tomar la PRIMERA fila para obtener el plazo
+                    primera_fila = None
+                    for fila in datos_str.split("¬"):
+                        if fila.strip():
+                            cols = fila.split("^")
+                            if len(cols) >= 7 and cols[6].strip():
+                                primera_fila = cols
+                                break
 
-                    for fila in filas:
-                        if not fila.strip():
-                            continue
-                        cols = fila.split("^")
-                        if len(cols) < 7:
-                            continue
+                    if not primera_fila:
+                        continue
 
-                        desc_prod = cols[2].strip()
-                        plazo_str = cols[6].strip()
+                    try:
+                        plazo_int = int(float(primera_fila[6].strip()))
+                    except (ValueError, TypeError):
+                        continue
 
-                        try:
-                            plazo_int = int(float(plazo_str)) if plazo_str else None
-                        except (ValueError, TypeError):
-                            plazo_int = None
+                    # Buscar mapeo en BD para esta subcategoría
+                    nom_upper = nom_subcat.upper().strip()
+                    db_cat = SUBCAT_TO_DB.get(nom_upper)
+                    if not db_cat:
+                        # Fallback: buscar por coincidencia parcial
+                        for key, val in SUBCAT_TO_DB.items():
+                            if key in nom_upper or nom_upper in key:
+                                db_cat = val
+                                break
 
-                        if plazo_int is not None and desc_prod:
-                            clean_desc = re.sub(r'\s+SIST\.\s+MANEJO.*$', '', desc_prod, flags=re.IGNORECASE).strip()
-                            unidad_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)\s+(.+)$', clean_desc, re.IGNORECASE)
-                            if unidad_match:
-                                part_words = unidad_match.group(2).strip().split()
-                                possible_part = part_words[-1] if part_words else "S/N"
-                            else:
-                                desc_words = clean_desc.split()
-                                possible_part = desc_words[-1] if desc_words else "S/N"
+                    cat_match = f"%{db_cat[1]}%" if db_cat else f"%{nom_upper}%"
 
-                            desc_search = f"%{possible_part}%" if len(possible_part) >= 4 and possible_part != "S/N" else f"%{clean_desc[:40]}%"
-
-                            batch_params.append({
-                                "plazo": plazo_int,
-                                "region": reg_key,
-                                "ruc": ruc,
-                                "prov_match": prov_search,
-                                "nro_parte": possible_part,
-                                "desc_match": desc_search
-                            })
-
-                    if db and batch_params:
-                        db.execute(update_stmt, batch_params)
+                    if db:
+                        result = db.execute(update_stmt, {
+                            "plazo": plazo_int,
+                            "region": reg_key,
+                            "ruc": ruc,
+                            "prov_match": prov_search,
+                            "cat_match": cat_match
+                        })
+                        rows_updated = result.rowcount
                         db.commit()
+                    else:
+                        rows_updated = 0
 
-                    count_cat = len(batch_params)
-                    reg_actualizados += count_cat
-                    total_actualizados += count_cat
+                    reg_actualizados += rows_updated
+                    total_actualizados += rows_updated
                     EXTRACTION_STATUS["items_inserted"] = total_actualizados
 
-                    if count_cat > 0:
-                        add_status_log(f"   ✅ [{nom_subcat}] {count_cat} plazos procesados en {reg_nom}")
+                    if rows_updated > 0:
+                        add_status_log(f"   ✅ [{nom_subcat}] {plazo_int} días → {rows_updated} fichas actualizadas en {reg_nom}")
 
-                add_status_log(f"   📊 Resumen {reg_nom}: {reg_actualizados} plazos totales actualizados")
+                add_status_log(f"   📊 Resumen {reg_nom}: {reg_actualizados} fichas totales actualizadas")
 
                 if EXTRACTION_STATUS["combos_completed"] % 10 == 0:
                     await _capture_live_preview(page, update_live_screenshot)
@@ -887,7 +899,7 @@ async def async_extract_plazos_regionales(
 
         EXTRACTION_STATUS["is_running"] = False
         EXTRACTION_STATUS["status"] = "completed"
-        add_status_log(f"🎉 Extracción de plazos completada! Total plazos procesados: {total_actualizados}")
+        add_status_log(f"🎉 Extracción de plazos completada! Total fichas actualizadas: {total_actualizados}")
         return {"status": "completed", "total_actualizados": total_actualizados}
     except Exception as e:
         EXTRACTION_STATUS["is_running"] = False
