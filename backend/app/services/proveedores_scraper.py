@@ -738,7 +738,12 @@ async def async_extract_plazos_regionales(
                         if db:
                             update_stmt = text("""
                                 UPDATE ofertas_proveedor_history
-                                SET plazo_entrega_dias = :plazo,
+                                SET raw_json = jsonb_set(
+                                        COALESCE(raw_json::jsonb, '{}'::jsonb), 
+                                        ARRAY['plazos_por_region', :region], 
+                                        to_jsonb(:plazo::int)
+                                    ),
+                                    plazo_entrega_dias = :plazo,
                                     region = :region,
                                     provincia = :provincia
                                 WHERE ruc_proveedor = :ruc 

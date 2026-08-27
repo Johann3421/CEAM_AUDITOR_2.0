@@ -18,32 +18,32 @@ const MAIN_PROVIDERS = [
 ];
 
 const PERU_REGIONES = [
-  { id: 'all', name: 'Todas las Regiones (Nacional)' },
-  { id: 'LIMA', name: '📍 Lima' },
-  { id: 'CALLAO', name: '📍 Callao' },
-  { id: 'AREQUIPA', name: '📍 Arequipa' },
-  { id: 'CUSCO', name: '📍 Cusco' },
-  { id: 'LA LIBERTAD', name: '📍 La Libertad' },
-  { id: 'PIURA', name: '📍 Piura' },
-  { id: 'LAMBAYEQUE', name: '📍 Lambayeque' },
-  { id: 'JUNIN', name: '📍 Junín' },
-  { id: 'ANCASH', name: '📍 Áncash' },
-  { id: 'ICA', name: '📍 Ica' },
-  { id: 'CAJAMARCA', name: '📍 Cajamarca' },
-  { id: 'PUNO', name: '📍 Puno' },
-  { id: 'SAN MARTIN', name: '📍 San Martín' },
-  { id: 'HUANUCO', name: '📍 Huánuco' },
-  { id: 'AYACUCHO', name: '📍 Ayacucho' },
-  { id: 'LORETO', name: '📍 Loreto' },
-  { id: 'UCAYALI', name: '📍 Ucayali' },
-  { id: 'TACNA', name: '📍 Tacna' },
-  { id: 'MOQUEGUA', name: '📍 Moquegua' },
-  { id: 'TUMBES', name: '📍 Tumbes' },
-  { id: 'APURIMAC', name: '📍 Apurímac' },
-  { id: 'AMAZONAS', name: '📍 Amazonas' },
-  { id: 'HUANCAVELICA', name: '📍 Huancavelica' },
-  { id: 'PASCO', name: '📍 Pasco' },
-  { id: 'MADRE DE DIOS', name: '📍 Madre de Dios' },
+  { id: 'all', name: 'Todas las Regiones (Nacional)', capital: 'Todo el Perú', zona: 'Nacional' },
+  { id: 'LIMA', name: 'Lima', capital: 'Lima Metropolitana', zona: 'Lima/Callao' },
+  { id: 'CALLAO', name: 'Callao', capital: 'Callao', zona: 'Lima/Callao' },
+  { id: 'PIURA', name: 'Piura', capital: 'Piura', zona: 'Costa' },
+  { id: 'LA LIBERTAD', name: 'La Libertad', capital: 'Trujillo', zona: 'Costa' },
+  { id: 'LAMBAYEQUE', name: 'Lambayeque', capital: 'Chiclayo', zona: 'Costa' },
+  { id: 'ANCASH', name: 'Áncash', capital: 'Huaraz / Chimbote', zona: 'Costa' },
+  { id: 'ICA', name: 'Ica', capital: 'Ica', zona: 'Costa' },
+  { id: 'TACNA', name: 'Tacna', capital: 'Tacna', zona: 'Costa' },
+  { id: 'MOQUEGUA', name: 'Moquegua', capital: 'Moquegua', zona: 'Costa' },
+  { id: 'TUMBES', name: 'Tumbes', capital: 'Tumbes', zona: 'Costa' },
+  { id: 'AREQUIPA', name: 'Arequipa', capital: 'Arequipa', zona: 'Sierra' },
+  { id: 'CUSCO', name: 'Cusco', capital: 'Cusco', zona: 'Sierra' },
+  { id: 'JUNIN', name: 'Junín', capital: 'Huancayo', zona: 'Sierra' },
+  { id: 'HUANUCO', name: 'Huánuco', capital: 'Huánuco', zona: 'Sierra' },
+  { id: 'CAJAMARCA', name: 'Cajamarca', capital: 'Cajamarca', zona: 'Sierra' },
+  { id: 'PUNO', name: 'Puno', capital: 'Puno', zona: 'Sierra' },
+  { id: 'AYACUCHO', name: 'Ayacucho', capital: 'Ayacucho', zona: 'Sierra' },
+  { id: 'APURIMAC', name: 'Apurímac', capital: 'Abancay', zona: 'Sierra' },
+  { id: 'HUANCAVELICA', name: 'Huancavelica', capital: 'Huancavelica', zona: 'Sierra' },
+  { id: 'PASCO', name: 'Pasco', capital: 'Cerro de Pasco', zona: 'Sierra' },
+  { id: 'LORETO', name: 'Loreto', capital: 'Iquitos', zona: 'Selva' },
+  { id: 'SAN MARTIN', name: 'San Martín', capital: 'Moyobamba / Tarapoto', zona: 'Selva' },
+  { id: 'UCAYALI', name: 'Ucayali', capital: 'Pucallpa', zona: 'Selva' },
+  { id: 'AMAZONAS', name: 'Amazonas', capital: 'Chachapoyas', zona: 'Selva' },
+  { id: 'MADRE DE DIOS', name: 'Madre de Dios', capital: 'Puerto Maldonado', zona: 'Selva' }
 ];
 
 const fmt = (n) =>
@@ -204,6 +204,9 @@ const ProveedorFichas = () => {
   const [scrapeStatus, setScrapeStatus] = useState(null);
   const [showLogModal, setShowLogModal] = useState(false);
   const [selectedJsonItem, setSelectedJsonItem] = useState(null);
+  const [selectedRegionModalItem, setSelectedRegionModalItem] = useState(null);
+  const [modalRegionSearch, setModalRegionSearch] = useState('');
+  const [modalZoneFilter, setModalZoneFilter] = useState('all');
   const [copied, setCopied] = useState(false);
   const [copiedPart, setCopiedPart] = useState(null);
   const [exportingJson, setExportingJson] = useState(false);
@@ -622,65 +625,112 @@ const ProveedorFichas = () => {
   // Helper para renderizar la columna de Plazo de Entrega
   const renderPlazoEntrega = (f) => {
     const ofertas = Array.isArray(f.ofertas) && f.ofertas.length > 0 ? f.ofertas : [f];
+    const isFilteredRegion = regionFilter !== 'all';
+    const regionObj = PERU_REGIONES.find(r => r.id === regionFilter);
+    const regionName = regionObj ? regionObj.name.replace('📍 ', '') : '';
 
-    // Si estamos en consolidado con múltiples ofertas
-    if (ofertas.length > 1) {
-      return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {ofertas.map((o, idx) => {
-            const isJorge = (o.nombre_proveedor || '').toUpperCase().includes('JORGE') || (o.nombre_proveedor || '').toUpperCase().includes('ROJAS');
-            const provLabel = isJorge ? 'Jorge Rojas' : 'The King';
-            const plazo = o.plazo_entrega_dias;
-            return (
-              <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, fontSize: 11 }}>
-                <span style={{ color: isJorge ? '#0284c7' : '#7c3aed', fontWeight: 600, fontSize: 10 }}>{provLabel}:</span>
-                {plazo != null ? (
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+        {/* Si estamos en consolidado con múltiples ofertas */}
+        {ofertas.length > 1 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+            {ofertas.map((o, idx) => {
+              const isJorge = (o.nombre_proveedor || '').toUpperCase().includes('JORGE') || (o.nombre_proveedor || '').toUpperCase().includes('ROJAS');
+              const provLabel = isJorge ? 'Jorge Rojas' : 'The King';
+              
+              // Resolver plazo: si hay filtro regional, buscar en plazos_por_region o fallback
+              let plazo = null;
+              if (isFilteredRegion && o.plazos_por_region && o.plazos_por_region[regionFilter] != null) {
+                plazo = o.plazos_por_region[regionFilter];
+              } else {
+                plazo = o.plazo_entrega_dias;
+              }
+
+              return (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, fontSize: 11 }}>
+                  <span style={{ color: isJorge ? '#0284c7' : '#7c3aed', fontWeight: 600, fontSize: 10 }}>{provLabel}:</span>
+                  {plazo != null ? (
+                    <span style={{
+                      padding: '1px 6px',
+                      borderRadius: 4,
+                      fontWeight: 700,
+                      fontSize: 10,
+                      background: plazo <= 2 ? '#dcfce7' : plazo <= 15 ? '#e0f2fe' : '#fef3c7',
+                      color: plazo <= 2 ? '#166534' : plazo <= 15 ? '#0369a1' : '#92400e',
+                      border: `1px solid ${plazo <= 2 ? '#bbf7d0' : plazo <= 15 ? '#bae6fd' : '#fde68a'}`
+                    }}>
+                      ⏱️ {plazo} {plazo === 1 ? 'día' : 'días'}
+                    </span>
+                  ) : (
+                    <span style={{ color: '#94a3b8', fontSize: 10 }}>—</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+            {(() => {
+              const single = ofertas[0] || f;
+              let plazo = null;
+              if (isFilteredRegion && single.plazos_por_region && single.plazos_por_region[regionFilter] != null) {
+                plazo = single.plazos_por_region[regionFilter];
+              } else {
+                plazo = f.min_plazo_entrega || f.plazo_entrega_dias || single.plazo_entrega_dias;
+              }
+
+              if (plazo == null) {
+                return <span style={{ color: '#94a3b8', fontSize: 11 }}>—</span>;
+              }
+
+              return (
+                <>
                   <span style={{
-                    padding: '1px 6px',
-                    borderRadius: 4,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '2px 8px',
+                    borderRadius: 5,
+                    fontSize: 11,
                     fontWeight: 700,
-                    fontSize: 10,
                     background: plazo <= 2 ? '#dcfce7' : plazo <= 15 ? '#e0f2fe' : '#fef3c7',
                     color: plazo <= 2 ? '#166534' : plazo <= 15 ? '#0369a1' : '#92400e',
                     border: `1px solid ${plazo <= 2 ? '#bbf7d0' : plazo <= 15 ? '#bae6fd' : '#fde68a'}`
                   }}>
                     ⏱️ {plazo} {plazo === 1 ? 'día' : 'días'}
                   </span>
-                ) : (
-                  <span style={{ color: '#94a3b8', fontSize: 10 }}>—</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
+                  <span style={{ fontSize: 9, color: '#64748b' }}>
+                    {isFilteredRegion ? `en ${regionName}` : plazo <= 2 ? '⚡ Inmediato' : plazo <= 15 ? '📦 Regular' : '🗓️ Programado'}
+                  </span>
+                </>
+              );
+            })()}
+          </div>
+        )}
 
-    // Oferta individual
-    const plazo = f.min_plazo_entrega || f.plazo_entrega_dias || (ofertas[0] && ofertas[0].plazo_entrega_dias);
-    if (plazo == null) {
-      return <span style={{ color: '#94a3b8', fontSize: 11 }}>—</span>;
-    }
-
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-        <span style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 4,
-          padding: '2px 8px',
-          borderRadius: 5,
-          fontSize: 11,
-          fontWeight: 700,
-          background: plazo <= 2 ? '#dcfce7' : plazo <= 15 ? '#e0f2fe' : '#fef3c7',
-          color: plazo <= 2 ? '#166534' : plazo <= 15 ? '#0369a1' : '#92400e',
-          border: `1px solid ${plazo <= 2 ? '#bbf7d0' : plazo <= 15 ? '#bae6fd' : '#fde68a'}`
-        }}>
-          ⏱️ {plazo} {plazo === 1 ? 'día' : 'días'}
-        </span>
-        <span style={{ fontSize: 9, color: '#64748b' }}>
-          {plazo <= 2 ? '⚡ Inmediato' : plazo <= 15 ? '📦 Regular' : '🗓️ Programado'}
-        </span>
+        {/* Botón interactivo para abrir el Modal de las 25 Regiones */}
+        <button
+          onClick={() => { setSelectedRegionModalItem(f); setModalRegionSearch(''); setModalZoneFilter('all'); }}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--c-brand)',
+            fontSize: 10,
+            fontWeight: 600,
+            cursor: 'pointer',
+            padding: '2px 6px',
+            borderRadius: 4,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 3,
+            textDecoration: 'none',
+            backgroundColor: 'rgba(37, 99, 235, 0.06)'
+          }}
+          title="Ver y comparar plazos de entrega en las 25 regiones del Perú para esta ficha"
+        >
+          <MapPin size={10} />
+          <span>🗺️ 25 Regiones</span>
+        </button>
       </div>
     );
   };
@@ -1481,6 +1531,318 @@ const ProveedorFichas = () => {
                   className="btn btn-primary btn-sm"
                   onClick={() => setSelectedJsonItem(null)}
                   style={{ padding: '4px 12px', fontSize: 12 }}
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Regional Delivery Timeframe Breakdown Modal (25 Regions) */}
+      {selectedRegionModalItem && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+          padding: 16
+        }}>
+          <div className="card fade-up" style={{
+            width: '100%',
+            maxWidth: 920,
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: 0,
+            overflow: 'hidden',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--c-border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              background: '#f8fafc',
+              gap: 12
+            }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Clock size={18} style={{ color: 'var(--c-brand)' }} />
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+                    Plazos de Entrega por Región — 25 Departamentos del Perú
+                  </h3>
+                </div>
+                <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--c-text-secondary)' }}>
+                  <strong>{selectedRegionModalItem.marca}</strong> | N° Parte: <code style={{ fontFamily: 'monospace', fontWeight: 700 }}>{selectedRegionModalItem.nro_parte}</code> — {selectedRegionModalItem.descripcion?.substring(0, 75)}…
+                </p>
+              </div>
+              <button 
+                onClick={() => setSelectedRegionModalItem(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-tertiary)', padding: 4 }}
+                title="Cerrar ventana"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Filter and Search Toolbar */}
+            <div style={{
+              padding: '10px 20px',
+              borderBottom: '1px solid var(--c-border)',
+              background: '#fff',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 10
+            }}>
+              {/* Search */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 220, position: 'relative' }}>
+                <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--c-text-tertiary)' }} />
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Buscar departamento (ej. Piura, Huánuco, Cusco, Arequipa)..."
+                  value={modalRegionSearch}
+                  onChange={(e) => setModalRegionSearch(e.target.value)}
+                  style={{ paddingLeft: 30, fontSize: 12, height: 32, width: '100%' }}
+                />
+                {modalRegionSearch && (
+                  <button 
+                    onClick={() => setModalRegionSearch('')}
+                    style={{ position: 'absolute', right: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              {/* Zone Filter Chips */}
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {['all', 'Lima/Callao', 'Costa', 'Sierra', 'Selva'].map((zone) => (
+                  <button
+                    key={zone}
+                    onClick={() => setModalZoneFilter(zone)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 14,
+                      fontSize: 11,
+                      fontWeight: modalZoneFilter === zone ? 700 : 500,
+                      border: '1px solid',
+                      borderColor: modalZoneFilter === zone ? 'var(--c-brand)' : '#e2e8f0',
+                      background: modalZoneFilter === zone ? 'var(--c-brand)' : '#f8fafc',
+                      color: modalZoneFilter === zone ? '#fff' : '#475569',
+                      cursor: 'pointer',
+                      transition: 'all 0.1s'
+                    }}
+                  >
+                    {zone === 'all' ? 'Todas (25)' : zone === 'Lima/Callao' ? '🏛️ Lima/Callao' : zone === 'Costa' ? '🏖️ Costa' : zone === 'Sierra' ? '🏔️ Sierra' : '🌴 Selva'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Body: Regions Cards Grid */}
+            <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1, background: '#f8fafc' }}>
+              {(() => {
+                const itemOffers = Array.isArray(selectedRegionModalItem.ofertas) && selectedRegionModalItem.ofertas.length > 0
+                  ? selectedRegionModalItem.ofertas
+                  : [selectedRegionModalItem];
+
+                const filteredRegionsList = PERU_REGIONES.filter(r => {
+                  if (r.id === 'all') return false;
+                  if (modalZoneFilter !== 'all' && r.zona !== modalZoneFilter) return false;
+                  if (modalRegionSearch.trim()) {
+                    const q = modalRegionSearch.toLowerCase();
+                    return r.name.toLowerCase().includes(q) || (r.capital && r.capital.toLowerCase().includes(q));
+                  }
+                  return true;
+                });
+
+                if (filteredRegionsList.length === 0) {
+                  return (
+                    <div style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-tertiary)' }}>
+                      No se encontraron regiones con el término "{modalRegionSearch}".
+                    </div>
+                  );
+                }
+
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+                    {filteredRegionsList.map((reg) => {
+                      // Calcular plazos por proveedor
+                      const providerPlazos = itemOffers.map((o) => {
+                        const isJorge = (o.nombre_proveedor || '').toUpperCase().includes('JORGE') || (o.nombre_proveedor || '').toUpperCase().includes('ROJAS');
+                        const provLabel = isJorge ? 'Jorge Rojas' : 'The King';
+                        const provRuc = o.ruc_proveedor || (isJorge ? '10408899991' : '20601234567');
+                        let plazo = null;
+                        if (o.plazos_por_region && o.plazos_por_region[reg.id] != null) {
+                          plazo = o.plazos_por_region[reg.id];
+                        } else if (selectedRegionModalItem.plazos_por_region && selectedRegionModalItem.plazos_por_region[reg.id] != null) {
+                          plazo = selectedRegionModalItem.plazos_por_region[reg.id];
+                        } else {
+                          plazo = o.plazo_entrega_dias || selectedRegionModalItem.plazo_entrega_dias;
+                        }
+                        return { provLabel, provRuc, isJorge, plazo, precio: o.precio_ofertado };
+                      });
+
+                      const hasMultiple = providerPlazos.length > 1;
+                      const validPlazos = providerPlazos.filter(p => p.plazo != null);
+                      const minPlazo = validPlazos.length > 0 ? Math.min(...validPlazos.map(p => p.plazo)) : null;
+
+                      return (
+                        <div 
+                          key={reg.id} 
+                          style={{
+                            background: '#fff',
+                            border: regionFilter === reg.id ? '2px solid var(--c-brand)' : '1px solid var(--c-border)',
+                            borderRadius: 8,
+                            padding: '10px 14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            boxShadow: regionFilter === reg.id ? '0 4px 6px -1px rgba(37, 99, 235, 0.15)' : '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                            position: 'relative'
+                          }}
+                        >
+                          {/* Top: Region name & Zona */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--c-text-primary)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <MapPin size={13} style={{ color: 'var(--c-brand)' }} />
+                                <span>{reg.name}</span>
+                              </div>
+                              <div style={{ fontSize: 10, color: '#64748b' }}>
+                                {reg.capital}
+                              </div>
+                            </div>
+                            <span style={{
+                              fontSize: 9,
+                              fontWeight: 600,
+                              padding: '1px 6px',
+                              borderRadius: 4,
+                              background: '#f1f5f9',
+                              color: '#475569'
+                            }}>
+                              {reg.zona}
+                            </span>
+                          </div>
+
+                          {/* Middle: Provider comparison */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, background: '#f8fafc', padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                            {providerPlazos.map((p, pIdx) => {
+                              const isFastest = minPlazo != null && p.plazo === minPlazo && hasMultiple;
+                              return (
+                                <div key={pIdx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
+                                  <span style={{ fontWeight: 600, color: p.isJorge ? '#0284c7' : '#7c3aed' }}>
+                                    {p.provLabel}:
+                                  </span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    {p.plazo != null ? (
+                                      <span style={{
+                                        fontWeight: 700,
+                                        fontSize: 11,
+                                        padding: '1px 6px',
+                                        borderRadius: 4,
+                                        background: p.plazo <= 2 ? '#dcfce7' : p.plazo <= 15 ? '#e0f2fe' : '#fef3c7',
+                                        color: p.plazo <= 2 ? '#166534' : p.plazo <= 15 ? '#0369a1' : '#92400e',
+                                        border: `1px solid ${p.plazo <= 2 ? '#bbf7d0' : p.plazo <= 15 ? '#bae6fd' : '#fde68a'}`
+                                      }}>
+                                        ⏱️ {p.plazo} {p.plazo === 1 ? 'día' : 'días'}
+                                      </span>
+                                    ) : (
+                                      <span style={{ color: '#94a3b8', fontSize: 10 }}>—</span>
+                                    )}
+                                    {isFastest && (
+                                      <span title="Entrega más rápida" style={{ fontSize: 10 }}>⚡</span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Bottom: Quick Select Button */}
+                          <button
+                            onClick={() => {
+                              setRegionFilter(reg.id);
+                              setSelectedRegionModalItem(null);
+                              setPage(0);
+                            }}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 4,
+                              border: regionFilter === reg.id ? '1px solid var(--c-brand)' : '1px solid #cbd5e1',
+                              background: regionFilter === reg.id ? '#eff6ff' : '#fff',
+                              color: regionFilter === reg.id ? 'var(--c-brand)' : '#334155',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              gap: 4
+                            }}
+                            title={`Filtrar toda la tabla para la región de ${reg.name}`}
+                          >
+                            {regionFilter === reg.id ? (
+                              <>
+                                <Check size={12} style={{ color: 'var(--c-brand)' }} />
+                                <span>Región Seleccionada</span>
+                              </>
+                            ) : (
+                              <>
+                                <span>Filtrar por {reg.name}</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding: '12px 20px',
+              borderTop: '1px solid var(--c-border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: '#f8fafc'
+            }}>
+              <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>
+                📍 Mostrando plazos vigentes oficiales extraídos de <strong>Perú Compras MejoraPlazo</strong>
+              </span>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                {regionFilter !== 'all' && (
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => { setRegionFilter('all'); setSelectedRegionModalItem(null); setPage(0); }}
+                    style={{ padding: '4px 10px', fontSize: 12 }}
+                  >
+                    Ver Todas las Regiones
+                  </button>
+                )}
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setSelectedRegionModalItem(null)}
+                  style={{ padding: '4px 14px', fontSize: 12 }}
                 >
                   Cerrar
                 </button>

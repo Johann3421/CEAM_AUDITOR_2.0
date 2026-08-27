@@ -133,6 +133,13 @@ def get_proveedor_fichas(
     where_sql = " AND ".join(where_clauses)
     is_consolidated = (not proveedor or proveedor.lower() == "all")
 
+    selected_reg = region.strip().upper() if (region and region.lower() != "all") else None
+    if selected_reg:
+        params["selected_reg"] = selected_reg
+        plazo_expr = "COALESCE((f.raw_json->'plazos_por_region'->>:selected_reg)::int, f.plazo_entrega_dias)"
+    else:
+        plazo_expr = "f.plazo_entrega_dias"
+
     if is_consolidated:
         having_clauses = []
         if proveedor_filter:
@@ -172,7 +179,8 @@ def get_proveedor_fichas(
                     f.ruc_proveedor,
                     f.precio_ofertado,
                     f.existencia_stock,
-                    f.plazo_entrega_dias,
+                    {plazo_expr} AS plazo_entrega_dias,
+                    COALESCE(f.raw_json->'plazos_por_region', '{{}}'::json) AS plazos_por_region,
                     f.region,
                     f.provincia,
                     f.pdf_url,
@@ -200,6 +208,7 @@ def get_proveedor_fichas(
                     r.precio_ofertado,
                     r.existencia_stock,
                     r.plazo_entrega_dias,
+                    r.plazos_por_region,
                     r.region,
                     r.provincia,
                     r.pdf_url,
@@ -233,6 +242,7 @@ def get_proveedor_fichas(
                             'precio_ofertado', r.precio_ofertado,
                             'existencia_stock', r.existencia_stock,
                             'plazo_entrega_dias', r.plazo_entrega_dias,
+                            'plazos_por_region', r.plazos_por_region,
                             'region', r.region,
                             'provincia', r.provincia,
                             'pdf_url', r.pdf_url,
@@ -291,9 +301,10 @@ def get_proveedor_fichas(
                 f.precio_ofertado,
                 f.precio_ofertado AS min_precio,
                 f.existencia_stock,
-                f.plazo_entrega_dias,
-                f.plazo_entrega_dias AS min_plazo_entrega,
-                f.plazo_entrega_dias AS max_plazo_entrega,
+                {plazo_expr} AS plazo_entrega_dias,
+                {plazo_expr} AS min_plazo_entrega,
+                {plazo_expr} AS max_plazo_entrega,
+                COALESCE(f.raw_json->'plazos_por_region', '{{}}'::json) AS plazos_por_region,
                 f.region,
                 f.provincia,
                 f.pdf_url,
@@ -306,7 +317,8 @@ def get_proveedor_fichas(
                     'ruc_proveedor', f.ruc_proveedor,
                     'precio_ofertado', f.precio_ofertado,
                     'existencia_stock', f.existencia_stock,
-                    'plazo_entrega_dias', f.plazo_entrega_dias,
+                    'plazo_entrega_dias', {plazo_expr},
+                    'plazos_por_region', COALESCE(f.raw_json->'plazos_por_region', '{{}}'::json),
                     'region', f.region,
                     'provincia', f.provincia,
                     'pdf_url', f.pdf_url,
