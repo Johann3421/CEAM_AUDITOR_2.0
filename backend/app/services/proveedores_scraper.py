@@ -620,11 +620,11 @@ async def async_extract_plazos_regionales(
     """
     Extrae los plazos de entrega vigentes por región y provincia directamente desde /MejoraPlazo/consultaMejoraPlazoEntrega.
     """
-    prov_cfg = PROVIDER_CREDENTIALS.get(provider_key, PROVIDER_CREDENTIALS["thekingcomputer"])
+    prov_cfg = PROVEEDORES_CONFIG.get(provider_key, PROVEEDORES_CONFIG["thekingcomputer"])
     user = prov_cfg["user"]
     password = prov_cfg["pass"]
     ruc = prov_cfg["ruc"]
-    nombre_proveedor = prov_cfg["name"]
+    nombre_proveedor = prov_cfg["nombre"]
 
     target_regiones = [r for r in PERU_REGIONES_OFICIALES if not regiones or r["nombre"] in regiones or r["codigo_region"] in regiones]
 

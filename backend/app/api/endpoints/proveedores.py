@@ -695,17 +695,18 @@ def get_available_accounts():
 @router.post("/scrape")
 async def trigger_scrape_proveedores(
     background_tasks: BackgroundTasks,
-    proveedor: str = Query("thekingcomputer", description="ID del proveedor a extraer: thekingcomputer, jorge_rojas"),
-    db: Session = Depends(get_db)
+    proveedor: str = Query("thekingcomputer", description="ID del proveedor a extraer: thekingcomputer, jorge_rojas")
 ):
     """
     Inicia la extracción en segundo plano para la cuenta del proveedor especificado.
     """
-    from app.services.proveedores_scraper import PROVEEDORES_CONFIG
+    from app.services.proveedores_scraper import PROVEEDORES_CONFIG, run_worker_pool_extraction
+    from app.db.database import SessionLocal
     prov_nombre = PROVEEDORES_CONFIG.get(proveedor, {}).get("nombre", proveedor)
 
     async def _async_task():
-        await run_worker_pool_extraction([], db, provider_key=proveedor)
+        with SessionLocal() as db_session:
+            await run_worker_pool_extraction([], db_session, provider_key=proveedor)
 
     background_tasks.add_task(_async_task)
     return {
@@ -718,18 +719,19 @@ async def trigger_scrape_proveedores(
 async def trigger_scrape_plazos(
     background_tasks: BackgroundTasks,
     proveedor: str = Query("thekingcomputer", description="ID del proveedor: thekingcomputer, jorge_rojas"),
-    regiones: Optional[str] = Query(None, description="Regiones separadas por coma (ej: LIMA,AREQUIPA) o vacío para todas"),
-    db: Session = Depends(get_db)
+    regiones: Optional[str] = Query(None, description="Regiones separadas por coma (ej: LIMA,AREQUIPA) o vacío para todas")
 ):
     """
     Inicia la extracción regional de plazos de entrega en segundo plano.
     """
     from app.services.proveedores_scraper import async_extract_plazos_regionales, PROVEEDORES_CONFIG
+    from app.db.database import SessionLocal
     prov_nombre = PROVEEDORES_CONFIG.get(proveedor, {}).get("nombre", proveedor)
     target_regs = [r.strip().upper() for r in regiones.split(",")] if regiones else None
 
     async def _async_plazos_task():
-        await async_extract_plazos_regionales(provider_key=proveedor, regiones=target_regs, db=db)
+        with SessionLocal() as db_session:
+            await async_extract_plazos_regionales(provider_key=proveedor, regiones=target_regs, db=db_session)
 
     background_tasks.add_task(_async_plazos_task)
     return {
