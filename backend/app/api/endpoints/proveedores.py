@@ -563,6 +563,14 @@ def reclassify_existing_offers(db: Session = Depends(get_db)):
     """Reclasifica en lote todas las ofertas existentes analizando su descripción."""
     try:
         db.execute(text("""
+            -- Limpieza preventiva de duplicados antes de actualizar clasificaciones
+            DELETE FROM ofertas_proveedor_history a
+            USING ofertas_proveedor_history b
+            WHERE a.id < b.id 
+              AND a.nro_parte = b.nro_parte 
+              AND a.ruc_proveedor = b.ruc_proveedor 
+              AND COALESCE(a.region, 'N/A') = COALESCE(b.region, 'N/A');
+
             -- 1. Monitores
             UPDATE ofertas_proveedor_history 
             SET catalogo = 'MONITORES', categoria = 'MONITOR'

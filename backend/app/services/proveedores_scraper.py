@@ -32,7 +32,8 @@ from app.services.perucompras_core import (
     completar_menu_dinamico,
     descubrir_todas_las_combinaciones,
     consultar_json_productos,
-    _parse_html_products_partial
+    _parse_html_products_partial,
+    _capture_live_preview
 )
 
 logger = logging.getLogger("ceam.proveedores_scraper")
@@ -632,7 +633,10 @@ async def async_extract_plazos_regionales(
     EXTRACTION_STATUS["is_running"] = True
     EXTRACTION_STATUS["status"] = "running"
     EXTRACTION_STATUS["current_provider"] = nombre_proveedor
-    add_status_log(f"⏱️ Iniciando extracción de plazos regionales para {nombre_proveedor} ({len(target_regiones)} regiones)...")
+    EXTRACTION_STATUS["combos_total"] = len(target_regiones) * len(OFFICIAL_PERUCOMPRAS_COMBOS)
+    EXTRACTION_STATUS["combos_completed"] = 0
+    EXTRACTION_STATUS["items_inserted"] = 0
+    add_status_log(f"⏱️ Iniciando extracción de plazos regionales para {nombre_proveedor} ({len(target_regiones)} regiones, {len(OFFICIAL_PERUCOMPRAS_COMBOS)} categorías)...")
 
     total_actualizados = 0
 
@@ -642,16 +646,17 @@ async def async_extract_plazos_regionales(
             context = await browser.new_context(viewport={"width": 1920, "height": 1080})
             page = await context.new_page()
 
-            ok = await login_automatico(page, user, password, max_retries=6)
+            ok = await login_automatico(page, user, password, max_retries=6, log_func=add_status_log, screenshot_callback=update_live_screenshot)
             if not ok:
                 raise Exception("Fallo en login de autenticación en Perú Compras.")
 
             target_url = "https://catalogos.perucompras.gob.pe/MejoraPlazo/IndexMejora"
-            nav_ok = await saltar_verificacion(page, target_url=target_url)
+            nav_ok = await saltar_verificacion(page, target_url=target_url, log_func=add_status_log, screenshot_callback=update_live_screenshot)
             if not nav_ok:
                 raise Exception(f"No se pudo acceder a la ruta {target_url}")
 
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(1500)
+            await _capture_live_preview(page, update_live_screenshot)
 
             # Obtener acuerdo_proveedor_id desde los filtros
             acuerdo_info = await page.evaluate("""async () => {
@@ -659,7 +664,8 @@ async def async_extract_plazos_regionales(
                     const res = await fetch('/MejoraPlazo/obtenerFiltros', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                        body: '0^18181'
+                        body: '0^18181',
+                        signal: AbortSignal.timeout(10000)
                     });
                     return await res.text();
                 } catch(e) { return null; }
@@ -679,33 +685,37 @@ async def async_extract_plazos_regionales(
                 ubigeo_prov = reg["ubigeo_provincia"]
                 reg_nom = reg["nombre"]
 
-                add_status_log(f"📍 Consultando plazos para región: {reg_nom} ({ubigeo_prov})...")
+                add_status_log(f"📍 Región activa: {reg_nom} ({ubigeo_prov})")
 
-                # Recorrer categorías principales (Portátiles, Escritorio, etc.)
                 for combo in OFFICIAL_PERUCOMPRAS_COMBOS:
                     n_acuerdo = combo["n_acuerdo"]
                     n_catalogo = combo["n_catalogo"]
                     n_categoria = combo["n_categoria"]
                     cat_nom = combo["categoria_nombre"]
 
-                    # Establecer contexto de región en el backend de Perú Compras
+                    add_status_log(f"   🔎 [{cat_nom}] ({reg_nom})...")
+
+                    # Establecer contexto de región en el backend de Perú Compras y consultar
                     res_raw = await page.evaluate("""async ({acuerdoProvId, nAcuerdo, nCatalogo, nCategoria, codReg, ubigeoProv}) => {
                         try {
                             await fetch('/MejoraPlazo/obtenerFiltros', {
                                 method: 'POST',
                                 headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                                body: `3^18181^${nAcuerdo}^${nCategoria}`
+                                body: `3^18181^${nAcuerdo}^${nCategoria}`,
+                                signal: AbortSignal.timeout(12000)
                             });
                             await fetch('/MejoraPlazo/obtenerFiltros', {
                                 method: 'POST',
                                 headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                                body: `4^${codReg}`
+                                body: `4^${codReg}`,
+                                signal: AbortSignal.timeout(12000)
                             });
 
                             const res = await fetch('/MejoraPlazo/consultaMejoraPlazoEntrega', {
                                 method: 'POST',
                                 headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                                body: `${acuerdoProvId}^${nCatalogo}^${nCategoria}^^${ubigeoProv}`
+                                body: `${acuerdoProvId}^${nCatalogo}^${nCategoria}^^${ubigeoProv}`,
+                                signal: AbortSignal.timeout(25000)
                             });
                             return await res.text();
                         } catch(e) { return null; }
@@ -717,6 +727,8 @@ async def async_extract_plazos_regionales(
                         "codReg": cod_reg,
                         "ubigeoProv": ubigeo_prov
                     })
+
+                    EXTRACTION_STATUS["combos_completed"] += 1
 
                     if res_raw and "¯" in res_raw:
                         _, data_part = res_raw.split("¯", 1)
@@ -744,7 +756,6 @@ async def async_extract_plazos_regionales(
                                         plazo_int = None
 
                                     if plazo_int is not None:
-                                        # Extraer posible nro_parte desde descripción
                                         desc_words = desc_prod.split()
                                         possible_part = desc_words[-1] if desc_words else "S/N"
                                         db.execute(update_stmt, {
@@ -759,8 +770,13 @@ async def async_extract_plazos_regionales(
                             db.commit()
 
                         total_actualizados += parsed_count
+                        EXTRACTION_STATUS["items_inserted"] = total_actualizados
                         if parsed_count > 0:
-                            add_status_log(f"   ✅ {cat_nom}: {parsed_count} plazos actualizados en {reg_nom}")
+                            add_status_log(f"   ✅ {cat_nom} ({reg_nom}): {parsed_count} plazos actualizados")
+                    
+                    # Live screenshot snapshot cada 3 categorías
+                    if EXTRACTION_STATUS["combos_completed"] % 3 == 0:
+                        await _capture_live_preview(page, update_live_screenshot)
 
             await browser.close()
 
