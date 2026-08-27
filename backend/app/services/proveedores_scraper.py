@@ -743,12 +743,14 @@ async def async_extract_plazos_regionales(
                                         ARRAY['plazos_por_region', :region], 
                                         to_jsonb(:plazo::int)
                                     ),
-                                    plazo_entrega_dias = :plazo,
-                                    region = :region,
-                                    provincia = :provincia
-                                WHERE ruc_proveedor = :ruc 
-                                  AND (UPPER(TRIM(nro_parte)) = UPPER(TRIM(:nro_parte)) OR id::text = :id_oferta)
+                                    plazo_entrega_dias = :plazo
+                                WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
+                                  AND (
+                                      (UPPER(TRIM(nro_parte)) = UPPER(TRIM(:nro_parte)) AND UPPER(TRIM(nro_parte)) NOT IN ('', '-', 'S/N', 'SN', '0'))
+                                      OR (descripcion_producto ILIKE :desc_match AND length(:desc_match) > 10)
+                                  )
                             """)
+                            prov_search = "%KING%" if "KING" in nombre_proveedor.upper() else "%ROJAS%"
                             for line in lines:
                                 cols = line.split("^")
                                 if len(cols) >= 7:
@@ -760,16 +762,25 @@ async def async_extract_plazos_regionales(
                                     except:
                                         plazo_int = None
 
-                                    if plazo_int is not None:
-                                        desc_words = desc_prod.split()
-                                        possible_part = desc_words[-1] if desc_words else "S/N"
+                                    if plazo_int is not None and desc_prod:
+                                        clean_desc = re.sub(r'\s+SIST\.\s+MANEJO.*$', '', desc_prod, flags=re.IGNORECASE).strip()
+                                        unidad_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)\s+(.+)$', clean_desc, re.IGNORECASE)
+                                        if unidad_match:
+                                            part_words = unidad_match.group(2).strip().split()
+                                            possible_part = part_words[-1] if part_words else "S/N"
+                                        else:
+                                            desc_words = clean_desc.split()
+                                            possible_part = desc_words[-1] if desc_words else "S/N"
+
+                                        desc_search = f"%{possible_part}%" if len(possible_part) >= 4 and possible_part != "S/N" else f"%{clean_desc[:40]}%"
+
                                         db.execute(update_stmt, {
                                             "plazo": plazo_int,
                                             "region": reg_nom,
-                                            "provincia": reg_nom,
                                             "ruc": ruc,
+                                            "prov_match": prov_search,
                                             "nro_parte": possible_part,
-                                            "id_oferta": raw_id
+                                            "desc_match": desc_search
                                         })
                                         parsed_count += 1
                             db.commit()

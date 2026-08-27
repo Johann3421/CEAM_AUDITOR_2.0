@@ -42,9 +42,8 @@ def get_proveedor_fichas(
             where_clauses.append("UPPER(f.nombre_proveedor) LIKE UPPER(:proveedor)")
             params["proveedor"] = f"%{proveedor}%"
 
-    if region and region.lower() != "all":
-        where_clauses.append("(UPPER(COALESCE(f.region, '')) LIKE UPPER(:region) OR UPPER(COALESCE(f.provincia, '')) LIKE UPPER(:region))")
-        params["region"] = f"%{region}%"
+    # Cuando se selecciona una región, se computa dinámicamente el plazo_entrega_dias
+    # para esa región a través de plazo_expr y raw_json['plazos_por_region'].
 
     if search:
         where_clauses.append("(UPPER(f.nro_parte) LIKE UPPER(:search) OR UPPER(f.descripcion_producto) LIKE UPPER(:search) OR UPPER(f.marca) LIKE UPPER(:search))")
