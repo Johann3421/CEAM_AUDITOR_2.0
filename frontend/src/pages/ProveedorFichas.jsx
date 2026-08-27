@@ -240,17 +240,32 @@ const ProveedorFichas = () => {
 
   const handleClearData = async () => {
     const provName = selectedProvider !== 'all' ? MAIN_PROVIDERS.find(p => p.id === selectedProvider)?.name : 'TODOS los proveedores';
-    if (!window.confirm(`¿Estás seguro de que deseas limpiar y reiniciar las ofertas de ${provName}? Esta acción permitirá comenzar una extracción limpia.`)) {
+    if (!window.confirm(`¿Estás seguro de que deseas limpiar y reiniciar las ofertas de ${provName}? Esta acción eliminará TODO (ofertas + plazos) y permitirá comenzar una extracción limpia.`)) {
       return;
     }
     try {
       await proveedoresApi.clearData({ proveedor: selectedProvider !== 'all' ? selectedProvider : undefined });
       fetchCategoriesCount(selectedProvider);
       fetchFichasData();
-      alert("Base de datos de ofertas limpiada exitosamente. Listo para una nueva extracción.");
+      alert("Base de datos de ofertas limpiada exitosamente (ofertas + plazos). Listo para una nueva extracción.");
     } catch (e) {
       console.error(e);
       alert("Error al limpiar datos de ofertas.");
+    }
+  };
+
+  const handleClearPlazos = async () => {
+    const provName = selectedProvider !== 'all' ? MAIN_PROVIDERS.find(p => p.id === selectedProvider)?.name : 'TODOS los proveedores';
+    if (!window.confirm(`¿Limpiar solo los PLAZOS DE ENTREGA de ${provName}? Las ofertas se conservarán.`)) {
+      return;
+    }
+    try {
+      await proveedoresApi.clearData({ proveedor: selectedProvider !== 'all' ? selectedProvider : undefined, solo_plazos: true });
+      fetchFichasData();
+      alert("Plazos de entrega limpiados. Las ofertas se conservaron.");
+    } catch (e) {
+      console.error(e);
+      alert("Error al limpiar plazos.");
     }
   };
 
@@ -759,10 +774,19 @@ const ProveedorFichas = () => {
             className="btn btn-secondary"
             onClick={handleClearData}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600, color: '#dc2626' }}
-            title="Limpiar y reiniciar la base de datos de ofertas de este proveedor para una extracción limpia"
+            title="Eliminar TODAS las ofertas y plazos de este proveedor"
           >
             <Trash2 size={15} />
-            Limpiar Datos
+            Limpiar Todo
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={handleClearPlazos}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600, color: '#f59e0b' }}
+            title="Resetear solo los plazos de entrega, conservando las ofertas"
+          >
+            <Trash2 size={15} />
+            Limpiar Plazos
           </button>
 
           <button

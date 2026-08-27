@@ -787,7 +787,7 @@ async def async_extract_plazos_regionales(
                             ARRAY['plazos_por_region', :region],
                             to_jsonb(CAST(:plazo AS integer))
                         ),
-                        plazo_entrega_dias = COALESCE(plazo_entrega_dias, :plazo)
+                        plazo_entrega_dias = :plazo
                     WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
                       AND UPPER(categoria) LIKE :cat_match
                 """)

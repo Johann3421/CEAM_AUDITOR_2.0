@@ -364,10 +364,36 @@ def get_proveedor_fichas(
 @router.post("/clear")
 def clear_proveedor_data(
     proveedor: Optional[str] = Query(None),
+    solo_plazos: bool = Query(False),
     db: Session = Depends(get_db)
 ):
     """Limpia las ofertas de la base de datos para comenzar de nuevo una extracción limpia."""
     try:
+        if solo_plazos:
+            # Solo resetear plazos sin borrar ofertas
+            where = ""
+            params = {}
+            if proveedor and proveedor.lower() != "all":
+                prov_l = proveedor.lower()
+                if prov_l in ("thekingcomputer", "king"):
+                    where = "WHERE UPPER(nombre_proveedor) LIKE '%KING%' OR UPPER(ruc_proveedor) = '20601234567'"
+                elif prov_l in ("jorge_rojas", "jorge", "rojas"):
+                    where = "WHERE UPPER(nombre_proveedor) LIKE '%ROJAS%' OR UPPER(ruc_proveedor) = '10408899991'"
+                else:
+                    where = "WHERE UPPER(nombre_proveedor) LIKE UPPER(:prov)"
+                    params = {"prov": f"%{proveedor}%"}
+            db.execute(text(f"""
+                UPDATE ofertas_proveedor_history
+                SET plazo_entrega_dias = NULL,
+                    raw_json = CASE
+                        WHEN raw_json IS NOT NULL THEN (raw_json::jsonb - 'plazos_por_region')::json
+                        ELSE NULL
+                    END
+                {where}
+            """), params)
+            db.commit()
+            return {"success": True, "message": "Plazos de entrega limpiados con éxito (ofertas conservadas)"}
+
         if proveedor and proveedor.lower() != "all":
             prov_l = proveedor.lower()
             if prov_l in ("thekingcomputer", "king"):
