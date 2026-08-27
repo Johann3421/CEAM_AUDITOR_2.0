@@ -767,31 +767,33 @@ async def async_extract_plazos_regionales(
                     if not res_raw:
                         continue
 
-                    # Formato confirmado por test:
-                    # "Header_col1^col2^...colN¯val1¯url¯ficha¯moneda¯precio¯stock¯plazo¯...¯val2¯..."
-                    # ¯ separa TODO (header de datos y campos entre sí dentro de cada fila)
-                    # Header usa ^ internamente (nombre de columnas)
-                    # Los datos usan ¯ entre cada campo
-                    tokens = res_raw.split("¯")
-                    # tokens[0] = header row ("Nro^Imagen^Ficha-producto^...")
-                    # tokens[1..] = valores de datos en grupos de 10 columnas
-                    NCOLS = 10  # Nro,Imagen,Ficha-producto,Moneda,Precio,Existencias,Plazo,PlazoPublicar,CostoEnvio,CostoEnvioPublicar
-                    data_tokens = tokens[1:]  # Saltar header
+                    # Formato real confirmado:
+                    # ¯ separa FILAS entre sí (y separa header de la primera fila)
+                    # ¬ separa COLUMNAS dentro de cada fila
+                    # Header: "Nro^Imagen^Ficha-producto^..." (^ separador de nombres)
+                    # Fila:   "3.350¬https://img¬FICHA NOMBRE¬USD¬1438¬1¬90¬..."
+                    #          col0  col1           col2        col3 col4 col5 col6=Plazo
+                    rows = res_raw.split("¯")
+                    # rows[0] = header; rows[1..] = filas de producto
+                    data_rows = rows[1:]  # Saltar header
 
-                    if not data_tokens:
+                    if not data_rows:
                         continue
 
-                    add_status_log(f"   🔍 [{ubigeo_prov}] {len(data_tokens)} tokens de datos recibidos")
+                    # Log raw primera fila para diagnóstico
+                    add_status_log(f"   🔍 [{ubigeo_prov}] {len(data_rows)} filas. Primera: {data_rows[0][:80]!r}")
 
                     parsed_in_prov = 0
-                    # Iterar en grupos de NCOLS columnas
-                    for i in range(0, len(data_tokens) - NCOLS + 1, NCOLS):
-                        row_tokens = data_tokens[i:i + NCOLS]
-                        if len(row_tokens) < 7:
+                    for row_str in data_rows:
+                        if not row_str.strip():
+                            continue
+                        # Columnas separadas por ¬ dentro de cada fila
+                        cols = row_str.split("¬")
+                        if len(cols) < 7:
                             continue
                         # 0=Nro, 1=Imagen, 2=Ficha-producto, 3=Moneda, 4=Precio, 5=Existencias, 6=Plazo vigente
-                        desc_prod = row_tokens[2].strip()
-                        plazo_str = row_tokens[6].strip()
+                        desc_prod = cols[2].strip()
+                        plazo_str = cols[6].strip()
 
                         try:
                             plazo_int = int(float(plazo_str)) if plazo_str else None
