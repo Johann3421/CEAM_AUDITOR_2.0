@@ -737,7 +737,7 @@ async def trigger_scrape_proveedores(
 @router.post("/scrape-plazos")
 async def trigger_scrape_plazos(
     background_tasks: BackgroundTasks,
-    proveedor: str = Query("thekingcomputer", description="ID del proveedor: thekingcomputer, jorge_rojas"),
+    proveedor: str = Query("thekingcomputer", description="ID del proveedor: thekingcomputer, jorge_rojas, all"),
     regiones: Optional[str] = Query(None, description="Regiones separadas por coma (ej: LIMA,AREQUIPA) o vacío para todas")
 ):
     """
@@ -745,16 +745,20 @@ async def trigger_scrape_plazos(
     """
     from app.services.proveedores_scraper import async_extract_plazos_regionales, PROVEEDORES_CONFIG
     from app.db.database import SessionLocal
-    prov_nombre = PROVEEDORES_CONFIG.get(proveedor, {}).get("nombre", proveedor)
     target_regs = [r.strip().upper() for r in regiones.split(",")] if regiones else None
 
     async def _async_plazos_task():
         with SessionLocal() as db_session:
-            await async_extract_plazos_regionales(provider_key=proveedor, regiones=target_regs, db=db_session)
+            if proveedor in ("all", "ambos", "todos"):
+                for p_key in ("thekingcomputer", "jorge_rojas"):
+                    await async_extract_plazos_regionales(provider_key=p_key, regiones=target_regs, db=db_session)
+            else:
+                await async_extract_plazos_regionales(provider_key=proveedor, regiones=target_regs, db=db_session)
 
     background_tasks.add_task(_async_plazos_task)
+    prov_desc = "Ambos Proveedores (The King y Jorge Rojas)" if proveedor in ("all", "ambos", "todos") else PROVEEDORES_CONFIG.get(proveedor, {}).get("nombre", proveedor)
     return {
-        "message": f"Extracción regional de plazos iniciada para '{prov_nombre}'",
+        "message": f"Extracción regional de plazos iniciada para '{prov_desc}'",
         "proveedor": proveedor,
         "regiones": target_regs or "TODAS (25 Regiones)"
     }

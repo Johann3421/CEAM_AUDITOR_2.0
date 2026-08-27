@@ -203,6 +203,9 @@ const ProveedorFichas = () => {
   const [limit, setLimit] = useState(50);
   const [scrapeStatus, setScrapeStatus] = useState(null);
   const [showLogModal, setShowLogModal] = useState(false);
+  const [showScrapePlazosModal, setShowScrapePlazosModal] = useState(false);
+  const [scrapePlazosProvider, setScrapePlazosProvider] = useState('all');
+  const [scrapePlazosRegion, setScrapePlazosRegion] = useState('all');
   const [selectedJsonItem, setSelectedJsonItem] = useState(null);
   const [selectedRegionModalItem, setSelectedRegionModalItem] = useState(null);
   const [modalRegionSearch, setModalRegionSearch] = useState('');
@@ -338,15 +341,17 @@ const ProveedorFichas = () => {
     }
   };
 
-  const handleStartScrapePlazos = async () => {
-    const provToScrape = selectedProvider !== 'all' ? selectedProvider : 'thekingcomputer';
+  const handleStartScrapePlazos = async (customProv = null, customReg = null) => {
+    const targetProv = customProv || (scrapePlazosProvider !== 'all' ? scrapePlazosProvider : 'all');
+    const targetReg = customReg || (scrapePlazosRegion !== 'all' ? scrapePlazosRegion : undefined);
+    setShowScrapePlazosModal(false);
     setScraping(true);
     wasScrapingRef.current = true;
     setShowLogModal(true);
     try {
       await proveedoresApi.scrapePlazos({
-        proveedor: provToScrape,
-        regiones: regionFilter !== 'all' ? regionFilter : undefined
+        proveedor: targetProv,
+        regiones: targetReg
       });
     } catch (err) {
       console.error(err);
@@ -773,10 +778,10 @@ const ProveedorFichas = () => {
 
           <button
             className="btn btn-secondary"
-            onClick={handleStartScrapePlazos}
+            onClick={() => setShowScrapePlazosModal(true)}
             disabled={scraping}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600 }}
-            title="Extraer plazos de entrega vigentes por región desde MejoraPlazo"
+            title="Configurar y extraer plazos de entrega vigentes por región desde MejoraPlazo"
           >
             <Clock size={15} className={scraping ? 'spin' : ''} />
             {scraping ? 'Extrayendo...' : '⏱️ Extraer Plazos'}
@@ -1847,6 +1852,122 @@ const ProveedorFichas = () => {
                   Cerrar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scrape Plazos Configuration Modal */}
+      {showScrapePlazosModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+          padding: 16
+        }}>
+          <div className="card fade-up" style={{
+            width: '100%',
+            maxWidth: 480,
+            padding: 0,
+            overflow: 'hidden',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--c-border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: '#f8fafc'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Clock size={18} style={{ color: 'var(--c-brand)' }} />
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+                  Configurar Extracción de Plazos
+                </h3>
+              </div>
+              <button 
+                onClick={() => setShowScrapePlazosModal(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-tertiary)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Proveedor selector */}
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--c-text-primary)', marginBottom: 6 }}>
+                  🏢 Proveedor a Consultar en MejoraPlazo:
+                </label>
+                <select
+                  className="form-select"
+                  value={scrapePlazosProvider}
+                  onChange={(e) => setScrapePlazosProvider(e.target.value)}
+                  style={{ width: '100%', fontSize: 13, padding: '8px 12px' }}
+                >
+                  <option value="all">⚡ Ambos Proveedores (The King + Jorge Rojas)</option>
+                  <option value="thekingcomputer">🏢 THE KING COMPUTER E.I.R.L. (estalin.huamali01)</option>
+                  <option value="jorge_rojas">🏢 ROJAS VILLANUEVA JORGE LUIS (neison.chacas)</option>
+                </select>
+                <p style={{ margin: '4px 0 0 0', fontSize: 11, color: 'var(--c-text-secondary)' }}>
+                  Se extraerán los plazos oficiales de entrega para todas las fichas de catálogo.
+                </p>
+              </div>
+
+              {/* Región selector */}
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--c-text-primary)', marginBottom: 6 }}>
+                  📍 Alcance Regional:
+                </label>
+                <select
+                  className="form-select"
+                  value={scrapePlazosRegion}
+                  onChange={(e) => setScrapePlazosRegion(e.target.value)}
+                  style={{ width: '100%', fontSize: 13, padding: '8px 12px' }}
+                >
+                  <option value="all">🗺️ Todas las 25 Regiones del Perú (Completo)</option>
+                  {PERU_REGIONES.filter(r => r.id !== 'all').map(r => (
+                    <option key={r.id} value={r.id}>📍 Solo {r.name} ({r.zona})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '12px 20px',
+              borderTop: '1px solid var(--c-border)',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 8,
+              background: '#f8fafc'
+            }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowScrapePlazosModal(false)}
+                style={{ padding: '6px 14px', fontSize: 12 }}
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => handleStartScrapePlazos(scrapePlazosProvider, scrapePlazosRegion)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', fontSize: 12, fontWeight: 600 }}
+              >
+                <Clock size={14} />
+                Iniciar Extracción
+              </button>
             </div>
           </div>
         </div>
