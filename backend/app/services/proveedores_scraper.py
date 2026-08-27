@@ -678,11 +678,15 @@ async def async_extract_plazos_regionales(
 
             # 1. Obtener acuerdo_id y acuerdo_proveedor_id desde filtro 0
             acuerdo_info = await page.evaluate("""async () => {
-                return await new Promise((resolve) => {
-                    try {
-                        requestServer("obtenerFiltros", "post", resolve, '0^' + cod_personajuridica);
-                    } catch(e) { resolve(null); }
-                });
+                try {
+                    const res = await fetch('/MejoraPlazo/obtenerFiltros', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                        body: '0^18181',
+                        signal: AbortSignal.timeout(10000)
+                    });
+                    return await res.text();
+                } catch(e) { return null; }
             }""")
 
             acuerdo_id = "249"
@@ -697,13 +701,17 @@ async def async_extract_plazos_regionales(
             add_status_log(f"🔑 Acuerdo ID: {acuerdo_id} | Proveedor ID: {acuerdo_prov_id}")
 
             # 2. Obtener catálogos dinámicos
-            catalogos_raw = await page.evaluate(f"""async () => {{
-                return await new Promise((resolve) => {{
-                    try {{
-                        requestServer("obtenerFiltros", "post", resolve, '1^{acuerdo_id}');
-                    }} catch(e) {{ resolve(null); }}
-                }});
-            }}""")
+            catalogos_raw = await page.evaluate("""async (acuerdoId) => {
+                try {
+                    const res = await fetch('/MejoraPlazo/obtenerFiltros', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                        body: `1^${acuerdoId}`,
+                        signal: AbortSignal.timeout(10000)
+                    });
+                    return await res.text();
+                } catch(e) { return null; }
+            }""", acuerdo_id)
 
             combos_activos = []
             if catalogos_raw:
@@ -715,13 +723,17 @@ async def async_extract_plazos_regionales(
                         id_cat, nom_cat = cat_parts[0], cat_parts[1]
                         
                         # 3. Obtener subcategorías para cada catálogo
-                        subcats_raw = await page.evaluate(f"""async () => {{
-                            return await new Promise((resolve) => {{
-                                try {{
-                                    requestServer("obtenerFiltros", "post", resolve, '2^{id_cat}');
-                                }} catch(e) {{ resolve(null); }}
-                            }});
-                        }}""")
+                        subcats_raw = await page.evaluate("""async (idCat) => {
+                            try {
+                                const res = await fetch('/MejoraPlazo/obtenerFiltros', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                                    body: `2^${idCat}`,
+                                    signal: AbortSignal.timeout(10000)
+                                });
+                                return await res.text();
+                            } catch(e) { return null; }
+                        }""", id_cat)
 
                         if subcats_raw:
                             for subcat_str in subcats_raw.split("¬"):
@@ -786,13 +798,23 @@ async def async_extract_plazos_regionales(
 
                     body_post = f"{acuerdo_prov_id}^{id_cat}^{id_subcat}^^{ubigeo_prov}"
 
-                    res_raw = await page.evaluate(f"""async () => {{
-                        return await new Promise((resolve) => {{
-                            try {{
-                                requestServer("consultaMejoraPlazoEntrega", "post", resolve, '{body_post}');
-                            }} catch(e) {{ resolve(null); }}
-                        }});
-                    }}""")
+                    try:
+                        res_raw = await page.evaluate("""async (bodyPost) => {
+                            try {
+                                const res = await fetch('/MejoraPlazo/consultaMejoraPlazoEntrega', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                                    body: bodyPost,
+                                    signal: AbortSignal.timeout(15000)
+                                });
+                                if (res.ok) {
+                                    return await res.text();
+                                }
+                                return null;
+                            } catch(e) { return null; }
+                        }""", body_post)
+                    except Exception:
+                        res_raw = None
 
                     EXTRACTION_STATUS["combos_completed"] += 1
 
