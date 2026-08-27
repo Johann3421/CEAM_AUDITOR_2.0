@@ -584,5 +584,192 @@ def upsert_ofertas_history_db(db: Session, ofertas: List[Dict]) -> int:
         except Exception as e:
             logger.warning("Error guardando snapshot histórico en BD: %s", e)
 
-    db.commit()
-    return inserted
+PERU_REGIONES_OFICIALES = [
+    {"codigo_region": "150000", "ubigeo_provincia": "150100", "nombre": "LIMA"},
+    {"codigo_region": "070000", "ubigeo_provincia": "070100", "nombre": "CALLAO"},
+    {"codigo_region": "040000", "ubigeo_provincia": "040100", "nombre": "AREQUIPA"},
+    {"codigo_region": "080000", "ubigeo_provincia": "080100", "nombre": "CUSCO"},
+    {"codigo_region": "130000", "ubigeo_provincia": "130100", "nombre": "LA LIBERTAD"},
+    {"codigo_region": "200000", "ubigeo_provincia": "200100", "nombre": "PIURA"},
+    {"codigo_region": "140000", "ubigeo_provincia": "140100", "nombre": "LAMBAYEQUE"},
+    {"codigo_region": "120000", "ubigeo_provincia": "120100", "nombre": "JUNÍN"},
+    {"codigo_region": "020000", "ubigeo_provincia": "020100", "nombre": "ÁNCASH"},
+    {"codigo_region": "110000", "ubigeo_provincia": "110100", "nombre": "ICA"},
+    {"codigo_region": "060000", "ubigeo_provincia": "060100", "nombre": "CAJAMARCA"},
+    {"codigo_region": "210000", "ubigeo_provincia": "210100", "nombre": "PUNO"},
+    {"codigo_region": "220000", "ubigeo_provincia": "220100", "nombre": "SAN MARTÍN"},
+    {"codigo_region": "100000", "ubigeo_provincia": "100100", "nombre": "HUÁNUCO"},
+    {"codigo_region": "050000", "ubigeo_provincia": "050100", "nombre": "AYACUCHO"},
+    {"codigo_region": "160000", "ubigeo_provincia": "160100", "nombre": "LORETO"},
+    {"codigo_region": "250000", "ubigeo_provincia": "250100", "nombre": "UCAYALI"},
+    {"codigo_region": "230000", "ubigeo_provincia": "230100", "nombre": "TACNA"},
+    {"codigo_region": "180000", "ubigeo_provincia": "180100", "nombre": "MOQUEGUA"},
+    {"codigo_region": "240000", "ubigeo_provincia": "240100", "nombre": "TUMBES"},
+    {"codigo_region": "030000", "ubigeo_provincia": "030100", "nombre": "APURÍMAC"},
+    {"codigo_region": "010000", "ubigeo_provincia": "010100", "nombre": "AMAZONAS"},
+    {"codigo_region": "090000", "ubigeo_provincia": "090100", "nombre": "HUANCAVELICA"},
+    {"codigo_region": "190000", "ubigeo_provincia": "190100", "nombre": "PASCO"},
+    {"codigo_region": "170000", "ubigeo_provincia": "170100", "nombre": "MADRE DE DIOS"}
+]
+
+async def async_extract_plazos_regionales(
+    provider_key: str = "thekingcomputer",
+    regiones: Optional[List[str]] = None,
+    db: Optional[Session] = None
+) -> Dict:
+    """
+    Extrae los plazos de entrega vigentes por región y provincia directamente desde /MejoraPlazo/consultaMejoraPlazoEntrega.
+    """
+    prov_cfg = PROVIDER_CREDENTIALS.get(provider_key, PROVIDER_CREDENTIALS["thekingcomputer"])
+    user = prov_cfg["user"]
+    password = prov_cfg["pass"]
+    ruc = prov_cfg["ruc"]
+    nombre_proveedor = prov_cfg["name"]
+
+    target_regiones = [r for r in PERU_REGIONES_OFICIALES if not regiones or r["nombre"] in regiones or r["codigo_region"] in regiones]
+
+    EXTRACTION_STATUS["is_running"] = True
+    EXTRACTION_STATUS["status"] = "running"
+    EXTRACTION_STATUS["current_provider"] = nombre_proveedor
+    add_status_log(f"⏱️ Iniciando extracción de plazos regionales para {nombre_proveedor} ({len(target_regiones)} regiones)...")
+
+    total_actualizados = 0
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(viewport={"width": 1920, "height": 1080})
+            page = await context.new_page()
+
+            ok = await login_automatico(page, user, password, max_retries=6)
+            if not ok:
+                raise Exception("Fallo en login de autenticación en Perú Compras.")
+
+            target_url = "https://catalogos.perucompras.gob.pe/MejoraPlazo/IndexMejora"
+            nav_ok = await saltar_verificacion(page, target_url=target_url)
+            if not nav_ok:
+                raise Exception(f"No se pudo acceder a la ruta {target_url}")
+
+            await page.wait_for_timeout(2000)
+
+            # Obtener acuerdo_proveedor_id desde los filtros
+            acuerdo_info = await page.evaluate("""async () => {
+                try {
+                    const res = await fetch('/MejoraPlazo/obtenerFiltros', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                        body: '0^18181'
+                    });
+                    return await res.text();
+                } catch(e) { return null; }
+            }""")
+
+            # Ej: 249-118205-2-90
+            acuerdo_prov_id = "118205"
+            if acuerdo_info and "-" in acuerdo_info:
+                parts = acuerdo_info.split("^")[0].split("-")
+                if len(parts) >= 2:
+                    acuerdo_prov_id = parts[1]
+
+            add_status_log(f"🔑 Acuerdo Proveedor ID detectado: {acuerdo_prov_id}")
+
+            for reg in target_regiones:
+                cod_reg = reg["codigo_region"]
+                ubigeo_prov = reg["ubigeo_provincia"]
+                reg_nom = reg["nombre"]
+
+                add_status_log(f"📍 Consultando plazos para región: {reg_nom} ({ubigeo_prov})...")
+
+                # Recorrer categorías principales (Portátiles, Escritorio, etc.)
+                for combo in OFFICIAL_PERUCOMPRAS_COMBOS:
+                    n_acuerdo = combo["n_acuerdo"]
+                    n_catalogo = combo["n_catalogo"]
+                    n_categoria = combo["n_categoria"]
+                    cat_nom = combo["categoria_nombre"]
+
+                    # Establecer contexto de región en el backend de Perú Compras
+                    res_raw = await page.evaluate("""async ({acuerdoProvId, nAcuerdo, nCatalogo, nCategoria, codReg, ubigeoProv}) => {
+                        try {
+                            await fetch('/MejoraPlazo/obtenerFiltros', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                                body: `3^18181^${nAcuerdo}^${nCategoria}`
+                            });
+                            await fetch('/MejoraPlazo/obtenerFiltros', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                                body: `4^${codReg}`
+                            });
+
+                            const res = await fetch('/MejoraPlazo/consultaMejoraPlazoEntrega', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                                body: `${acuerdoProvId}^${nCatalogo}^${nCategoria}^^${ubigeoProv}`
+                            });
+                            return await res.text();
+                        } catch(e) { return null; }
+                    }""", {
+                        "acuerdoProvId": acuerdo_prov_id,
+                        "nAcuerdo": n_acuerdo,
+                        "nCatalogo": n_catalogo,
+                        "nCategoria": n_categoria,
+                        "codReg": cod_reg,
+                        "ubigeoProv": ubigeo_prov
+                    })
+
+                    if res_raw and "¯" in res_raw:
+                        _, data_part = res_raw.split("¯", 1)
+                        lines = data_part.split("¬")
+                        parsed_count = 0
+
+                        if db:
+                            update_stmt = text("""
+                                UPDATE ofertas_proveedor_history
+                                SET plazo_entrega_dias = :plazo,
+                                    region = :region,
+                                    provincia = :provincia
+                                WHERE ruc_proveedor = :ruc 
+                                  AND (UPPER(TRIM(nro_parte)) = UPPER(TRIM(:nro_parte)) OR id::text = :id_oferta)
+                            """)
+                            for line in lines:
+                                cols = line.split("^")
+                                if len(cols) >= 7:
+                                    raw_id = cols[0].split("-")[0].strip()
+                                    desc_prod = cols[2] if len(cols) > 2 else ""
+                                    plazo_str = cols[6].strip()
+                                    try:
+                                        plazo_int = int(plazo_str) if plazo_str.isdigit() else None
+                                    except:
+                                        plazo_int = None
+
+                                    if plazo_int is not None:
+                                        # Extraer posible nro_parte desde descripción
+                                        desc_words = desc_prod.split()
+                                        possible_part = desc_words[-1] if desc_words else "S/N"
+                                        db.execute(update_stmt, {
+                                            "plazo": plazo_int,
+                                            "region": reg_nom,
+                                            "provincia": reg_nom,
+                                            "ruc": ruc,
+                                            "nro_parte": possible_part,
+                                            "id_oferta": raw_id
+                                        })
+                                        parsed_count += 1
+                            db.commit()
+
+                        total_actualizados += parsed_count
+                        if parsed_count > 0:
+                            add_status_log(f"   ✅ {cat_nom}: {parsed_count} plazos actualizados en {reg_nom}")
+
+            await browser.close()
+
+        EXTRACTION_STATUS["is_running"] = False
+        EXTRACTION_STATUS["status"] = "completed"
+        add_status_log(f"🎉 Extracción de plazos completada! Total plazos procesados: {total_actualizados}")
+        return {"status": "completed", "total_actualizados": total_actualizados}
+    except Exception as e:
+        EXTRACTION_STATUS["is_running"] = False
+        EXTRACTION_STATUS["status"] = "error"
+        EXTRACTION_STATUS["last_error"] = str(e)
+        add_status_log(f"❌ Error extrayendo plazos regionales: {e}")
+        return {"status": "error", "error": str(e)}

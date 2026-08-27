@@ -59,6 +59,7 @@ export const proveedoresApi = {
   reclassify: () => api.post('/proveedores/reclassify'),
   getColumnFilter: (col) => api.get(`/proveedores/filters/${col}`),
   scrape: (params) => api.post('/proveedores/scrape', null, { params }),
+  scrapePlazos: (params) => api.post('/proveedores/scrape-plazos', null, { params }),
   getScrapeStatus: () => api.get('/proveedores/scrape-status'),
   exportJson: () => api.get('/proveedores/export-json'),
   clearData: (params) => api.post('/proveedores/clear', null, { params }),

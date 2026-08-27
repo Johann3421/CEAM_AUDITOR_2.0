@@ -7,13 +7,43 @@ import {
   ExternalLink, Tag, DollarSign, Package, TrendingUp, X, RefreshCw,
   Code, Copy, Check, Cpu, HardDrive, Monitor, Download, Trash2,
   ArrowUp, ArrowDown, ChevronsUpDown, Filter, Layers, CheckCircle2, ChevronDown, ChevronUp,
-  Laptop, MonitorCheck, Printer, Sparkles, Tv, Smartphone, Server, Zap, Projector, Award, Scale, Users
+  Laptop, MonitorCheck, Printer, Sparkles, Tv, Smartphone, Server, Zap, Projector, Award, Scale, Users,
+  Clock, MapPin
 } from 'lucide-react';
 
 const MAIN_PROVIDERS = [
   { id: 'all', name: 'Todos los Proveedores (Consolidado)', tag: 'Global', short: 'Todos los Proveedores' },
   { id: 'thekingcomputer', name: 'THE KING COMPUTER E.I.R.L.', ruc: '20601234567', short: 'The King Computer', user: 'estalin.huamali01' },
   { id: 'jorge_rojas', name: 'ROJAS VILLANUEVA JORGE LUIS', ruc: '10408899991', short: 'Jorge Rojas Villanueva', user: 'neison.chacas' },
+];
+
+const PERU_REGIONES = [
+  { id: 'all', name: 'Todas las Regiones (Nacional)' },
+  { id: 'LIMA', name: '📍 Lima' },
+  { id: 'CALLAO', name: '📍 Callao' },
+  { id: 'AREQUIPA', name: '📍 Arequipa' },
+  { id: 'CUSCO', name: '📍 Cusco' },
+  { id: 'LA LIBERTAD', name: '📍 La Libertad' },
+  { id: 'PIURA', name: '📍 Piura' },
+  { id: 'LAMBAYEQUE', name: '📍 Lambayeque' },
+  { id: 'JUNIN', name: '📍 Junín' },
+  { id: 'ANCASH', name: '📍 Áncash' },
+  { id: 'ICA', name: '📍 Ica' },
+  { id: 'CAJAMARCA', name: '📍 Cajamarca' },
+  { id: 'PUNO', name: '📍 Puno' },
+  { id: 'SAN MARTIN', name: '📍 San Martín' },
+  { id: 'HUANUCO', name: '📍 Huánuco' },
+  { id: 'AYACUCHO', name: '📍 Ayacucho' },
+  { id: 'LORETO', name: '📍 Loreto' },
+  { id: 'UCAYALI', name: '📍 Ucayali' },
+  { id: 'TACNA', name: '📍 Tacna' },
+  { id: 'MOQUEGUA', name: '📍 Moquegua' },
+  { id: 'TUMBES', name: '📍 Tumbes' },
+  { id: 'APURIMAC', name: '📍 Apurímac' },
+  { id: 'AMAZONAS', name: '📍 Amazonas' },
+  { id: 'HUANCAVELICA', name: '📍 Huancavelica' },
+  { id: 'PASCO', name: '📍 Pasco' },
+  { id: 'MADRE DE DIOS', name: '📍 Madre de Dios' },
 ];
 
 const fmt = (n) =>
@@ -141,6 +171,7 @@ const ProveedorFichas = () => {
   const navigate = useNavigate();
   const [selectedProvider, setSelectedProvider] = useState('all');
   const [proveedorColFilter, setProveedorColFilter] = useState('all');
+  const [regionFilter, setRegionFilter] = useState('all');
   const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
   const [marcaFilter, setMarcaFilter] = useState('');
@@ -224,6 +255,7 @@ const ProveedorFichas = () => {
     proveedoresApi.getFichas({
       proveedor: provId,
       proveedor_filter: proveedorColFilter !== 'all' ? proveedorColFilter : undefined,
+      region: regionFilter !== 'all' ? regionFilter : undefined,
       search: search || undefined,
       marca: marcaFilter || undefined,
       categoria: activeTab !== 'all' ? activeTab : undefined,
@@ -254,7 +286,7 @@ const ProveedorFichas = () => {
 
   useEffect(() => {
     fetchFichasData();
-  }, [selectedProvider, proveedorColFilter, activeTab, search, marcaFilter, stockFilter, sortBy, page, limit]);
+  }, [selectedProvider, proveedorColFilter, regionFilter, activeTab, search, marcaFilter, stockFilter, sortBy, page, limit]);
 
   useEffect(() => {
     let interval = null;
@@ -288,6 +320,21 @@ const ProveedorFichas = () => {
     setShowLogModal(true);
     try {
       await proveedoresApi.scrape({ proveedor: provToScrape });
+    } catch (err) {
+      console.error(err);
+      setScraping(false);
+    }
+  };
+
+  const handleStartScrapePlazos = async () => {
+    const provToScrape = selectedProvider !== 'all' ? selectedProvider : 'thekingcomputer';
+    setScraping(true);
+    setShowLogModal(true);
+    try {
+      await proveedoresApi.scrapePlazos({
+        proveedor: provToScrape,
+        regiones: regionFilter !== 'all' ? regionFilter : undefined
+      });
     } catch (err) {
       console.error(err);
       setScraping(false);
@@ -349,7 +396,7 @@ const ProveedorFichas = () => {
     setPage(0);
   };
 
-  const hasActiveFilters = Boolean(search || marcaFilter || stockFilter || sortBy || proveedorColFilter !== 'all' || selectedProvider !== 'all' || activeTab !== 'all');
+  const hasActiveFilters = Boolean(search || marcaFilter || stockFilter || sortBy || proveedorColFilter !== 'all' || regionFilter !== 'all' || selectedProvider !== 'all' || activeTab !== 'all');
 
   const clearAllFilters = () => {
     setSearch('');
@@ -357,6 +404,7 @@ const ProveedorFichas = () => {
     setStockFilter('');
     setSortBy('');
     setProveedorColFilter('all');
+    setRegionFilter('all');
     setSelectedProvider('all');
     setActiveTab('all');
     setPage(0);
@@ -560,6 +608,72 @@ const ProveedorFichas = () => {
     );
   };
 
+  // Helper para renderizar la columna de Plazo de Entrega
+  const renderPlazoEntrega = (f) => {
+    const ofertas = Array.isArray(f.ofertas) && f.ofertas.length > 0 ? f.ofertas : [f];
+
+    // Si estamos en consolidado con múltiples ofertas
+    if (ofertas.length > 1) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {ofertas.map((o, idx) => {
+            const isJorge = (o.nombre_proveedor || '').toUpperCase().includes('JORGE') || (o.nombre_proveedor || '').toUpperCase().includes('ROJAS');
+            const provLabel = isJorge ? 'Jorge Rojas' : 'The King';
+            const plazo = o.plazo_entrega_dias;
+            return (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, fontSize: 11 }}>
+                <span style={{ color: isJorge ? '#0284c7' : '#7c3aed', fontWeight: 600, fontSize: 10 }}>{provLabel}:</span>
+                {plazo != null ? (
+                  <span style={{
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                    fontWeight: 700,
+                    fontSize: 10,
+                    background: plazo <= 2 ? '#dcfce7' : plazo <= 15 ? '#e0f2fe' : '#fef3c7',
+                    color: plazo <= 2 ? '#166534' : plazo <= 15 ? '#0369a1' : '#92400e',
+                    border: `1px solid ${plazo <= 2 ? '#bbf7d0' : plazo <= 15 ? '#bae6fd' : '#fde68a'}`
+                  }}>
+                    ⏱️ {plazo} {plazo === 1 ? 'día' : 'días'}
+                  </span>
+                ) : (
+                  <span style={{ color: '#94a3b8', fontSize: 10 }}>—</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // Oferta individual
+    const plazo = f.min_plazo_entrega || f.plazo_entrega_dias || (ofertas[0] && ofertas[0].plazo_entrega_dias);
+    if (plazo == null) {
+      return <span style={{ color: '#94a3b8', fontSize: 11 }}>—</span>;
+    }
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+        <span style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '2px 8px',
+          borderRadius: 5,
+          fontSize: 11,
+          fontWeight: 700,
+          background: plazo <= 2 ? '#dcfce7' : plazo <= 15 ? '#e0f2fe' : '#fef3c7',
+          color: plazo <= 2 ? '#166534' : plazo <= 15 ? '#0369a1' : '#92400e',
+          border: `1px solid ${plazo <= 2 ? '#bbf7d0' : plazo <= 15 ? '#bae6fd' : '#fde68a'}`
+        }}>
+          ⏱️ {plazo} {plazo === 1 ? 'día' : 'días'}
+        </span>
+        <span style={{ fontSize: 9, color: '#64748b' }}>
+          {plazo <= 2 ? '⚡ Inmediato' : plazo <= 15 ? '📦 Regular' : '🗓️ Programado'}
+        </span>
+      </div>
+    );
+  };
+
   return (
     <div style={{ maxWidth: 1480, margin: '0 auto', paddingBottom: 40 }}>
       {/* Header */}
@@ -594,6 +708,17 @@ const ProveedorFichas = () => {
           >
             <Sparkles size={15} className={reclassifying ? 'spin' : ''} />
             {reclassifying ? 'Reclasificando...' : 'Reclasificar'}
+          </button>
+
+          <button
+            className="btn btn-secondary"
+            onClick={handleStartScrapePlazos}
+            disabled={scraping}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600 }}
+            title="Extraer plazos de entrega vigentes por región desde MejoraPlazo"
+          >
+            <Clock size={15} className={scraping ? 'spin' : ''} />
+            {scraping ? 'Extrayendo...' : '⏱️ Extraer Plazos'}
           </button>
 
           <button
@@ -854,6 +979,24 @@ const ProveedorFichas = () => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--c-text-secondary)', display: 'flex', alignItems: 'center', gap: 3 }}>
+              <MapPin size={13} style={{ color: 'var(--c-brand)' }} />
+              Región:
+            </span>
+            <select
+              className="form-select"
+              value={regionFilter}
+              onChange={(e) => { setRegionFilter(e.target.value); setPage(0); }}
+              style={{ width: 190, fontSize: 12, padding: '4px 8px' }}
+              title="Filtrar por región o departamento de entrega"
+            >
+              {PERU_REGIONES.map(r => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--c-text-secondary)' }}>Stock:</span>
             <select
               className="form-select"
@@ -958,7 +1101,15 @@ const ProveedorFichas = () => {
                   </div>
                 </th>
 
-                {/* 5. Stock Total */}
+                {/* 5. Plazo de Entrega */}
+                <th style={{ width: 140, textAlign: 'center', padding: '10px 14px' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                    <Clock size={13} style={{ color: 'var(--c-brand)' }} />
+                    <span>Plazo de Entrega</span>
+                  </div>
+                </th>
+
+                {/* 6. Stock Total */}
                 <th 
                   onClick={() => toggleSort('stock')}
                   style={{ width: 100, textAlign: 'center', padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}
@@ -974,7 +1125,7 @@ const ProveedorFichas = () => {
                   </div>
                 </th>
 
-                {/* 6. Datos / Acciones */}
+                {/* 7. Datos / Acciones */}
                 <th style={{ width: 85, textAlign: 'center', padding: '10px 14px' }}>
                   <span>Datos</span>
                 </th>
@@ -983,7 +1134,7 @@ const ProveedorFichas = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-secondary)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-secondary)' }}>
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
                       <RefreshCw size={16} className="spin" />
                       <span>Cargando datos de la base de datos...</span>
@@ -992,7 +1143,7 @@ const ProveedorFichas = () => {
                 </tr>
               ) : fichas.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
                     No hay ofertas con los filtros aplicados. Puedes cambiar los filtros o extraer nuevas categorías.
                   </td>
                 </tr>
@@ -1116,7 +1267,12 @@ const ProveedorFichas = () => {
                         {renderPriceComparison(f)}
                       </td>
 
-                      {/* 5. Stock Total */}
+                      {/* 5. Plazo de Entrega */}
+                      <td style={{ padding: '10px 14px', textAlign: 'center', verticalAlign: 'middle' }}>
+                        {renderPlazoEntrega(f)}
+                      </td>
+
+                      {/* 6. Stock Total */}
                       <td style={{ padding: '10px 14px', textAlign: 'center', verticalAlign: 'middle' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                           <span style={{ 
@@ -1137,7 +1293,7 @@ const ProveedorFichas = () => {
                         </div>
                       </td>
 
-                      {/* 6. Acciones & JSON View */}
+                      {/* 7. Acciones & JSON View */}
                       <td style={{ padding: '10px 14px', textAlign: 'center', verticalAlign: 'middle' }}>
                         <div style={{ display: 'flex', justifyContent: 'center', gap: 4 }}>
                           <button

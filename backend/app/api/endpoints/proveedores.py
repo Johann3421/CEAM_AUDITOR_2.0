@@ -13,6 +13,7 @@ router = APIRouter(prefix="/proveedores", tags=["proveedores"])
 def get_proveedor_fichas(
     proveedor: Optional[str] = Query(None, description="Filtro por nombre de proveedor"),
     proveedor_filter: Optional[str] = Query(None, description="Filtro específico: 'ambos', 'exclusivo', 'thekingcomputer', 'jorge_rojas'"),
+    region: Optional[str] = Query(None, description="Filtro por región / departamento"),
     search: Optional[str] = Query(None, description="Búsqueda rápida por nro_parte o descripción"),
     marca: Optional[str] = Query(None, description="Filtro por marca"),
     nro_parte: Optional[str] = Query(None, description="Filtro por nro_parte"),
@@ -25,7 +26,7 @@ def get_proveedor_fichas(
     db: Session = Depends(get_db)
 ):
     """
-    Lista las fichas y ofertas por proveedor con soporte para filtros por columna y ordenamiento tipo Excel.
+    Lista las fichas y ofertas por proveedor con soporte para filtros por columna, región y ordenamiento tipo Excel.
     """
     offset = (page - 1) * limit
     params = {}
@@ -40,6 +41,10 @@ def get_proveedor_fichas(
         else:
             where_clauses.append("UPPER(f.nombre_proveedor) LIKE UPPER(:proveedor)")
             params["proveedor"] = f"%{proveedor}%"
+
+    if region and region.lower() != "all":
+        where_clauses.append("(UPPER(COALESCE(f.region, '')) LIKE UPPER(:region) OR UPPER(COALESCE(f.provincia, '')) LIKE UPPER(:region))")
+        params["region"] = f"%{region}%"
 
     if search:
         where_clauses.append("(UPPER(f.nro_parte) LIKE UPPER(:search) OR UPPER(f.descripcion_producto) LIKE UPPER(:search) OR UPPER(f.marca) LIKE UPPER(:search))")
@@ -168,6 +173,8 @@ def get_proveedor_fichas(
                     f.precio_ofertado,
                     f.existencia_stock,
                     f.plazo_entrega_dias,
+                    f.region,
+                    f.provincia,
                     f.pdf_url,
                     f.fecha_extraccion,
                     CASE 
@@ -193,6 +200,8 @@ def get_proveedor_fichas(
                     r.precio_ofertado,
                     r.existencia_stock,
                     r.plazo_entrega_dias,
+                    r.region,
+                    r.provincia,
                     r.pdf_url,
                     r.fecha_extraccion
                 FROM raw_matched r
@@ -210,6 +219,10 @@ def get_proveedor_fichas(
                     MAX(r.acuerdo_marco) AS acuerdo_marco,
                     MIN(r.precio_ofertado) AS min_precio,
                     MAX(r.precio_ofertado) AS max_precio,
+                    MIN(r.plazo_entrega_dias) AS min_plazo_entrega,
+                    MAX(r.plazo_entrega_dias) AS max_plazo_entrega,
+                    MAX(r.region) AS region,
+                    MAX(r.provincia) AS provincia,
                     SUM(COALESCE(r.existencia_stock, 0)) AS existencia_stock,
                     COUNT(DISTINCT r.ruc_proveedor) AS total_proveedores,
                     json_agg(
@@ -220,6 +233,8 @@ def get_proveedor_fichas(
                             'precio_ofertado', r.precio_ofertado,
                             'existencia_stock', r.existencia_stock,
                             'plazo_entrega_dias', r.plazo_entrega_dias,
+                            'region', r.region,
+                            'provincia', r.provincia,
                             'pdf_url', r.pdf_url,
                             'estado', 'VIGENTE',
                             'fecha_extraccion', r.fecha_extraccion::text
@@ -239,6 +254,10 @@ def get_proveedor_fichas(
                 g.acuerdo_marco,
                 g.min_precio,
                 g.max_precio,
+                g.min_plazo_entrega,
+                g.max_plazo_entrega,
+                g.region,
+                g.provincia,
                 g.existencia_stock,
                 g.total_proveedores,
                 g.ofertas,
@@ -273,6 +292,10 @@ def get_proveedor_fichas(
                 f.precio_ofertado AS min_precio,
                 f.existencia_stock,
                 f.plazo_entrega_dias,
+                f.plazo_entrega_dias AS min_plazo_entrega,
+                f.plazo_entrega_dias AS max_plazo_entrega,
+                f.region,
+                f.provincia,
                 f.pdf_url,
                 f.raw_json,
                 f.fecha_extraccion::text AS fecha_extraccion,
@@ -284,6 +307,8 @@ def get_proveedor_fichas(
                     'precio_ofertado', f.precio_ofertado,
                     'existencia_stock', f.existencia_stock,
                     'plazo_entrega_dias', f.plazo_entrega_dias,
+                    'region', f.region,
+                    'provincia', f.provincia,
                     'pdf_url', f.pdf_url,
                     'estado', 'VIGENTE',
                     'fecha_extraccion', f.fecha_extraccion::text
@@ -687,6 +712,30 @@ async def trigger_scrape_proveedores(
         "message": f"Worker Pool de extracción iniciado para '{prov_nombre}'",
         "proveedor": proveedor,
         "nombre": prov_nombre
+    }
+
+@router.post("/scrape-plazos")
+async def trigger_scrape_plazos(
+    background_tasks: BackgroundTasks,
+    proveedor: str = Query("thekingcomputer", description="ID del proveedor: thekingcomputer, jorge_rojas"),
+    regiones: Optional[str] = Query(None, description="Regiones separadas por coma (ej: LIMA,AREQUIPA) o vacío para todas"),
+    db: Session = Depends(get_db)
+):
+    """
+    Inicia la extracción regional de plazos de entrega en segundo plano.
+    """
+    from app.services.proveedores_scraper import async_extract_plazos_regionales, PROVEEDORES_CONFIG
+    prov_nombre = PROVEEDORES_CONFIG.get(proveedor, {}).get("nombre", proveedor)
+    target_regs = [r.strip().upper() for r in regiones.split(",")] if regiones else None
+
+    async def _async_plazos_task():
+        await async_extract_plazos_regionales(provider_key=proveedor, regiones=target_regs, db=db)
+
+    background_tasks.add_task(_async_plazos_task)
+    return {
+        "message": f"Extracción regional de plazos iniciada para '{prov_nombre}'",
+        "proveedor": proveedor,
+        "regiones": target_regs or "TODAS (25 Regiones)"
     }
 
 @router.get("/scrape-status")
