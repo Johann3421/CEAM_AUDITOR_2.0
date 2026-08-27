@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Set
 
 import httpx
+from playwright.async_api import async_playwright
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session

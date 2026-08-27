@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { proveedoresApi } from '../services/api';
 import HeaderFilter from '../components/HeaderFilter';
@@ -288,6 +288,8 @@ const ProveedorFichas = () => {
     fetchFichasData();
   }, [selectedProvider, proveedorColFilter, regionFilter, activeTab, search, marcaFilter, stockFilter, sortBy, page, limit]);
 
+  const wasScrapingRef = useRef(false);
+
   useEffect(() => {
     let interval = null;
     if (scraping || showLogModal) {
@@ -298,37 +300,45 @@ const ProveedorFichas = () => {
             setScrapeStatus(res.data);
             if (res.data.is_running) {
               setScraping(true);
-            } else if (res.data.status === 'completed' || res.data.status === 'error') {
+              wasScrapingRef.current = true;
+            } else {
               setScraping(false);
-              fetchCategoriesCount(selectedProvider);
-              fetchFichasData();
+              // Solo refrescar la tabla y contadores 1 vez cuando termina la extracción
+              if (wasScrapingRef.current) {
+                wasScrapingRef.current = false;
+                fetchCategoriesCount(selectedProvider);
+                fetchFichasData();
+              }
             }
           }
         } catch (e) {
           console.error("Error obteniendo status del scraper:", e);
         }
-      }, 1500);
+      }, 2000);
     }
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [scraping, showLogModal]);
+  }, [scraping, showLogModal, selectedProvider]);
 
   const handleStartScrape = async (targetProviderKey = null) => {
     const provToScrape = targetProviderKey || (selectedProvider !== 'all' ? selectedProvider : 'thekingcomputer');
     setScraping(true);
+    wasScrapingRef.current = true;
     setShowLogModal(true);
     try {
       await proveedoresApi.scrape({ proveedor: provToScrape });
     } catch (err) {
       console.error(err);
       setScraping(false);
+      wasScrapingRef.current = false;
     }
   };
 
   const handleStartScrapePlazos = async () => {
     const provToScrape = selectedProvider !== 'all' ? selectedProvider : 'thekingcomputer';
     setScraping(true);
+    wasScrapingRef.current = true;
     setShowLogModal(true);
     try {
       await proveedoresApi.scrapePlazos({
@@ -338,6 +348,7 @@ const ProveedorFichas = () => {
     } catch (err) {
       console.error(err);
       setScraping(false);
+      wasScrapingRef.current = false;
     }
   };
 
