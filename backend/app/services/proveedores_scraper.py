@@ -794,9 +794,9 @@ async def async_extract_plazos_regionales(
                 prov_search = "%KING%" if "KING" in nombre_proveedor.upper() else "%ROJAS%"
 
             EXTRACTION_STATUS["combos_total"] = len(target_regiones) * len(combos_activos)
+            add_status_log(f"📦 {len(combos_activos)} categorías × {len(target_regiones)} regiones = {EXTRACTION_STATUS['combos_total']} consultas")
 
             for reg in target_regiones:
-                cod_reg = reg["codigo_region"]
                 reg_nom = reg["nombre"]
                 reg_key = _normalize_region_text(reg_nom)
                 ubigeo_prov = reg["ubigeo_provincia"]
@@ -812,23 +812,34 @@ async def async_extract_plazos_regionales(
 
                     body_post = f"{acuerdo_prov_id}^{id_cat}^{id_subcat}^^{ubigeo_prov}"
 
+                    # Fetch con doble timeout: AbortController en JS + asyncio.wait_for en Python
+                    res_raw = None
                     try:
-                        res_raw = await page.evaluate("""async (bodyPost) => {
-                            try {
-                                const res = await fetch('/MejoraPlazo/consultaMejoraPlazoEntrega', {
-                                    method: 'POST',
-                                    headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                                    body: bodyPost,
-                                    signal: AbortSignal.timeout(6000)
-                                });
-                                if (res.ok) {
-                                    return await res.text();
+                        res_raw = await asyncio.wait_for(
+                            page.evaluate("""async (bodyPost) => {
+                                const controller = new AbortController();
+                                const tid = setTimeout(() => controller.abort(), 8000);
+                                try {
+                                    const res = await fetch('/MejoraPlazo/consultaMejoraPlazoEntrega', {
+                                        method: 'POST',
+                                        headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                                        body: bodyPost,
+                                        signal: controller.signal
+                                    });
+                                    clearTimeout(tid);
+                                    if (res.ok) return await res.text();
+                                    return null;
+                                } catch(e) {
+                                    clearTimeout(tid);
+                                    return null;
                                 }
-                                return null;
-                            } catch(e) { return null; }
-                        }""", body_post)
-                    except Exception:
-                        res_raw = None
+                            }""", body_post),
+                            timeout=15.0
+                        )
+                    except asyncio.TimeoutError:
+                        add_status_log(f"   ⏱️ [{nom_subcat}] TIMEOUT en {reg_nom}")
+                    except Exception as e:
+                        add_status_log(f"   ⚠️ [{nom_subcat}] Error fetch: {str(e)[:80]}")
 
                     EXTRACTION_STATUS["combos_completed"] += 1
 
@@ -871,15 +882,20 @@ async def async_extract_plazos_regionales(
                     cat_match = f"%{db_cat[1]}%" if db_cat else f"%{nom_upper}%"
 
                     if db:
-                        result = db.execute(update_stmt, {
-                            "plazo": plazo_int,
-                            "region": reg_key,
-                            "ruc": ruc,
-                            "prov_match": prov_search,
-                            "cat_match": cat_match
-                        })
-                        rows_updated = result.rowcount
-                        db.commit()
+                        try:
+                            result = db.execute(update_stmt, {
+                                "plazo": plazo_int,
+                                "region": reg_key,
+                                "ruc": ruc,
+                                "prov_match": prov_search,
+                                "cat_match": cat_match
+                            })
+                            rows_updated = result.rowcount
+                            db.commit()
+                        except Exception as e:
+                            db.rollback()
+                            add_status_log(f"   ❌ [{nom_subcat}] Error DB: {str(e)[:100]}")
+                            rows_updated = 0
                     else:
                         rows_updated = 0
 
@@ -887,10 +903,9 @@ async def async_extract_plazos_regionales(
                     total_actualizados += rows_updated
                     EXTRACTION_STATUS["items_inserted"] = total_actualizados
 
-                    if rows_updated > 0:
-                        add_status_log(f"   ✅ [{nom_subcat}] {plazo_int} días → {rows_updated} fichas actualizadas en {reg_nom}")
+                    add_status_log(f"   {'✅' if rows_updated > 0 else '⚪'} [{nom_subcat}] {plazo_int} días → {rows_updated} fichas (cat_match={cat_match})")
 
-                add_status_log(f"   📊 Resumen {reg_nom}: {reg_actualizados} fichas totales actualizadas")
+                add_status_log(f"   📊 Resumen {reg_nom}: {reg_actualizados} fichas actualizadas")
 
                 if EXTRACTION_STATUS["combos_completed"] % 10 == 0:
                     await _capture_live_preview(page, update_live_screenshot)
@@ -899,7 +914,7 @@ async def async_extract_plazos_regionales(
 
         EXTRACTION_STATUS["is_running"] = False
         EXTRACTION_STATUS["status"] = "completed"
-        add_status_log(f"🎉 Extracción de plazos completada! Total fichas actualizadas: {total_actualizados}")
+        add_status_log(f"🎉 Extracción completada! Total fichas actualizadas: {total_actualizados}")
         return {"status": "completed", "total_actualizados": total_actualizados}
     except Exception as e:
         EXTRACTION_STATUS["is_running"] = False
@@ -907,4 +922,3 @@ async def async_extract_plazos_regionales(
         EXTRACTION_STATUS["last_error"] = str(e)
         add_status_log(f"❌ Error extrayendo plazos regionales: {e}")
         return {"status": "error", "error": str(e)}
-
