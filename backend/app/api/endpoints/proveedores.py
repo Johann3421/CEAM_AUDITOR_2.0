@@ -745,7 +745,12 @@ async def trigger_scrape_plazos(
     """
     from app.services.proveedores_scraper import async_extract_plazos_regionales, PROVEEDORES_CONFIG
     from app.db.database import SessionLocal
-    target_regs = [r.strip().upper() for r in regiones.split(",")] if regiones else None
+    if regiones and regiones.strip().lower() in ("all", "todas", "global", "none", "null"):
+        target_regs = None
+    elif regiones:
+        target_regs = [r.strip().upper() for r in regiones.split(",") if r.strip()]
+    else:
+        target_regs = None
 
     async def _async_plazos_task():
         with SessionLocal() as db_session:

@@ -614,6 +614,13 @@ PERU_REGIONES_OFICIALES = [
     {"codigo_region": "170000", "ubigeo_provincia": "170100", "nombre": "MADRE DE DIOS"}
 ]
 
+def _normalize_region_text(s: str) -> str:
+    if not s:
+        return ""
+    import unicodedata
+    n = unicodedata.normalize('NFKD', s.strip().upper())
+    return ''.join(c for c in n if not unicodedata.combining(c))
+
 async def async_extract_plazos_regionales(
     provider_key: str = "thekingcomputer",
     regiones: Optional[List[str]] = None,
@@ -628,7 +635,16 @@ async def async_extract_plazos_regionales(
     ruc = prov_cfg["ruc"]
     nombre_proveedor = prov_cfg["nombre"]
 
-    target_regiones = [r for r in PERU_REGIONES_OFICIALES if not regiones or r["nombre"] in regiones or r["codigo_region"] in regiones]
+    # Normalizar lista de regiones solicitadas
+    norm_regiones = [_normalize_region_text(r) for r in regiones if r and _normalize_region_text(r) not in ("ALL", "TODAS", "GLOBAL", "")] if regiones else []
+
+    if norm_regiones:
+        target_regiones = [
+            r for r in PERU_REGIONES_OFICIALES 
+            if _normalize_region_text(r["nombre"]) in norm_regiones or r["codigo_region"] in norm_regiones
+        ]
+    else:
+        target_regiones = PERU_REGIONES_OFICIALES
 
     EXTRACTION_STATUS["is_running"] = True
     EXTRACTION_STATUS["status"] = "running"
@@ -776,7 +792,7 @@ async def async_extract_plazos_regionales(
 
                                         db.execute(update_stmt, {
                                             "plazo": plazo_int,
-                                            "region": reg_nom,
+                                            "region": _normalize_region_text(reg_nom),
                                             "ruc": ruc,
                                             "prov_match": prov_search,
                                             "nro_parte": possible_part,
