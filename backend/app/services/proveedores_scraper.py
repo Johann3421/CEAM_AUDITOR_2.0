@@ -649,7 +649,7 @@ async def async_extract_plazos_regionales(
     EXTRACTION_STATUS["is_running"] = True
     EXTRACTION_STATUS["status"] = "running"
     EXTRACTION_STATUS["current_provider"] = nombre_proveedor
-    EXTRACTION_STATUS["combos_total"] = len(target_regiones) * len(OFFICIAL_PERUCOMPRAS_COMBOS)
+    EXTRACTION_STATUS["combos_total"] = len(target_regiones)
     EXTRACTION_STATUS["combos_completed"] = 0
     EXTRACTION_STATUS["items_inserted"] = 0
     add_status_log(f"⏱️ Iniciando extracción de plazos regionales para {nombre_proveedor} ({len(target_regiones)} regiones)...")
@@ -674,27 +674,79 @@ async def async_extract_plazos_regionales(
             await page.wait_for_timeout(1500)
             await _capture_live_preview(page, update_live_screenshot)
 
-            # Obtener acuerdo_proveedor_id desde los filtros
+            # 1. Obtener acuerdo_id y acuerdo_proveedor_id desde filtro 0
             acuerdo_info = await page.evaluate("""async () => {
-                try {
-                    const res = await fetch('/MejoraPlazo/obtenerFiltros', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                        body: '0^18181',
-                        signal: AbortSignal.timeout(10000)
-                    });
-                    return await res.text();
-                } catch(e) { return null; }
+                return await new Promise((resolve) => {
+                    try {
+                        requestServer("obtenerFiltros", "post", resolve, '0^' + cod_personajuridica);
+                    } catch(e) { resolve(null); }
+                });
             }""")
 
-            # Ej: 249-118205-2-90
+            acuerdo_id = "249"
             acuerdo_prov_id = "118205"
             if acuerdo_info and "-" in acuerdo_info:
-                parts = acuerdo_info.split("^")[0].split("-")
+                header_acuerdo = acuerdo_info.split("¯")[0]
+                parts = header_acuerdo.split("^")[0].split("-")
                 if len(parts) >= 2:
+                    acuerdo_id = parts[0]
                     acuerdo_prov_id = parts[1]
 
-            add_status_log(f"🔑 Acuerdo Proveedor ID detectado: {acuerdo_prov_id}")
+            add_status_log(f"🔑 Acuerdo ID: {acuerdo_id} | Proveedor ID: {acuerdo_prov_id}")
+
+            # 2. Obtener catálogos dinámicos
+            catalogos_raw = await page.evaluate(f"""async () => {{
+                return await new Promise((resolve) => {{
+                    try {{
+                        requestServer("obtenerFiltros", "post", resolve, '1^{acuerdo_id}');
+                    }} catch(e) {{ resolve(null); }}
+                }});
+            }}""")
+
+            combos_activos = []
+            if catalogos_raw:
+                for cat_str in catalogos_raw.split("¬"):
+                    if not cat_str.strip():
+                        continue
+                    cat_parts = cat_str.split("^")
+                    if len(cat_parts) >= 2:
+                        id_cat, nom_cat = cat_parts[0], cat_parts[1]
+                        
+                        # 3. Obtener subcategorías para cada catálogo
+                        subcats_raw = await page.evaluate(f"""async () => {{
+                            return await new Promise((resolve) => {{
+                                try {{
+                                    requestServer("obtenerFiltros", "post", resolve, '2^{id_cat}');
+                                }} catch(e) {{ resolve(null); }}
+                            }});
+                        }}""")
+
+                        if subcats_raw:
+                            for subcat_str in subcats_raw.split("¬"):
+                                if not subcat_str.strip():
+                                    continue
+                                subcat_parts = subcat_str.split("^")
+                                if len(subcat_parts) >= 2:
+                                    combos_activos.append({
+                                        "id_catalogo": id_cat,
+                                        "nom_catalogo": nom_cat,
+                                        "id_subcategoria": subcat_parts[0],
+                                        "nom_subcategoria": subcat_parts[1]
+                                    })
+
+            if not combos_activos:
+                # Fallback con combos estándar conocidos
+                combos_activos = [
+                    {"id_catalogo": "250", "nom_catalogo": "COMPUTADORAS PORTATILES", "id_subcategoria": "11743", "nom_subcategoria": "COMPUTADORA PORTATIL"},
+                    {"id_catalogo": "250", "nom_catalogo": "COMPUTADORAS PORTATILES", "id_subcategoria": "11744", "nom_subcategoria": "ESTACION DE TRABAJO PORTATIL"},
+                    {"id_catalogo": "250", "nom_catalogo": "COMPUTADORAS PORTATILES", "id_subcategoria": "11745", "nom_subcategoria": "TABLETA"},
+                    {"id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11735", "nom_subcategoria": "COMPUTADORA DE ESCRITORIO"},
+                    {"id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11736", "nom_subcategoria": "COMPUTADORA TODO EN UNO"},
+                    {"id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11740", "nom_subcategoria": "ESTACION DE TRABAJO"},
+                    {"id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11741", "nom_subcategoria": "MONITOR"},
+                ]
+
+            add_status_log(f"📦 {len(combos_activos)} categorías activas detectadas para extracción")
 
             if db:
                 update_stmt = text("""
@@ -713,128 +765,98 @@ async def async_extract_plazos_regionales(
                 """)
                 prov_search = "%KING%" if "KING" in nombre_proveedor.upper() else "%ROJAS%"
 
+            EXTRACTION_STATUS["combos_total"] = len(target_regiones) * len(combos_activos)
+
             for reg in target_regiones:
                 cod_reg = reg["codigo_region"]
                 reg_nom = reg["nombre"]
                 reg_key = _normalize_region_text(reg_nom)
+                ubigeo_prov = reg["ubigeo_provincia"]
 
-                add_status_log(f"📍 Región: {reg_nom}")
+                add_status_log(f"📍 Región: {reg_nom} (Ubigeo: {ubigeo_prov})")
 
-                # Obtener provincias de esta región via filtro 4
-                # Respuesta: "150100^LIMA¯150200^BARRANCA¯..." (separador ¯ entre provincias)
-                f4_raw = await page.evaluate("""async (codReg) => {
-                    try {
-                        const r = await fetch('/MejoraPlazo/obtenerFiltros', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                            body: `4^${codReg}`,
-                            signal: AbortSignal.timeout(12000)
-                        });
-                        return await r.text();
-                    } catch(e) { return null; }
-                }""", cod_reg)
+                reg_actualizados = 0
 
-                # Parsear provincias: "150100^LIMA¯150200^BARRANCA¯..."
-                provincias = []
-                if f4_raw:
-                    for prov_entry in f4_raw.split("¯"):
-                        prov_parts = prov_entry.split("^")
-                        if prov_parts and prov_parts[0].strip().isdigit():
-                            provincias.append(prov_parts[0].strip())
+                for combo in combos_activos:
+                    id_cat = combo["id_catalogo"]
+                    id_subcat = combo["id_subcategoria"]
+                    nom_subcat = combo["nom_subcategoria"]
 
-                # Fallback: al menos consultar la capital de provincia del catalogo
-                if not provincias:
-                    provincias = [reg["ubigeo_provincia"]]
+                    body_post = f"{acuerdo_prov_id}^{id_cat}^{id_subcat}^^{ubigeo_prov}"
 
-                add_status_log(f"   📌 {len(provincias)} provincia(s) en {reg_nom}")
+                    res_raw = await page.evaluate(f"""async () => {{
+                        return await new Promise((resolve) => {{
+                            try {{
+                                requestServer("consultaMejoraPlazoEntrega", "post", resolve, '{body_post}');
+                            }} catch(e) {{ resolve(null); }}
+                        }});
+                    }}""")
 
-                reg_parsed = 0
-                for ubigeo_prov in provincias:
-                    # FORMATO CORRECTO CONFIRMADO POR TEST: {acuerdo_id}^^^{ubigeo_prov}
-                    # Solo el formato sin catalogo/categoria devuelve datos reales
-                    res_raw = await page.evaluate("""async ({acuerdoProvId, ubigeoProv}) => {
-                        try {
-                            const res = await fetch('/MejoraPlazo/consultaMejoraPlazoEntrega', {
-                                method: 'POST',
-                                headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                                body: `${acuerdoProvId}^^^${ubigeoProv}`,
-                                signal: AbortSignal.timeout(25000)
-                            });
-                            return await res.text();
-                        } catch(e) { return null; }
-                    }""", {"acuerdoProvId": acuerdo_prov_id, "ubigeoProv": ubigeo_prov})
+                    EXTRACTION_STATUS["combos_completed"] += 1
 
-                    if not res_raw:
+                    if not res_raw or "¯" not in res_raw:
                         continue
 
-                    # Formato real confirmado:
-                    # ¯ separa FILAS entre sí (y separa header de la primera fila)
-                    # ¬ separa COLUMNAS dentro de cada fila
-                    # Header: "Nro^Imagen^Ficha-producto^..." (^ separador de nombres)
-                    # Fila:   "3.350¬https://img¬FICHA NOMBRE¬USD¬1438¬1¬90¬..."
-                    #          col0  col1           col2        col3 col4 col5 col6=Plazo
-                    rows = res_raw.split("¯")
-                    # rows[0] = header; rows[1..] = filas de producto
-                    data_rows = rows[1:]  # Saltar header
+                    partes = res_raw.split("¯")
+                    datos_str = partes[1] if len(partes) > 1 else ""
 
-                    if not data_rows:
+                    if not datos_str or not datos_str.strip():
                         continue
 
-                    # Log raw primera fila para diagnóstico
-                    add_status_log(f"   🔍 [{ubigeo_prov}] {len(data_rows)} filas. Primera: {data_rows[0][:80]!r}")
+                    filas = datos_str.split("¬")
+                    parsed_in_cat = 0
 
-                    parsed_in_prov = 0
-                    for row_str in data_rows:
-                        if not row_str.strip():
-                            continue
-                        # Columnas separadas por ¬ dentro de cada fila
-                        cols = row_str.split("¬")
-                        if len(cols) < 7:
-                            continue
-                        # 0=Nro, 1=Imagen, 2=Ficha-producto, 3=Moneda, 4=Precio, 5=Existencias, 6=Plazo vigente
-                        desc_prod = cols[2].strip()
-                        plazo_str = cols[6].strip()
+                    if db:
+                        for fila in filas:
+                            if not fila.strip():
+                                continue
+                            cols = fila.split("^")
+                            if len(cols) < 7:
+                                continue
 
-                        try:
-                            plazo_int = int(float(plazo_str)) if plazo_str else None
-                        except (ValueError, TypeError):
-                            plazo_int = None
+                            desc_prod = cols[2].strip()
+                            plazo_str = cols[6].strip()
 
-                        if plazo_int is not None and desc_prod and db:
-                            clean_desc = re.sub(r'\s+SIST\.\s+MANEJO.*$', '', desc_prod, flags=re.IGNORECASE).strip()
-                            unidad_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)\s+(.+)$', clean_desc, re.IGNORECASE)
-                            if unidad_match:
-                                part_words = unidad_match.group(2).strip().split()
-                                possible_part = part_words[-1] if part_words else "S/N"
-                            else:
-                                desc_words = clean_desc.split()
-                                possible_part = desc_words[-1] if desc_words else "S/N"
+                            try:
+                                plazo_int = int(float(plazo_str)) if plazo_str else None
+                            except (ValueError, TypeError):
+                                plazo_int = None
 
-                            desc_search = f"%{possible_part}%" if len(possible_part) >= 4 and possible_part != "S/N" else f"%{clean_desc[:40]}%"
+                            if plazo_int is not None and desc_prod:
+                                clean_desc = re.sub(r'\s+SIST\.\s+MANEJO.*$', '', desc_prod, flags=re.IGNORECASE).strip()
+                                unidad_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)\s+(.+)$', clean_desc, re.IGNORECASE)
+                                if unidad_match:
+                                    part_words = unidad_match.group(2).strip().split()
+                                    possible_part = part_words[-1] if part_words else "S/N"
+                                else:
+                                    desc_words = clean_desc.split()
+                                    possible_part = desc_words[-1] if desc_words else "S/N"
 
-                            db.execute(update_stmt, {
-                                "plazo": plazo_int,
-                                "region": reg_key,
-                                "ruc": ruc,
-                                "prov_match": prov_search,
-                                "nro_parte": possible_part,
-                                "desc_match": desc_search
-                            })
-                            parsed_in_prov += 1
+                                desc_search = f"%{possible_part}%" if len(possible_part) >= 4 and possible_part != "S/N" else f"%{clean_desc[:40]}%"
 
-                    if db and parsed_in_prov > 0:
-                        db.commit()
+                                db.execute(update_stmt, {
+                                    "plazo": plazo_int,
+                                    "region": reg_key,
+                                    "ruc": ruc,
+                                    "prov_match": prov_search,
+                                    "nro_parte": possible_part,
+                                    "desc_match": desc_search
+                                })
+                                parsed_in_cat += 1
 
-                    reg_parsed += parsed_in_prov
-                    if parsed_in_prov > 0:
-                        add_status_log(f"   ✅ [{ubigeo_prov}] {parsed_in_prov} plazos actualizados")
+                        if parsed_in_cat > 0:
+                            db.commit()
 
-                EXTRACTION_STATUS["combos_completed"] += 1
-                total_actualizados += reg_parsed
-                EXTRACTION_STATUS["items_inserted"] = total_actualizados
-                add_status_log(f"   📊 {reg_nom}: {reg_parsed} plazos totales en {len(provincias)} provincia(s)")
+                    reg_actualizados += parsed_in_cat
+                    total_actualizados += parsed_in_cat
+                    EXTRACTION_STATUS["items_inserted"] = total_actualizados
 
-                if EXTRACTION_STATUS["combos_completed"] % 3 == 0:
+                    if parsed_in_cat > 0:
+                        add_status_log(f"   ✅ [{nom_subcat}] {parsed_in_cat} plazos procesados en {reg_nom}")
+
+                add_status_log(f"   📊 Resumen {reg_nom}: {reg_actualizados} plazos totales actualizados")
+
+                if EXTRACTION_STATUS["combos_completed"] % 5 == 0:
                     await _capture_live_preview(page, update_live_screenshot)
 
             await browser.close()
@@ -849,3 +871,4 @@ async def async_extract_plazos_regionales(
         EXTRACTION_STATUS["last_error"] = str(e)
         add_status_log(f"❌ Error extrayendo plazos regionales: {e}")
         return {"status": "error", "error": str(e)}
+
