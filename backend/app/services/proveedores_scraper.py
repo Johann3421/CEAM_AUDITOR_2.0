@@ -789,32 +789,38 @@ async def async_extract_plazos_regionales(
 
                 add_status_log(f"📍 Región: {reg_nom} (Ubigeo: {ubigeo_prov})")
 
-                reg_actualizados = 0
-
-                for combo in combos_activos:
-                    id_cat = combo["id_catalogo"]
-                    id_subcat = combo["id_subcategoria"]
-                    nom_subcat = combo["nom_subcategoria"]
-
-                    body_post = f"{acuerdo_prov_id}^{id_cat}^{id_subcat}^^{ubigeo_prov}"
-
-                    try:
-                        res_raw = await page.evaluate("""async (bodyPost) => {
+                # Consultar todos los combos en paralelo para esta región (ultra-rápido, ~2-3s por región)
+                try:
+                    results = await page.evaluate("""async ({acuerdoProvId, ubigeoProv, combos}) => {
+                        const promises = combos.map(async (combo) => {
                             try {
                                 const res = await fetch('/MejoraPlazo/consultaMejoraPlazoEntrega', {
                                     method: 'POST',
                                     headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                                    body: bodyPost,
-                                    signal: AbortSignal.timeout(15000)
+                                    body: `${acuerdoProvId}^${combo.id_catalogo}^${combo.id_subcategoria}^^${ubigeoProv}`,
+                                    signal: AbortSignal.timeout(8000)
                                 });
                                 if (res.ok) {
-                                    return await res.text();
+                                    const txt = await res.text();
+                                    return { combo, raw: txt };
                                 }
-                                return null;
-                            } catch(e) { return null; }
-                        }""", body_post)
-                    except Exception:
-                        res_raw = None
+                                return { combo, raw: null };
+                            } catch(e) {
+                                return { combo, raw: null };
+                            }
+                        });
+                        return await Promise.all(promises);
+                    }""", {"acuerdoProvId": acuerdo_prov_id, "ubigeoProv": ubigeo_prov, "combos": combos_activos})
+                except Exception as e:
+                    add_status_log(f"   ⚠️ Error en consulta paralela {reg_nom}: {e}")
+                    results = []
+
+                reg_actualizados = 0
+
+                for item in results:
+                    combo = item.get("combo") or {}
+                    nom_subcat = combo.get("nom_subcategoria", "")
+                    res_raw = item.get("raw")
 
                     EXTRACTION_STATUS["combos_completed"] += 1
 
@@ -880,7 +886,7 @@ async def async_extract_plazos_regionales(
 
                 add_status_log(f"   📊 Resumen {reg_nom}: {reg_actualizados} plazos totales actualizados")
 
-                if EXTRACTION_STATUS["combos_completed"] % 5 == 0:
+                if EXTRACTION_STATUS["combos_completed"] % 10 == 0:
                     await _capture_live_preview(page, update_live_screenshot)
 
             await browser.close()
