@@ -652,7 +652,7 @@ async def async_extract_plazos_regionales(
     EXTRACTION_STATUS["combos_total"] = len(target_regiones) * len(OFFICIAL_PERUCOMPRAS_COMBOS)
     EXTRACTION_STATUS["combos_completed"] = 0
     EXTRACTION_STATUS["items_inserted"] = 0
-    add_status_log(f"⏱️ Iniciando extracción de plazos regionales para {nombre_proveedor} ({len(target_regiones)} regiones, {len(OFFICIAL_PERUCOMPRAS_COMBOS)} categorías)...")
+    add_status_log(f"⏱️ Iniciando extracción de plazos regionales para {nombre_proveedor} ({len(target_regiones)} regiones)...")
 
     total_actualizados = 0
 
@@ -696,119 +696,144 @@ async def async_extract_plazos_regionales(
 
             add_status_log(f"🔑 Acuerdo Proveedor ID detectado: {acuerdo_prov_id}")
 
+            if db:
+                update_stmt = text("""
+                    UPDATE ofertas_proveedor_history
+                    SET raw_json = jsonb_set(
+                            COALESCE(raw_json::jsonb, '{}'::jsonb),
+                            ARRAY['plazos_por_region', :region],
+                            to_jsonb(:plazo::int)
+                        ),
+                        plazo_entrega_dias = COALESCE(plazo_entrega_dias, :plazo)
+                    WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
+                      AND (
+                          (UPPER(TRIM(nro_parte)) = UPPER(TRIM(:nro_parte)) AND UPPER(TRIM(nro_parte)) NOT IN ('', '-', 'S/N', 'SN', '0'))
+                          OR (descripcion_producto ILIKE :desc_match AND length(:desc_match) > 10)
+                      )
+                """)
+                prov_search = "%KING%" if "KING" in nombre_proveedor.upper() else "%ROJAS%"
+
             for reg in target_regiones:
                 cod_reg = reg["codigo_region"]
-                ubigeo_prov = reg["ubigeo_provincia"]
                 reg_nom = reg["nombre"]
+                reg_key = _normalize_region_text(reg_nom)
 
-                add_status_log(f"📍 Región activa: {reg_nom} ({ubigeo_prov})")
+                add_status_log(f"📍 Región: {reg_nom}")
 
-                for combo in OFFICIAL_PERUCOMPRAS_COMBOS:
-                    n_acuerdo = combo["n_acuerdo"]
-                    n_catalogo = combo["n_catalogo"]
-                    n_categoria = combo["n_categoria"]
-                    cat_nom = combo["categoria_nombre"]
+                # Obtener provincias de esta región via filtro 4
+                # Respuesta: "150100^LIMA¯150200^BARRANCA¯..." (separador ¯ entre provincias)
+                f4_raw = await page.evaluate("""async (codReg) => {
+                    try {
+                        const r = await fetch('/MejoraPlazo/obtenerFiltros', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                            body: `4^${codReg}`,
+                            signal: AbortSignal.timeout(12000)
+                        });
+                        return await r.text();
+                    } catch(e) { return null; }
+                }""", cod_reg)
 
-                    add_status_log(f"   🔎 [{cat_nom}] ({reg_nom})...")
+                # Parsear provincias: "150100^LIMA¯150200^BARRANCA¯..."
+                provincias = []
+                if f4_raw:
+                    for prov_entry in f4_raw.split("¯"):
+                        prov_parts = prov_entry.split("^")
+                        if prov_parts and prov_parts[0].strip().isdigit():
+                            provincias.append(prov_parts[0].strip())
 
-                    # Establecer contexto de región en el backend de Perú Compras y consultar
-                    res_raw = await page.evaluate("""async ({acuerdoProvId, nAcuerdo, nCatalogo, nCategoria, codReg, ubigeoProv}) => {
+                # Fallback: al menos consultar la capital de provincia del catalogo
+                if not provincias:
+                    provincias = [reg["ubigeo_provincia"]]
+
+                add_status_log(f"   📌 {len(provincias)} provincia(s) en {reg_nom}")
+
+                reg_parsed = 0
+                for ubigeo_prov in provincias:
+                    # FORMATO CORRECTO CONFIRMADO POR TEST: {acuerdo_id}^^^{ubigeo_prov}
+                    # Solo el formato sin catalogo/categoria devuelve datos reales
+                    res_raw = await page.evaluate("""async ({acuerdoProvId, ubigeoProv}) => {
                         try {
-                            await fetch('/MejoraPlazo/obtenerFiltros', {
-                                method: 'POST',
-                                headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                                body: `3^18181^${nAcuerdo}^${nCategoria}`,
-                                signal: AbortSignal.timeout(12000)
-                            });
-                            await fetch('/MejoraPlazo/obtenerFiltros', {
-                                method: 'POST',
-                                headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                                body: `4^${codReg}`,
-                                signal: AbortSignal.timeout(12000)
-                            });
-
                             const res = await fetch('/MejoraPlazo/consultaMejoraPlazoEntrega', {
                                 method: 'POST',
                                 headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                                body: `${acuerdoProvId}^${nCatalogo}^${nCategoria}^^${ubigeoProv}`,
+                                body: `${acuerdoProvId}^^^${ubigeoProv}`,
                                 signal: AbortSignal.timeout(25000)
                             });
                             return await res.text();
                         } catch(e) { return null; }
-                    }""", {
-                        "acuerdoProvId": acuerdo_prov_id,
-                        "nAcuerdo": n_acuerdo,
-                        "nCatalogo": n_catalogo,
-                        "nCategoria": n_categoria,
-                        "codReg": cod_reg,
-                        "ubigeoProv": ubigeo_prov
-                    })
+                    }""", {"acuerdoProvId": acuerdo_prov_id, "ubigeoProv": ubigeo_prov})
 
-                    EXTRACTION_STATUS["combos_completed"] += 1
+                    if not res_raw:
+                        continue
 
-                    if res_raw and "¯" in res_raw:
-                        _, data_part = res_raw.split("¯", 1)
-                        lines = data_part.split("¬")
-                        parsed_count = 0
+                    # Formato confirmado por test:
+                    # "Header_col1^col2^...colN¯val1¯url¯ficha¯moneda¯precio¯stock¯plazo¯...¯val2¯..."
+                    # ¯ separa TODO (header de datos y campos entre sí dentro de cada fila)
+                    # Header usa ^ internamente (nombre de columnas)
+                    # Los datos usan ¯ entre cada campo
+                    tokens = res_raw.split("¯")
+                    # tokens[0] = header row ("Nro^Imagen^Ficha-producto^...")
+                    # tokens[1..] = valores de datos en grupos de 10 columnas
+                    NCOLS = 10  # Nro,Imagen,Ficha-producto,Moneda,Precio,Existencias,Plazo,PlazoPublicar,CostoEnvio,CostoEnvioPublicar
+                    data_tokens = tokens[1:]  # Saltar header
 
-                        if db:
-                            update_stmt = text("""
-                                UPDATE ofertas_proveedor_history
-                                SET raw_json = jsonb_set(
-                                        COALESCE(raw_json::jsonb, '{}'::jsonb), 
-                                        ARRAY['plazos_por_region', :region], 
-                                        to_jsonb(:plazo::int)
-                                    ),
-                                    plazo_entrega_dias = :plazo
-                                WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
-                                  AND (
-                                      (UPPER(TRIM(nro_parte)) = UPPER(TRIM(:nro_parte)) AND UPPER(TRIM(nro_parte)) NOT IN ('', '-', 'S/N', 'SN', '0'))
-                                      OR (descripcion_producto ILIKE :desc_match AND length(:desc_match) > 10)
-                                  )
-                            """)
-                            prov_search = "%KING%" if "KING" in nombre_proveedor.upper() else "%ROJAS%"
-                            for line in lines:
-                                cols = line.split("^")
-                                if len(cols) >= 7:
-                                    raw_id = cols[0].split("-")[0].strip()
-                                    desc_prod = cols[2] if len(cols) > 2 else ""
-                                    plazo_str = cols[6].strip()
-                                    try:
-                                        plazo_int = int(plazo_str) if plazo_str.isdigit() else None
-                                    except:
-                                        plazo_int = None
+                    if not data_tokens:
+                        continue
 
-                                    if plazo_int is not None and desc_prod:
-                                        clean_desc = re.sub(r'\s+SIST\.\s+MANEJO.*$', '', desc_prod, flags=re.IGNORECASE).strip()
-                                        unidad_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)\s+(.+)$', clean_desc, re.IGNORECASE)
-                                        if unidad_match:
-                                            part_words = unidad_match.group(2).strip().split()
-                                            possible_part = part_words[-1] if part_words else "S/N"
-                                        else:
-                                            desc_words = clean_desc.split()
-                                            possible_part = desc_words[-1] if desc_words else "S/N"
+                    add_status_log(f"   🔍 [{ubigeo_prov}] {len(data_tokens)} tokens de datos recibidos")
 
-                                        desc_search = f"%{possible_part}%" if len(possible_part) >= 4 and possible_part != "S/N" else f"%{clean_desc[:40]}%"
+                    parsed_in_prov = 0
+                    # Iterar en grupos de NCOLS columnas
+                    for i in range(0, len(data_tokens) - NCOLS + 1, NCOLS):
+                        row_tokens = data_tokens[i:i + NCOLS]
+                        if len(row_tokens) < 7:
+                            continue
+                        # 0=Nro, 1=Imagen, 2=Ficha-producto, 3=Moneda, 4=Precio, 5=Existencias, 6=Plazo vigente
+                        desc_prod = row_tokens[2].strip()
+                        plazo_str = row_tokens[6].strip()
 
-                                        db.execute(update_stmt, {
-                                            "plazo": plazo_int,
-                                            "region": _normalize_region_text(reg_nom),
-                                            "ruc": ruc,
-                                            "prov_match": prov_search,
-                                            "nro_parte": possible_part,
-                                            "desc_match": desc_search
-                                        })
-                                        parsed_count += 1
-                            db.commit()
+                        try:
+                            plazo_int = int(float(plazo_str)) if plazo_str else None
+                        except (ValueError, TypeError):
+                            plazo_int = None
 
-                        total_actualizados += parsed_count
-                        EXTRACTION_STATUS["items_inserted"] = total_actualizados
-                        if parsed_count > 0:
-                            add_status_log(f"   ✅ {cat_nom} ({reg_nom}): {parsed_count} plazos actualizados")
-                    
-                    # Live screenshot snapshot cada 3 categorías
-                    if EXTRACTION_STATUS["combos_completed"] % 3 == 0:
-                        await _capture_live_preview(page, update_live_screenshot)
+                        if plazo_int is not None and desc_prod and db:
+                            clean_desc = re.sub(r'\s+SIST\.\s+MANEJO.*$', '', desc_prod, flags=re.IGNORECASE).strip()
+                            unidad_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)\s+(.+)$', clean_desc, re.IGNORECASE)
+                            if unidad_match:
+                                part_words = unidad_match.group(2).strip().split()
+                                possible_part = part_words[-1] if part_words else "S/N"
+                            else:
+                                desc_words = clean_desc.split()
+                                possible_part = desc_words[-1] if desc_words else "S/N"
+
+                            desc_search = f"%{possible_part}%" if len(possible_part) >= 4 and possible_part != "S/N" else f"%{clean_desc[:40]}%"
+
+                            db.execute(update_stmt, {
+                                "plazo": plazo_int,
+                                "region": reg_key,
+                                "ruc": ruc,
+                                "prov_match": prov_search,
+                                "nro_parte": possible_part,
+                                "desc_match": desc_search
+                            })
+                            parsed_in_prov += 1
+
+                    if db and parsed_in_prov > 0:
+                        db.commit()
+
+                    reg_parsed += parsed_in_prov
+                    if parsed_in_prov > 0:
+                        add_status_log(f"   ✅ [{ubigeo_prov}] {parsed_in_prov} plazos actualizados")
+
+                EXTRACTION_STATUS["combos_completed"] += 1
+                total_actualizados += reg_parsed
+                EXTRACTION_STATUS["items_inserted"] = total_actualizados
+                add_status_log(f"   📊 {reg_nom}: {reg_parsed} plazos totales en {len(provincias)} provincia(s)")
+
+                if EXTRACTION_STATUS["combos_completed"] % 3 == 0:
+                    await _capture_live_preview(page, update_live_screenshot)
 
             await browser.close()
 
