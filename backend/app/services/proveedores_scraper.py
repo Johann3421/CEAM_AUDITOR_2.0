@@ -778,40 +778,7 @@ async def async_extract_plazos_regionales(
                     {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "251", "nom_catalogo": "ESCANERES", "id_subcategoria": "11738", "nom_subcategoria": "ESCANER DE DOCUMENTOS"},
                 ]
 
-            if db:
-                # UPDATE masivo flexible: actualiza por categoría, catálogo o descripción
-                update_stmt = text("""
-                    UPDATE ofertas_proveedor_history
-                    SET raw_json = jsonb_set(
-                            COALESCE(raw_json::jsonb, '{}'::jsonb),
-                            ARRAY['plazos_por_region', :region],
-                            to_jsonb(CAST(:plazo AS integer))
-                        ),
-                        plazo_entrega_dias = :plazo
-                    WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
-                      AND (
-                          UPPER(categoria) LIKE :cat_match
-                          OR UPPER(catalogo) LIKE :cat_match
-                          OR UPPER(descripcion_producto) LIKE :cat_match
-                      )
-                """)
-                fallback_stmt = text("""
-                    UPDATE ofertas_proveedor_history
-                    SET raw_json = jsonb_set(
-                            COALESCE(raw_json::jsonb, '{}'::jsonb),
-                            ARRAY['plazos_por_region', :region],
-                            to_jsonb(CAST(:plazo AS integer))
-                        ),
-                        plazo_entrega_dias = COALESCE(plazo_entrega_dias, :plazo)
-                    WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
-                      AND (
-                          raw_json IS NULL 
-                          OR raw_json->'plazos_por_region' IS NULL 
-                          OR raw_json->'plazos_por_region'->:region IS NULL
-                          OR plazo_entrega_dias IS NULL
-                      )
-                """)
-                prov_search = "%KING%" if "KING" in nombre_proveedor.upper() else "%ROJAS%"
+            prov_search = "%KING%" if "KING" in nombre_proveedor.upper() else "%ROJAS%"
 
             EXTRACTION_STATUS["combos_total"] = len(target_regiones) * len(combos_activos)
             add_status_log(f"📦 {len(combos_activos)} categorías × {len(target_regiones)} regiones = {EXTRACTION_STATUS['combos_total']} consultas")
@@ -824,7 +791,6 @@ async def async_extract_plazos_regionales(
                 add_status_log(f"📍 Región: {reg_nom} (Ubigeo: {ubigeo_prov})")
 
                 reg_actualizados = 0
-                plazos_encontrados_region = []
 
                 for combo in combos_activos:
                     acuerdo_prov_id = combo.get("acuerdo_prov_id", "118205")
@@ -874,7 +840,7 @@ async def async_extract_plazos_regionales(
                     if not datos_str or not datos_str.strip():
                         continue
 
-                    # Solo tomar la PRIMERA fila para obtener el plazo
+                    # Solo tomar la PRIMERA fila para obtener el plazo de esta subcategoría
                     primera_fila = None
                     for fila in datos_str.split("¬"):
                         if fila.strip():
@@ -891,36 +857,71 @@ async def async_extract_plazos_regionales(
                     except (ValueError, TypeError):
                         continue
 
-                    plazos_encontrados_region.append(plazo_int)
-
-                    # Generar patrones de coincidencia flexibles para BD
+                    # Generar condición SQL precisa para esta subcategoría
                     nom_upper = nom_subcat.upper().strip()
-                    cat_match = f"%{nom_upper}%"
-                    if "PORTATIL" in nom_upper or "PORTÁTIL" in nom_upper:
-                        cat_match = "%PORTATIL%"
+                    
+                    if "MONITOR" in nom_upper:
+                        cat_condition = "(UPPER(categoria) LIKE '%MONITOR%' OR UPPER(catalogo) LIKE '%MONITOR%' OR UPPER(descripcion_producto) LIKE 'MONITOR%' OR UPPER(descripcion_producto) LIKE '%MONITOR LED%')"
+                    elif "TODO EN UNO" in nom_upper or "ALL IN ONE" in nom_upper:
+                        cat_condition = "(UPPER(categoria) LIKE '%TODO EN UNO%' OR UPPER(categoria) LIKE '%ALL IN ONE%' OR UPPER(descripcion_producto) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%')"
+                    elif "PORTATIL" in nom_upper or "PORTÁTIL" in nom_upper or "LAPTOP" in nom_upper:
+                        cat_condition = "((UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTÁTIL%' OR UPPER(categoria) LIKE '%LAPTOP%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%') AND UPPER(categoria) NOT LIKE '%TODO EN UNO%')"
                     elif "ESCRITORIO" in nom_upper:
-                        cat_match = "%ESCRITORIO%"
-                    elif "MONITOR" in nom_upper:
-                        cat_match = "%MONITOR%"
-                    elif "ESCANER" in nom_upper or "ESCÁNER" in nom_upper:
-                        cat_match = "%ESCANER%"
-                    elif "IMPRESORA" in nom_upper:
-                        cat_match = "%IMPRESORA%"
+                        cat_condition = "((UPPER(categoria) LIKE '%ESCRITORIO%' OR UPPER(descripcion_producto) LIKE 'COMPUTADORA DE ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%MINI PC%') AND UPPER(categoria) NOT LIKE '%TODO EN UNO%' AND UPPER(categoria) NOT LIKE '%PORTATIL%')"
                     elif "TABLET" in nom_upper:
-                        cat_match = "%TABLET%"
-                    elif "TODO EN UNO" in nom_upper or "AIO" in nom_upper:
-                        cat_match = "%TODO EN UNO%"
-                    elif "ESTACION DE TRABAJO" in nom_upper or "WORKSTATION" in nom_upper:
-                        cat_match = "%ESTACION DE TRABAJO%"
+                        cat_condition = "(UPPER(categoria) LIKE '%TABLET%' OR UPPER(descripcion_producto) LIKE '%TABLET%')"
+                    elif "WORKSTATION" in nom_upper or "ESTACION DE TRABAJO" in nom_upper:
+                        cat_condition = "(UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(categoria) LIKE '%WORKSTATION%' OR UPPER(descripcion_producto) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')"
+                    elif "ESCANER" in nom_upper or "ESCÁNER" in nom_upper:
+                        cat_condition = "(UPPER(categoria) LIKE '%ESCANER%' OR UPPER(catalogo) LIKE '%ESCANER%' OR UPPER(descripcion_producto) LIKE '%ESCANER%')"
+                    elif "ALMACENAMIENTO" in nom_upper:
+                        cat_condition = "(UPPER(categoria) LIKE '%ALMACENAMIENTO%' OR UPPER(catalogo) LIKE '%ALMACENAMIENTO%' OR UPPER(descripcion_producto) LIKE '%ALMACENAMIENTO%')"
+                    elif "PANTALLA" in nom_upper:
+                        cat_condition = "(UPPER(categoria) LIKE '%PANTALLA%' OR UPPER(descripcion_producto) LIKE '%PANTALLA%')"
+                    elif "IMPRESORA" in nom_upper or "MULTIFUNCIONAL" in nom_upper:
+                        cat_condition = "(UPPER(categoria) LIKE '%IMPRESORA%' OR UPPER(categoria) LIKE '%MULTIFUNCIONAL%' OR UPPER(descripcion_producto) LIKE '%IMPRESORA%')"
+                    elif "SERVIDOR" in nom_upper or "SERVER" in nom_upper:
+                        cat_condition = "(UPPER(categoria) LIKE '%SERVIDOR%' OR UPPER(catalogo) LIKE '%SERVIDORES%' OR UPPER(descripcion_producto) LIKE '%SERVIDOR%')"
+                    elif "UPS" in nom_upper:
+                        cat_condition = "(UPPER(categoria) LIKE '%UPS%' OR UPPER(catalogo) LIKE '%ENERGIA%' OR UPPER(descripcion_producto) LIKE '%UPS%')"
+                    elif "PROYECTOR" in nom_upper:
+                        cat_condition = "(UPPER(categoria) LIKE '%PROYECTOR%' OR UPPER(catalogo) LIKE '%PROYECTORES%' OR UPPER(descripcion_producto) LIKE '%PROYECTOR%')"
+                    else:
+                        cat_condition = f"(UPPER(categoria) LIKE '%{nom_upper}%' OR UPPER(catalogo) LIKE '%{nom_upper}%' OR UPPER(descripcion_producto) LIKE '%{nom_upper}%')"
+
+                    # En Lima (región base nacional) se actualiza plazo_entrega_dias y el JSON regional.
+                    # En las otras 24 regiones se actualiza EXCLUSIVAMENTE su clave en raw_json->plazos_por_region.
+                    if reg_key == "LIMA":
+                        sql_text = f"""
+                            UPDATE ofertas_proveedor_history
+                            SET raw_json = jsonb_set(
+                                    COALESCE(raw_json::jsonb, '{{}}'::jsonb),
+                                    ARRAY['plazos_por_region', :region],
+                                    to_jsonb(CAST(:plazo AS integer))
+                                ),
+                                plazo_entrega_dias = :plazo
+                            WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
+                              AND {cat_condition}
+                        """
+                    else:
+                        sql_text = f"""
+                            UPDATE ofertas_proveedor_history
+                            SET raw_json = jsonb_set(
+                                    COALESCE(raw_json::jsonb, '{{}}'::jsonb),
+                                    ARRAY['plazos_por_region', :region],
+                                    to_jsonb(CAST(:plazo AS integer))
+                                )
+                            WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
+                              AND {cat_condition}
+                        """
 
                     if db:
                         try:
-                            result = db.execute(update_stmt, {
+                            result = db.execute(text(sql_text), {
                                 "plazo": plazo_int,
                                 "region": reg_key,
                                 "ruc": ruc,
-                                "prov_match": prov_search,
-                                "cat_match": cat_match
+                                "prov_match": prov_search
                             })
                             rows_updated = result.rowcount
                             db.commit()
@@ -936,28 +937,7 @@ async def async_extract_plazos_regionales(
                     EXTRACTION_STATUS["items_inserted"] = total_actualizados
 
                     if rows_updated > 0:
-                        add_status_log(f"   ✅ [{nom_subcat}] {plazo_int} días → {rows_updated} fichas ({cat_match})")
-
-                # Fallback regional: Si hay fichas restantes sin plazo en esta región (ej. accesorios, misceláneos)
-                # se les asigna el plazo base de la región para garantizar 100% de cobertura
-                if db and plazos_encontrados_region:
-                    base_plazo_region = plazos_encontrados_region[0]
-                    try:
-                        res_fb = db.execute(fallback_stmt, {
-                            "plazo": base_plazo_region,
-                            "region": reg_key,
-                            "ruc": ruc,
-                            "prov_match": prov_search
-                        })
-                        fb_count = res_fb.rowcount
-                        if fb_count > 0:
-                            db.commit()
-                            reg_actualizados += fb_count
-                            total_actualizados += fb_count
-                            EXTRACTION_STATUS["items_inserted"] = total_actualizados
-                            add_status_log(f"   🔄 [COBERTURA TOTAL] {base_plazo_region} días aplicados a {fb_count} fichas complementarias en {reg_nom}")
-                    except Exception:
-                        db.rollback()
+                        add_status_log(f"   ✅ [{nom_subcat}] {plazo_int} días → {rows_updated} fichas en {reg_nom}")
 
                 add_status_log(f"   📊 Resumen {reg_nom}: {reg_actualizados} fichas actualizadas")
 
