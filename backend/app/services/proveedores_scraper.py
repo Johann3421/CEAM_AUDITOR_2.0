@@ -676,7 +676,7 @@ async def async_extract_plazos_regionales(
             await page.wait_for_timeout(1500)
             await _capture_live_preview(page, update_live_screenshot)
 
-            # 1. Obtener acuerdo_id y acuerdo_proveedor_id desde filtro 0
+            # 1. Obtener todos los acuerdos marco disponibles para el proveedor desde filtro 0
             acuerdo_info = await page.evaluate("""async () => {
                 try {
                     const res = await fetch('/MejoraPlazo/obtenerFiltros', {
@@ -689,97 +689,97 @@ async def async_extract_plazos_regionales(
                 } catch(e) { return null; }
             }""")
 
-            acuerdo_id = "249"
-            acuerdo_prov_id = "118205"
-            if acuerdo_info and "-" in acuerdo_info:
-                header_acuerdo = acuerdo_info.split("¯")[0]
-                parts = header_acuerdo.split("^")[0].split("-")
-                if len(parts) >= 2:
-                    acuerdo_id = parts[0]
-                    acuerdo_prov_id = parts[1]
-
-            add_status_log(f"🔑 Acuerdo ID: {acuerdo_id} | Proveedor ID: {acuerdo_prov_id}")
-
-            # 2. Obtener catálogos dinámicos
-            catalogos_raw = await page.evaluate("""async (acuerdoId) => {
-                try {
-                    const res = await fetch('/MejoraPlazo/obtenerFiltros', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                        body: `1^${acuerdoId}`,
-                        signal: AbortSignal.timeout(10000)
-                    });
-                    return await res.text();
-                } catch(e) { return null; }
-            }""", acuerdo_id)
-
-            combos_activos = []
-            if catalogos_raw:
-                for cat_str in catalogos_raw.split("¬"):
-                    if not cat_str.strip():
+            lista_acuerdos = []
+            if acuerdo_info:
+                header_data = acuerdo_info.split("¯")[0]
+                for ac_item in header_data.split("¬"):
+                    if not ac_item.strip():
                         continue
-                    cat_parts = cat_str.split("^")
-                    if len(cat_parts) >= 2:
-                        id_cat, nom_cat = cat_parts[0], cat_parts[1]
-                        
-                        # 3. Obtener subcategorías para cada catálogo
-                        subcats_raw = await page.evaluate("""async (idCat) => {
-                            try {
-                                const res = await fetch('/MejoraPlazo/obtenerFiltros', {
-                                    method: 'POST',
-                                    headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                                    body: `2^${idCat}`,
-                                    signal: AbortSignal.timeout(10000)
-                                });
-                                return await res.text();
-                            } catch(e) { return null; }
-                        }""", id_cat)
+                    parts = ac_item.split("^")
+                    if len(parts) >= 1:
+                        ids_part = parts[0].split("-")
+                        if len(ids_part) >= 2:
+                            lista_acuerdos.append({
+                                "acuerdo_id": ids_part[0],
+                                "acuerdo_prov_id": ids_part[1],
+                                "nom_acuerdo": parts[1] if len(parts) > 1 else "Acuerdo"
+                            })
 
-                        if subcats_raw:
-                            for subcat_str in subcats_raw.split("¬"):
-                                if not subcat_str.strip():
-                                    continue
-                                subcat_parts = subcat_str.split("^")
-                                if len(subcat_parts) >= 2:
-                                    combos_activos.append({
-                                        "id_catalogo": id_cat,
-                                        "nom_catalogo": nom_cat,
-                                        "id_subcategoria": subcat_parts[0],
-                                        "nom_subcategoria": subcat_parts[1]
-                                    })
+            if not lista_acuerdos:
+                lista_acuerdos = [{"acuerdo_id": "249", "acuerdo_prov_id": "118205", "nom_acuerdo": "EXT-CE-2022-5"}]
+
+            add_status_log(f"🔑 {len(lista_acuerdos)} Acuerdo(s) detectado(s)")
+
+            # 2. Obtener todos los catálogos y subcategorías dinámicas para cada acuerdo
+            combos_activos = []
+            for ac in lista_acuerdos:
+                ac_id = ac["acuerdo_id"]
+                ac_prov_id = ac["acuerdo_prov_id"]
+                nom_ac = ac["nom_acuerdo"]
+
+                catalogos_raw = await page.evaluate("""async (acuerdoId) => {
+                    try {
+                        const res = await fetch('/MejoraPlazo/obtenerFiltros', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                            body: `1^${acuerdoId}`,
+                            signal: AbortSignal.timeout(10000)
+                        });
+                        return await res.text();
+                    } catch(e) { return null; }
+                }""", ac_id)
+
+                if catalogos_raw:
+                    for cat_str in catalogos_raw.split("¬"):
+                        if not cat_str.strip():
+                            continue
+                        cat_parts = cat_str.split("^")
+                        if len(cat_parts) >= 2:
+                            id_cat, nom_cat = cat_parts[0], cat_parts[1]
+                            
+                            subcats_raw = await page.evaluate("""async (idCat) => {
+                                try {
+                                    const res = await fetch('/MejoraPlazo/obtenerFiltros', {
+                                        method: 'POST',
+                                        headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+                                        body: `2^${idCat}`,
+                                        signal: AbortSignal.timeout(10000)
+                                    });
+                                    return await res.text();
+                                } catch(e) { return null; }
+                            }""", id_cat)
+
+                            if subcats_raw:
+                                for subcat_str in subcats_raw.split("¬"):
+                                    if not subcat_str.strip():
+                                        continue
+                                    subcat_parts = subcat_str.split("^")
+                                    if len(subcat_parts) >= 2:
+                                        combos_activos.append({
+                                            "acuerdo_id": ac_id,
+                                            "acuerdo_prov_id": ac_prov_id,
+                                            "id_catalogo": id_cat,
+                                            "nom_catalogo": nom_cat,
+                                            "id_subcategoria": subcat_parts[0],
+                                            "nom_subcategoria": subcat_parts[1]
+                                        })
 
             if not combos_activos:
                 # Fallback con combos estándar conocidos
                 combos_activos = [
-                    {"id_catalogo": "250", "nom_catalogo": "COMPUTADORAS PORTATILES", "id_subcategoria": "11743", "nom_subcategoria": "COMPUTADORA PORTATIL"},
-                    {"id_catalogo": "250", "nom_catalogo": "COMPUTADORAS PORTATILES", "id_subcategoria": "11744", "nom_subcategoria": "ESTACION DE TRABAJO PORTATIL"},
-                    {"id_catalogo": "250", "nom_catalogo": "COMPUTADORAS PORTATILES", "id_subcategoria": "11745", "nom_subcategoria": "TABLETA"},
-                    {"id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11735", "nom_subcategoria": "COMPUTADORA DE ESCRITORIO"},
-                    {"id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11736", "nom_subcategoria": "COMPUTADORA TODO EN UNO"},
-                    {"id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11740", "nom_subcategoria": "ESTACION DE TRABAJO"},
-                    {"id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11741", "nom_subcategoria": "MONITOR"},
+                    {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "250", "nom_catalogo": "COMPUTADORAS PORTATILES", "id_subcategoria": "11743", "nom_subcategoria": "COMPUTADORA PORTATIL"},
+                    {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "250", "nom_catalogo": "COMPUTADORAS PORTATILES", "id_subcategoria": "11744", "nom_subcategoria": "ESTACION DE TRABAJO PORTATIL"},
+                    {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "250", "nom_catalogo": "COMPUTADORAS PORTATILES", "id_subcategoria": "11745", "nom_subcategoria": "TABLETA"},
+                    {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11735", "nom_subcategoria": "COMPUTADORA DE ESCRITORIO"},
+                    {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11736", "nom_subcategoria": "COMPUTADORA TODO EN UNO"},
+                    {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11740", "nom_subcategoria": "ESTACION DE TRABAJO"},
+                    {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11741", "nom_subcategoria": "MONITOR"},
+                    {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "251", "nom_catalogo": "ESCANERES", "id_subcategoria": "11737", "nom_subcategoria": "ESCANER DE PLANOS"},
+                    {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "251", "nom_catalogo": "ESCANERES", "id_subcategoria": "11738", "nom_subcategoria": "ESCANER DE DOCUMENTOS"},
                 ]
 
-            # Mapeo subcategoría portal → catalogo/categoria en BD
-            SUBCAT_TO_DB = {
-                "COMPUTADORA PORTATIL": ("COMPUTADORAS PORTATILES", "COMPUTADORA PORTATIL"),
-                "ESTACION DE TRABAJO PORTATIL": ("COMPUTADORAS PORTATILES", "ESTACION DE TRABAJO PORTATIL"),
-                "TABLETA": ("TABLETS", "TABLET"),
-                "COMPUTADORA DE ESCRITORIO": ("COMPUTADORAS DE ESCRITORIO", "COMPUTADORA DE ESCRITORIO"),
-                "COMPUTADORA TODO EN UNO": ("COMPUTADORAS DE ESCRITORIO", "COMPUTADORA TODO EN UNO"),
-                "ESTACION DE TRABAJO": ("ESTACIONES DE TRABAJO", "ESTACION DE TRABAJO"),
-                "MONITOR": ("MONITORES", "MONITOR"),
-                "ESCANER DE DOCUMENTOS": ("ESCANERES", "ESCANER DE DOCUMENTOS"),
-                "ESCANER DE PLANOS": ("ESCANERES", "ESCANER DE PLANOS"),
-                "IMPRESORA": ("IMPRESORAS", "IMPRESORA"),
-                "MULTIFUNCIONAL": ("IMPRESORAS", "MULTIFUNCIONAL"),
-                "SERVIDOR": ("SERVIDORES", "SERVIDOR"),
-                "PROYECTOR": ("PROYECTORES", "PROYECTOR"),
-                "UPS": ("ENERGIA Y UPS", "UPS"),
-            }
-
             if db:
-                # UPDATE masivo: todas las ofertas de un catalogo+categoria del proveedor en esa región
+                # UPDATE masivo flexible: actualiza por categoría, catálogo o descripción
                 update_stmt = text("""
                     UPDATE ofertas_proveedor_history
                     SET raw_json = jsonb_set(
@@ -789,7 +789,27 @@ async def async_extract_plazos_regionales(
                         ),
                         plazo_entrega_dias = :plazo
                     WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
-                      AND UPPER(categoria) LIKE :cat_match
+                      AND (
+                          UPPER(categoria) LIKE :cat_match
+                          OR UPPER(catalogo) LIKE :cat_match
+                          OR UPPER(descripcion_producto) LIKE :cat_match
+                      )
+                """)
+                fallback_stmt = text("""
+                    UPDATE ofertas_proveedor_history
+                    SET raw_json = jsonb_set(
+                            COALESCE(raw_json::jsonb, '{}'::jsonb),
+                            ARRAY['plazos_por_region', :region],
+                            to_jsonb(CAST(:plazo AS integer))
+                        ),
+                        plazo_entrega_dias = COALESCE(plazo_entrega_dias, :plazo)
+                    WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
+                      AND (
+                          raw_json IS NULL 
+                          OR raw_json->'plazos_por_region' IS NULL 
+                          OR raw_json->'plazos_por_region'->:region IS NULL
+                          OR plazo_entrega_dias IS NULL
+                      )
                 """)
                 prov_search = "%KING%" if "KING" in nombre_proveedor.upper() else "%ROJAS%"
 
@@ -804,8 +824,10 @@ async def async_extract_plazos_regionales(
                 add_status_log(f"📍 Región: {reg_nom} (Ubigeo: {ubigeo_prov})")
 
                 reg_actualizados = 0
+                plazos_encontrados_region = []
 
                 for combo in combos_activos:
+                    acuerdo_prov_id = combo.get("acuerdo_prov_id", "118205")
                     id_cat = combo["id_catalogo"]
                     id_subcat = combo["id_subcategoria"]
                     nom_subcat = combo["nom_subcategoria"]
@@ -869,17 +891,27 @@ async def async_extract_plazos_regionales(
                     except (ValueError, TypeError):
                         continue
 
-                    # Buscar mapeo en BD para esta subcategoría
-                    nom_upper = nom_subcat.upper().strip()
-                    db_cat = SUBCAT_TO_DB.get(nom_upper)
-                    if not db_cat:
-                        # Fallback: buscar por coincidencia parcial
-                        for key, val in SUBCAT_TO_DB.items():
-                            if key in nom_upper or nom_upper in key:
-                                db_cat = val
-                                break
+                    plazos_encontrados_region.append(plazo_int)
 
-                    cat_match = f"%{db_cat[1]}%" if db_cat else f"%{nom_upper}%"
+                    # Generar patrones de coincidencia flexibles para BD
+                    nom_upper = nom_subcat.upper().strip()
+                    cat_match = f"%{nom_upper}%"
+                    if "PORTATIL" in nom_upper or "PORTÁTIL" in nom_upper:
+                        cat_match = "%PORTATIL%"
+                    elif "ESCRITORIO" in nom_upper:
+                        cat_match = "%ESCRITORIO%"
+                    elif "MONITOR" in nom_upper:
+                        cat_match = "%MONITOR%"
+                    elif "ESCANER" in nom_upper or "ESCÁNER" in nom_upper:
+                        cat_match = "%ESCANER%"
+                    elif "IMPRESORA" in nom_upper:
+                        cat_match = "%IMPRESORA%"
+                    elif "TABLET" in nom_upper:
+                        cat_match = "%TABLET%"
+                    elif "TODO EN UNO" in nom_upper or "AIO" in nom_upper:
+                        cat_match = "%TODO EN UNO%"
+                    elif "ESTACION DE TRABAJO" in nom_upper or "WORKSTATION" in nom_upper:
+                        cat_match = "%ESTACION DE TRABAJO%"
 
                     if db:
                         try:
@@ -903,7 +935,29 @@ async def async_extract_plazos_regionales(
                     total_actualizados += rows_updated
                     EXTRACTION_STATUS["items_inserted"] = total_actualizados
 
-                    add_status_log(f"   {'✅' if rows_updated > 0 else '⚪'} [{nom_subcat}] {plazo_int} días → {rows_updated} fichas (cat_match={cat_match})")
+                    if rows_updated > 0:
+                        add_status_log(f"   ✅ [{nom_subcat}] {plazo_int} días → {rows_updated} fichas ({cat_match})")
+
+                # Fallback regional: Si hay fichas restantes sin plazo en esta región (ej. accesorios, misceláneos)
+                # se les asigna el plazo base de la región para garantizar 100% de cobertura
+                if db and plazos_encontrados_region:
+                    base_plazo_region = plazos_encontrados_region[0]
+                    try:
+                        res_fb = db.execute(fallback_stmt, {
+                            "plazo": base_plazo_region,
+                            "region": reg_key,
+                            "ruc": ruc,
+                            "prov_match": prov_search
+                        })
+                        fb_count = res_fb.rowcount
+                        if fb_count > 0:
+                            db.commit()
+                            reg_actualizados += fb_count
+                            total_actualizados += fb_count
+                            EXTRACTION_STATUS["items_inserted"] = total_actualizados
+                            add_status_log(f"   🔄 [COBERTURA TOTAL] {base_plazo_region} días aplicados a {fb_count} fichas complementarias en {reg_nom}")
+                    except Exception:
+                        db.rollback()
 
                 add_status_log(f"   📊 Resumen {reg_nom}: {reg_actualizados} fichas actualizadas")
 

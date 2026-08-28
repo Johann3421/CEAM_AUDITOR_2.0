@@ -137,7 +137,7 @@ def get_proveedor_fichas(
         params["selected_reg"] = selected_reg
         plazo_expr = "COALESCE((f.raw_json->'plazos_por_region'->>:selected_reg)::int, f.plazo_entrega_dias)"
     else:
-        plazo_expr = "f.plazo_entrega_dias"
+        plazo_expr = "COALESCE(f.plazo_entrega_dias, (f.raw_json->'plazos_por_region'->>'LIMA')::int, (f.raw_json->'plazos_por_region'->>'CALLAO')::int)"
 
     if is_consolidated:
         having_clauses = []
