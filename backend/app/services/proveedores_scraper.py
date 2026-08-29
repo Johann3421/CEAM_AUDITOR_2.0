@@ -676,39 +676,64 @@ async def async_extract_plazos_regionales(
             await page.wait_for_timeout(1500)
             await _capture_live_preview(page, update_live_screenshot)
 
-            # 1. Obtener todos los acuerdos marco disponibles para el proveedor desde filtro 0
-            acuerdo_info = await page.evaluate("""async () => {
+            # 1. Obtener todos los acuerdos marco disponibles para el proveedor
+            acuerdo_data = await page.evaluate("""async () => {
                 try {
+                    // 1. Intentar leer opciones del DOM (#cboAcuerdo)
+                    const options = Array.from(document.querySelectorAll('#cboAcuerdo option'))
+                        .filter(o => o.value && o.value.includes('-'))
+                        .map(o => ({ value: o.value, text: o.text }));
+                    if (options.length > 0) {
+                        return { type: 'options', data: options };
+                    }
+                    
+                    // 2. Si no hay opciones aún, obtener cod_personajuridica
+                    const pj = (typeof cod_personajuridica !== 'undefined' && cod_personajuridica) 
+                        ? cod_personajuridica 
+                        : (document.getElementById('cod_personajuridica')?.value || '');
+                    
                     const res = await fetch('/MejoraPlazo/obtenerFiltros', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
-                        body: '0^18181',
+                        body: `0^${pj}`,
                         signal: AbortSignal.timeout(10000)
                     });
-                    return await res.text();
+                    return { type: 'raw', data: await res.text() };
                 } catch(e) { return null; }
             }""")
 
             lista_acuerdos = []
-            if acuerdo_info:
-                header_data = acuerdo_info.split("¯")[0]
-                for ac_item in header_data.split("¬"):
-                    if not ac_item.strip():
-                        continue
-                    parts = ac_item.split("^")
-                    if len(parts) >= 1:
-                        ids_part = parts[0].split("-")
-                        if len(ids_part) >= 2:
+            if acuerdo_data:
+                if acuerdo_data.get("type") == "options":
+                    for opt in acuerdo_data["data"]:
+                        val = opt["value"]
+                        parts = val.split("-")
+                        if len(parts) >= 2:
                             lista_acuerdos.append({
-                                "acuerdo_id": ids_part[0],
-                                "acuerdo_prov_id": ids_part[1],
-                                "nom_acuerdo": parts[1] if len(parts) > 1 else "Acuerdo"
+                                "acuerdo_id": parts[0],
+                                "acuerdo_prov_id": parts[1],
+                                "nom_acuerdo": opt.get("text", "Acuerdo")
                             })
+                elif acuerdo_data.get("type") == "raw" and acuerdo_data.get("data"):
+                    header_data = acuerdo_data["data"].split("¯")[0]
+                    for ac_item in header_data.split("¬"):
+                        if not ac_item.strip():
+                            continue
+                        parts = ac_item.split("^")
+                        if len(parts) >= 1:
+                            ids_part = parts[0].split("-")
+                            if len(ids_part) >= 2:
+                                lista_acuerdos.append({
+                                    "acuerdo_id": ids_part[0],
+                                    "acuerdo_prov_id": ids_part[1],
+                                    "nom_acuerdo": parts[1] if len(parts) > 1 else "Acuerdo"
+                                })
 
             if not lista_acuerdos:
-                lista_acuerdos = [{"acuerdo_id": "249", "acuerdo_prov_id": "118205", "nom_acuerdo": "EXT-CE-2022-5"}]
+                default_prov_id = "118205" if "theking" in provider_key else "118205"
+                lista_acuerdos = [{"acuerdo_id": "249", "acuerdo_prov_id": default_prov_id, "nom_acuerdo": "EXT-CE-2022-5"}]
 
-            add_status_log(f"🔑 {len(lista_acuerdos)} Acuerdo(s) detectado(s)")
+            add_status_log(f"🔑 {len(lista_acuerdos)} Acuerdo(s) detectado(s) para {nombre_proveedor}")
 
             # 2. Obtener todos los catálogos y subcategorías dinámicas para cada acuerdo
             combos_activos = []
