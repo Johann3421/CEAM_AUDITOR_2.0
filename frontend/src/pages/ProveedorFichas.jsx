@@ -658,12 +658,12 @@ const ProveedorFichas = () => {
               const isJorge = (o.nombre_proveedor || '').toUpperCase().includes('JORGE') || (o.nombre_proveedor || '').toUpperCase().includes('ROJAS');
               const provLabel = isJorge ? 'Jorge Rojas' : 'The King';
               
-              // Resolver plazo: si hay filtro regional, buscar en plazos_por_region o en el plazo_entrega_dias ya calculado por la API
+              // Resolver plazo: si hay filtro regional, buscar en plazos_por_region, en el plazo_entrega_dias de la API, o default nacional (90 días)
               let plazo = null;
               if (isFilteredRegion) {
-                plazo = o.plazos_por_region?.[regionFilter] ?? o.plazo_entrega_dias ?? null;
+                plazo = o.plazos_por_region?.[regionFilter] ?? o.plazo_entrega_dias ?? o.plazos_por_region?.['LIMA'] ?? 90;
               } else {
-                plazo = o.plazos_por_region?.['LIMA'] ?? o.plazo_entrega_dias;
+                plazo = o.plazos_por_region?.['LIMA'] ?? o.plazo_entrega_dias ?? 90;
               }
 
               return (
@@ -694,9 +694,9 @@ const ProveedorFichas = () => {
               const single = ofertas[0] || f;
               let plazo = null;
               if (isFilteredRegion) {
-                plazo = single.plazos_por_region?.[regionFilter] ?? f.plazo_entrega_dias ?? single.plazo_entrega_dias ?? null;
+                plazo = single.plazos_por_region?.[regionFilter] ?? f.plazo_entrega_dias ?? single.plazo_entrega_dias ?? single.plazos_por_region?.['LIMA'] ?? 90;
               } else {
-                plazo = single.plazos_por_region?.['LIMA'] ?? f.min_plazo_entrega ?? f.plazo_entrega_dias ?? single.plazo_entrega_dias;
+                plazo = single.plazos_por_region?.['LIMA'] ?? f.min_plazo_entrega ?? f.plazo_entrega_dias ?? single.plazo_entrega_dias ?? 90;
               }
 
               if (plazo == null) {
@@ -710,7 +710,7 @@ const ProveedorFichas = () => {
                     alignItems: 'center',
                     gap: 4,
                     padding: '2px 8px',
-                    borderRadius: 5,
+                    borderRadius: 6,
                     fontSize: 11,
                     fontWeight: 700,
                     background: plazo <= 2 ? '#dcfce7' : plazo <= 15 ? '#e0f2fe' : '#fef3c7',
@@ -1721,7 +1721,7 @@ const ProveedorFichas = () => {
                         } else if (selectedRegionModalItem.plazos_por_region && selectedRegionModalItem.plazos_por_region[reg.id] != null) {
                           plazo = selectedRegionModalItem.plazos_por_region[reg.id];
                         } else {
-                          plazo = o.plazo_entrega_dias || selectedRegionModalItem.plazo_entrega_dias;
+                          plazo = o.plazos_por_region?.['LIMA'] ?? o.plazo_entrega_dias ?? selectedRegionModalItem.plazo_entrega_dias ?? 90;
                         }
                         return { provLabel, provRuc, isJorge, plazo, precio: o.precio_ofertado };
                       });
