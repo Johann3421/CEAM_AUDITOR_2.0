@@ -135,9 +135,9 @@ def get_proveedor_fichas(
     selected_reg = region.strip().upper() if (region and region.lower() != "all") else None
     if selected_reg:
         params["selected_reg"] = selected_reg
-        plazo_expr = "COALESCE((f.raw_json->'plazos_por_region'->>:selected_reg)::int, f.plazo_entrega_dias)"
+        plazo_expr = "(f.raw_json->'plazos_por_region'->>:selected_reg)::int"
     else:
-        plazo_expr = "COALESCE(f.plazo_entrega_dias, (f.raw_json->'plazos_por_region'->>'LIMA')::int, (f.raw_json->'plazos_por_region'->>'CALLAO')::int)"
+        plazo_expr = "COALESCE((f.raw_json->'plazos_por_region'->>'LIMA')::int, f.plazo_entrega_dias)"
 
     if is_consolidated:
         having_clauses = []

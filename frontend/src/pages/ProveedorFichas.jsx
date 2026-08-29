@@ -658,12 +658,12 @@ const ProveedorFichas = () => {
               const isJorge = (o.nombre_proveedor || '').toUpperCase().includes('JORGE') || (o.nombre_proveedor || '').toUpperCase().includes('ROJAS');
               const provLabel = isJorge ? 'Jorge Rojas' : 'The King';
               
-              // Resolver plazo: si hay filtro regional, buscar en plazos_por_region o fallback
+              // Resolver plazo: si hay filtro regional, buscar estrictamente en plazos_por_region
               let plazo = null;
-              if (isFilteredRegion && o.plazos_por_region && o.plazos_por_region[regionFilter] != null) {
-                plazo = o.plazos_por_region[regionFilter];
+              if (isFilteredRegion) {
+                plazo = o.plazos_por_region?.[regionFilter] ?? null;
               } else {
-                plazo = o.plazo_entrega_dias;
+                plazo = o.plazos_por_region?.['LIMA'] ?? o.plazo_entrega_dias;
               }
 
               return (
@@ -693,10 +693,10 @@ const ProveedorFichas = () => {
             {(() => {
               const single = ofertas[0] || f;
               let plazo = null;
-              if (isFilteredRegion && single.plazos_por_region && single.plazos_por_region[regionFilter] != null) {
-                plazo = single.plazos_por_region[regionFilter];
+              if (isFilteredRegion) {
+                plazo = single.plazos_por_region?.[regionFilter] ?? null;
               } else {
-                plazo = f.min_plazo_entrega || f.plazo_entrega_dias || single.plazo_entrega_dias;
+                plazo = single.plazos_por_region?.['LIMA'] ?? f.min_plazo_entrega ?? f.plazo_entrega_dias ?? single.plazo_entrega_dias;
               }
 
               if (plazo == null) {
