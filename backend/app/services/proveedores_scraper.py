@@ -774,6 +774,8 @@ async def async_extract_plazos_regionales(
                     {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11736", "nom_subcategoria": "COMPUTADORA TODO EN UNO"},
                     {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11740", "nom_subcategoria": "ESTACION DE TRABAJO"},
                     {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11741", "nom_subcategoria": "MONITOR"},
+                    {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11747", "nom_subcategoria": "DISPOSITIVOS DE ALMACENAMIENTO EXTERNO"},
+                    {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "252", "nom_catalogo": "COMPUTADORAS DE ESCRITORIO", "id_subcategoria": "11749", "nom_subcategoria": "PANTALLA INTERACTIVA"},
                     {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "251", "nom_catalogo": "ESCANERES", "id_subcategoria": "11737", "nom_subcategoria": "ESCANER DE PLANOS"},
                     {"acuerdo_id": "249", "acuerdo_prov_id": "118205", "id_catalogo": "251", "nom_catalogo": "ESCANERES", "id_subcategoria": "11738", "nom_subcategoria": "ESCANER DE DOCUMENTOS"},
                 ]
@@ -800,13 +802,13 @@ async def async_extract_plazos_regionales(
 
                     body_post = f"{acuerdo_prov_id}^{id_cat}^{id_subcat}^^{ubigeo_prov}"
 
-                    # Fetch con doble timeout: AbortController en JS + asyncio.wait_for en Python
+                    # Fetch con doble timeout: AbortController en JS (25s) + asyncio.wait_for en Python (30s)
                     res_raw = None
                     try:
                         res_raw = await asyncio.wait_for(
                             page.evaluate("""async (bodyPost) => {
                                 const controller = new AbortController();
-                                const tid = setTimeout(() => controller.abort(), 8000);
+                                const tid = setTimeout(() => controller.abort(), 25000);
                                 try {
                                     const res = await fetch('/MejoraPlazo/consultaMejoraPlazoEntrega', {
                                         method: 'POST',
@@ -822,7 +824,7 @@ async def async_extract_plazos_regionales(
                                     return null;
                                 }
                             }""", body_post),
-                            timeout=15.0
+                            timeout=30.0
                         )
                     except asyncio.TimeoutError:
                         add_status_log(f"   ⏱️ [{nom_subcat}] TIMEOUT en {reg_nom}")
