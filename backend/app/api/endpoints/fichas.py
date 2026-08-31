@@ -901,19 +901,33 @@ def enrich_precios(db: Session = Depends(get_db)):
         raise HTTPException(status_code=422, detail="No se encontró columna nro_parte en fichas_producto")
 
     # 3. Gather all prices from purchase_orders grouped by nro_parte
-    # purchase_orders.nro_parte stores a JSON array: [{"nro_parte": "...", "precio_unitario": N, ...}]
+    # purchase_orders.nro_parte stores a JSON array: [{"nro_parte": "...", "precio_unitario": N, "cantidad": C, "total": T}]
     # We expand that JSON with jsonb_array_elements so we get one row per product.
     # Normalize keys: UPPER + STRIP to avoid case-sensitivity mismatches.
     raw = db.execute(text(
         """
         SELECT
-            elem->>'nro_parte'                                    AS nro_parte,
-            -- Prioritize unit price (precio_unitario). Only fall back to item total
-            -- if precio_unitario is 0 or NULL (e.g., when portal omitted unit price).
+            UPPER(TRIM(elem->>'nro_parte'))                      AS nro_parte,
             CASE
+                -- Caso 1: Si cantidad > 1 y precio_unitario == total (vino total en vez de unitario por error), corregir dividiendo
+                WHEN COALESCE((elem->>'precio_unitario')::numeric, 0) > 0
+                     AND COALESCE((elem->>'cantidad')::numeric, 1) > 1
+                     AND ABS((elem->>'precio_unitario')::numeric - COALESCE((elem->>'total')::numeric, 0)) < 0.01
+                THEN ROUND((elem->>'precio_unitario')::numeric / (elem->>'cantidad')::numeric, 4)
+
+                -- Caso 2: precio_unitario válido > 0
                 WHEN COALESCE((elem->>'precio_unitario')::numeric, 0) > 0
                 THEN (elem->>'precio_unitario')::numeric
-                ELSE COALESCE((elem->>'total')::numeric, 0)
+
+                -- Caso 3: precio_unitario es 0 o null, pero hay total y cantidad > 0 -> calcular total / cantidad
+                WHEN COALESCE((elem->>'cantidad')::numeric, 0) > 0 AND COALESCE((elem->>'total')::numeric, 0) > 0
+                THEN ROUND((elem->>'total')::numeric / (elem->>'cantidad')::numeric, 4)
+
+                -- Caso 4: columna precio_unitario directa en la tabla de la orden
+                WHEN COALESCE(purchase_orders.precio_unitario, 0) > 0
+                THEN purchase_orders.precio_unitario
+
+                ELSE NULL
             END                                                   AS precio_efectivo,
             orden_electronica,
             nro_orden_fisica,
@@ -928,20 +942,37 @@ def enrich_precios(db: Session = Depends(get_db)):
                 ELSE '[]'::jsonb
             END
         ) AS elem
-        WHERE (
-            COALESCE((elem->>'precio_unitario')::numeric, 0) > 0
-            OR COALESCE((elem->>'total')::numeric, 0) > 0
-        )
-          AND elem->>'nro_parte' IS NOT NULL
+        WHERE elem->>'nro_parte' IS NOT NULL
           AND elem->>'nro_parte' <> ''
+          AND (
+            COALESCE((elem->>'precio_unitario')::numeric, 0) > 0
+            OR (COALESCE((elem->>'cantidad')::numeric, 0) > 0 AND COALESCE((elem->>'total')::numeric, 0) > 0)
+            OR COALESCE(purchase_orders.precio_unitario, 0) > 0
+          )
+
+        UNION ALL
+
+        -- Para órdenes con nro_parte simple (no JSON)
+        SELECT
+            UPPER(TRIM(nro_parte))                                AS nro_parte,
+            precio_unitario                                       AS precio_efectivo,
+            orden_electronica,
+            nro_orden_fisica,
+            COALESCE(monto_total, 0)                              AS monto_total
+        FROM purchase_orders
+        WHERE nro_parte IS NOT NULL
+          AND nro_parte NOT IN ('', 'null', '[]')
+          AND nro_parte NOT LIKE '[%'
+          AND COALESCE(precio_unitario, 0) > 0
         """
     )).fetchall()
     price_map: dict = defaultdict(list)
     for nro, precio, orden_elec, orden_fis, monto_tot in raw:
-        normalized = str(nro).strip().upper()
-        if normalized:
-            order_ref = orden_elec or orden_fis or ""
-            price_map[normalized].append((float(precio), order_ref, float(monto_tot or 0)))
+        if precio and float(precio) > 0:
+            normalized = str(nro).strip().upper()
+            if normalized:
+                order_ref = orden_elec or orden_fis or ""
+                price_map[normalized].append((float(precio), order_ref, float(monto_tot or 0)))
 
     # Diagnostic: log first 5 keys so mismatches can be spotted quickly
     sample_po_keys = list(price_map.keys())[:5]
@@ -953,7 +984,11 @@ def enrich_precios(db: Session = Depends(get_db)):
 
     # 4. Epsilon-neighborhood mode clustering
     def canonical_price(precios_with_orders: list) -> dict:
-        precios_s = sorted(precios_with_orders, key=lambda x: x[0])
+        precios_valid = [x for x in precios_with_orders if x[0] > 0]
+        if not precios_valid:
+            return None
+            
+        precios_s = sorted(precios_valid, key=lambda x: x[0])
         precios_only = [x[0] for x in precios_s]
         
         EPS = 0.05  # 5% proximity tolerance

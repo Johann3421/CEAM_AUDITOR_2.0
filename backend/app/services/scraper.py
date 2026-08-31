@@ -141,8 +141,10 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
             col_map["orden_digitalizada"] = col
         elif ("nro" in cl or "número" in cl or "numero" in cl) and ("parte" in cl or "part" in cl):
             col_map["nro_parte"] = col
-        elif "precio" in cl and ("unitario" in cl or "unit" in cl):
+        elif ("precio" in cl or "p.u" in cl or "pu" == cl or "unitario" in cl) and "total" not in cl and "sub" not in cl and "orden" not in cl and "flete" not in cl:
             col_map["precio_unitario"] = col
+        elif ("cantidad" in cl or "cant" in cl or "unidades" in cl) and "orden" not in cl:
+            col_map["cantidad"] = col
         elif "orden" in cl and "electr" in cl and "estado" not in cl and "sub" not in cl and "igv" not in cl and "total" not in cl:
             if "orden_electronica" not in col_map:
                 col_map["orden_electronica"] = col
@@ -225,6 +227,8 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
         if "nro_parte" in col_map:
             parte_col = col_map["nro_parte"]
             pu_col = col_map.get("precio_unitario", "")
+            cant_col = col_map.get("cantidad", "")
+            
             # We want tracking of sub totals strictly for each product line.
             # In the Excel, 'Sub Total' represents the item total. 
             sub_col_item = None
@@ -241,6 +245,15 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
                 filas_p = group[group[parte_col].astype(str) == p]
                 precio_val = 0.0
                 total_val = 0.0
+                cant_val = 1.0
+
+                if cant_col and cant_col in filas_p.columns:
+                    c_series = pd.to_numeric(filas_p[cant_col].astype(str).str.replace(",", "").str.replace(" ", ""), errors="coerce")
+                    if not c_series.dropna().empty:
+                        c_max = float(c_series.max())
+                        if c_max > 0:
+                            cant_val = c_max
+
                 if pu_col and pu_col in filas_p.columns:
                     # try to max the prices because the -0 row has 0.00
                     p_series = pd.to_numeric(filas_p[pu_col].astype(str).str.replace(",", "").str.replace(" ", ""), errors="coerce")
@@ -252,13 +265,33 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
                     if not s_series.dropna().empty:
                         total_val = float(s_series.max())
                 
+                # REGLA CRUCIAL DE PRECIO UNITARIO:
+                # 1. Si precio_val es 0 pero hay total y cantidad > 0, calcular precio_unitario real
+                if (precio_val <= 0 or precio_val is None) and total_val > 0 and cant_val > 0:
+                    precio_val = round(total_val / cant_val, 4)
+                
+                # 2. Si cant_val > 1 y por error precio_val vino igual al total_val (precio total en vez de unitario), corregir
+                if cant_val > 1 and precio_val > 0 and abs(precio_val - total_val) < 0.01:
+                    precio_val = round(total_val / cant_val, 4)
+                
                 productos.append({
                     "nro_parte": p.strip(),
                     "precio_unitario": precio_val,
+                    "cantidad": int(cant_val) if cant_val >= 1 else 1,
                     "total": total_val
                 })
         
         row[col_map.get("nro_parte", "nro_parte")] = json.dumps(productos, ensure_ascii=False) if productos else ""
+
+        # Asignar precio unitario al row base a partir del primer producto válido
+        if productos and productos[0]["precio_unitario"] > 0:
+            row["precio_unitario"] = str(productos[0]["precio_unitario"])
+        elif pu_col and pu_col in group.columns:
+            p_series = pd.to_numeric(group[pu_col].astype(str).str.replace(",", "").str.replace(" ", ""), errors="coerce")
+            if not p_series.dropna().empty:
+                valid_p = p_series[p_series > 0]
+                if not valid_p.empty:
+                    row["precio_unitario"] = str(valid_p.iloc[-1])
 
         # 2. Función Supremo (Máximo) para conjuntos Numéricos (excluyendo precio_unitario)
         for field_key in ["sub_total", "igv", "monto_total"]:
