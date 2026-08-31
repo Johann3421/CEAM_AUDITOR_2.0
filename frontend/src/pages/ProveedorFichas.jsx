@@ -176,6 +176,7 @@ const ProveedorFichas = () => {
   const [search, setSearch] = useState('');
   const [marcaFilter, setMarcaFilter] = useState('');
   const [stockFilter, setStockFilter] = useState('');
+  const [pdfFilter, setPdfFilter] = useState('all');
   const [sortBy, setSortBy] = useState('');
   const [fichas, setFichas] = useState([]);
   const [totalFichas, setTotalFichas] = useState(0);
@@ -281,6 +282,7 @@ const ProveedorFichas = () => {
       marca: marcaFilter || undefined,
       categoria: activeTab !== 'all' ? activeTab : undefined,
       stock_filter: stockFilter || undefined,
+      pdf_filter: pdfFilter !== 'all' ? pdfFilter : undefined,
       sort_by: sortBy || undefined,
       page: page + 1,
       limit
@@ -307,7 +309,7 @@ const ProveedorFichas = () => {
 
   useEffect(() => {
     fetchFichasData();
-  }, [selectedProvider, proveedorColFilter, regionFilter, activeTab, search, marcaFilter, stockFilter, sortBy, page, limit]);
+  }, [selectedProvider, proveedorColFilter, regionFilter, activeTab, search, marcaFilter, stockFilter, pdfFilter, sortBy, page, limit]);
 
   const wasScrapingRef = useRef(false);
 
@@ -430,12 +432,13 @@ const ProveedorFichas = () => {
     setPage(0);
   };
 
-  const hasActiveFilters = Boolean(search || marcaFilter || stockFilter || sortBy || proveedorColFilter !== 'all' || regionFilter !== 'all' || selectedProvider !== 'all' || activeTab !== 'all');
+  const hasActiveFilters = Boolean(search || marcaFilter || stockFilter || pdfFilter !== 'all' || sortBy || proveedorColFilter !== 'all' || regionFilter !== 'all' || selectedProvider !== 'all' || activeTab !== 'all');
 
   const clearAllFilters = () => {
     setSearch('');
     setMarcaFilter('');
     setStockFilter('');
+    setPdfFilter('all');
     setSortBy('');
     setProveedorColFilter('all');
     setRegionFilter('all');
@@ -1217,24 +1220,32 @@ const ProveedorFichas = () => {
                   </div>
                 </th>
 
-                {/* 7. PDF Ficha Técnica */}
-                <th style={{ width: 85, textAlign: 'center', padding: '10px 8px' }}>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                    <FileText size={13} style={{ color: '#dc2626' }} />
-                    <span>PDF</span>
+                {/* 7. PDF Ficha Técnica con Filtro */}
+                <th style={{ width: 115, textAlign: 'center', padding: '8px 6px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <FileText size={13} style={{ color: '#dc2626' }} />
+                      <span style={{ fontWeight: 600 }}>PDF</span>
+                    </div>
+                    <select
+                      className="form-select"
+                      value={pdfFilter}
+                      onChange={(e) => { setPdfFilter(e.target.value); setPage(0); }}
+                      style={{ fontSize: 11, padding: '2px 4px', height: 26, width: '100%', background: '#fff' }}
+                      title="Filtrar por disponibilidad de PDF"
+                    >
+                      <option value="all">Ver Todos</option>
+                      <option value="with_pdf">📄 Con PDF</option>
+                      <option value="no_pdf">❌ Sin PDF</option>
+                    </select>
                   </div>
-                </th>
-
-                {/* 8. Datos / JSON */}
-                <th style={{ width: 75, textAlign: 'center', padding: '10px 8px' }}>
-                  <span>Datos</span>
                 </th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-secondary)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-secondary)' }}>
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
                       <RefreshCw size={16} className="spin" />
                       <span>Cargando datos de la base de datos...</span>
@@ -1243,7 +1254,7 @@ const ProveedorFichas = () => {
                 </tr>
               ) : fichas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
                     No hay ofertas con los filtros aplicados. Puedes cambiar los filtros o extraer nuevas categorías.
                   </td>
                 </tr>
@@ -1435,19 +1446,6 @@ const ProveedorFichas = () => {
                             —
                           </span>
                         )}
-                      </td>
-
-                      {/* 8. Acciones & JSON View */}
-                      <td style={{ padding: '10px 8px', textAlign: 'center', verticalAlign: 'middle' }}>
-                        <button
-                          className="btn btn-sm"
-                          onClick={() => setSelectedJsonItem(f)}
-                          style={{ padding: '4px 6px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3 }}
-                          title="Ver JSON completo de este registro"
-                        >
-                          <Code size={12} style={{ color: 'var(--c-brand)' }} />
-                          <span>JSON</span>
-                        </button>
                       </td>
                     </tr>
                   );

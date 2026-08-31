@@ -69,6 +69,7 @@ def get_proveedor_fichas(
     catalogo: Optional[str] = Query(None, description="Filtro por catálogo"),
     categoria: Optional[str] = Query(None, description="Filtro por categoría"),
     stock_filter: Optional[str] = Query(None, description="Filtro de stock: 'with_stock' o 'zero_stock'"),
+    pdf_filter: Optional[str] = Query(None, description="Filtro de PDF: 'with_pdf' o 'no_pdf'"),
     sort_by: Optional[str] = Query(None, description="Ordenamiento: precio_asc, precio_desc, stock_desc, marca_asc"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=1000),
@@ -81,6 +82,8 @@ def get_proveedor_fichas(
     params = {}
     where_clauses = ["1=1"]
 
+    pdf_join, pdf_select = _get_fichas_pdf_join(db)
+
     if proveedor and proveedor.lower() != "all":
         prov_l = proveedor.lower()
         if prov_l in ("thekingcomputer", "king"):
@@ -90,9 +93,6 @@ def get_proveedor_fichas(
         else:
             where_clauses.append("UPPER(f.nombre_proveedor) LIKE UPPER(:proveedor)")
             params["proveedor"] = f"%{proveedor}%"
-
-    # Cuando se selecciona una región, se computa dinámicamente el plazo_entrega_dias
-    # para esa región a través de plazo_expr y raw_json['plazos_por_region'].
 
     if search:
         where_clauses.append("(UPPER(f.nro_parte) LIKE UPPER(:search) OR UPPER(f.descripcion_producto) LIKE UPPER(:search) OR UPPER(f.marca) LIKE UPPER(:search))")
@@ -138,37 +138,44 @@ def get_proveedor_fichas(
             where_clauses.append("(UPPER(f.categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(f.descripcion_producto) LIKE '%WORKSTATION%')")
         elif categ_lower in ("monitor", "monitores"):
             where_clauses.append("""(
-                (UPPER(f.categoria) = 'MONITOR' OR UPPER(f.categoria) LIKE '%MONITOR%' OR UPPER(f.catalogo) LIKE '%MONITOR%' OR UPPER(f.descripcion_producto) LIKE 'MONITOR%' OR UPPER(f.descripcion_producto) LIKE '%MONITOR LED%')
-                AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%'
-                AND UPPER(f.categoria) NOT LIKE '%TODO EN UNO%'
+                UPPER(f.categoria) LIKE '%MONITOR%'
+                OR UPPER(f.descripcion_producto) LIKE 'MONITOR%'
+                OR UPPER(f.descripcion_producto) LIKE '%MONITOR LED%'
+                OR UPPER(f.descripcion_producto) LIKE '%MONITOR GAMER%'
             )""")
         elif categ_lower in ("pantalla_pub", "pantalla publicitaria"):
-            where_clauses.append("UPPER(f.categoria) LIKE '%PANTALLA PUBLICITARIA%'")
+            where_clauses.append("(UPPER(f.categoria) LIKE '%PUBLICITARIA%' OR UPPER(f.descripcion_producto) LIKE '%PUBLICITARIA%')")
         elif categ_lower in ("pantalla_int", "pantalla interactiva"):
-            where_clauses.append("UPPER(f.categoria) LIKE '%PANTALLA INTERACTIVA%'")
-        elif categ_lower in ("almacenamiento_int", "dispositivos de almacenamiento interno"):
-            where_clauses.append("(UPPER(f.categoria) LIKE '%ALMACENAMIENTO INTERNO%' OR UPPER(f.descripcion_producto) LIKE '%ALMACENAMIENTO INTERNO%')")
-        elif categ_lower in ("almacenamiento_ext", "dispositivos de almacenamiento externo"):
-            where_clauses.append("(UPPER(f.categoria) LIKE '%ALMACENAMIENTO EXTERNO%' OR UPPER(f.descripcion_producto) LIKE '%ALMACENAMIENTO EXTERNO%')")
-        elif categ_lower in ("portatil", "laptop", "laptops", "computadora portatil"):
+            where_clauses.append("(UPPER(f.categoria) LIKE '%INTERACTIVA%' OR UPPER(f.descripcion_producto) LIKE '%INTERACTIVA%')")
+        elif categ_lower in ("almacenamiento_int", "almacenamiento interno"):
             where_clauses.append("""(
-                UPPER(f.categoria) = 'COMPUTADORA PORTATIL'
-                OR (
-                    (UPPER(f.catalogo) LIKE '%PORTATIL%' OR UPPER(f.categoria) LIKE '%PORTATIL%' OR UPPER(f.categoria) LIKE '%LAPTOP%' OR UPPER(f.descripcion_producto) LIKE '%PORTATIL%' OR UPPER(f.descripcion_producto) LIKE '%PORTÁTIL%' OR UPPER(f.descripcion_producto) LIKE '%LAPTOP%' OR UPPER(f.descripcion_producto) LIKE '%NOTEBOOK%')
-                    AND UPPER(f.categoria) NOT LIKE '%ESTACION%'
-                    AND UPPER(f.descripcion_producto) NOT LIKE '%TODO EN UNO%'
-                )
+                UPPER(f.categoria) LIKE '%INTERNO%'
+                OR (UPPER(f.catalogo) LIKE '%ALMACENAMIENTO%' AND UPPER(f.descripcion_producto) NOT LIKE '%EXTERNO%')
+            )""")
+        elif categ_lower in ("almacenamiento_ext", "almacenamiento externo"):
+            where_clauses.append("""(
+                UPPER(f.categoria) LIKE '%EXTERNO%'
+                OR UPPER(f.descripcion_producto) LIKE '%EXTERNO%'
+            )""")
+        elif categ_lower in ("portatil", "computadora portatil", "laptop"):
+            where_clauses.append("""(
+                (UPPER(f.categoria) LIKE '%PORTATIL%' OR UPPER(f.categoria) LIKE '%PORTÁTIL%' OR UPPER(f.descripcion_producto) LIKE '%PORTATIL%' OR UPPER(f.descripcion_producto) LIKE '%LAPTOP%')
+                AND UPPER(f.categoria) NOT LIKE '%TODO EN UNO%'
+                AND UPPER(f.categoria) NOT LIKE '%ESTACION%'
             )""")
         elif categ_lower in ("workstation_portatil", "estacion de trabajo portatil"):
-            where_clauses.append("(UPPER(f.categoria) LIKE '%ESTACION DE TRABAJO PORTATIL%' OR UPPER(f.descripcion_producto) LIKE '%WORKSTATION PORTATIL%')")
-        elif categ_lower in ("tableta", "tablet", "tablets"):
-            where_clauses.append("(UPPER(f.categoria) LIKE '%TABLET%' OR UPPER(f.descripcion_producto) LIKE '%TABLETA%')")
-        elif categ_lower in ("escaner_planos", "escaner de planos"):
-            where_clauses.append("UPPER(f.categoria) LIKE '%ESCANER DE PLANOS%'")
+            where_clauses.append("""(
+                (UPPER(f.categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(f.descripcion_producto) LIKE '%WORKSTATION%')
+                AND (UPPER(f.categoria) LIKE '%PORTATIL%' OR UPPER(f.descripcion_producto) LIKE '%PORTATIL%' OR UPPER(f.descripcion_producto) LIKE '%LAPTOP%')
+            )""")
+        elif categ_lower in ("tableta", "tablet"):
+            where_clauses.append("(UPPER(f.categoria) LIKE '%TABLET%' OR UPPER(f.descripcion_producto) LIKE '%TABLET%')")
         elif categ_lower in ("escaner_docs", "escaner de documentos"):
-            where_clauses.append("(UPPER(f.categoria) LIKE '%ESCANER DE DOCUMENTOS%' OR (UPPER(f.catalogo) LIKE '%ESCANER%' AND UPPER(f.categoria) NOT LIKE '%PLANOS%' AND UPPER(f.categoria) NOT LIKE '%LIBROS%'))")
+            where_clauses.append("(UPPER(f.categoria) LIKE '%DOCUMENTOS%' OR (UPPER(f.catalogo) LIKE '%ESCANER%' AND UPPER(f.descripcion_producto) NOT LIKE '%PLANO%'))")
+        elif categ_lower in ("escaner_planos", "escaner de planos"):
+            where_clauses.append("(UPPER(f.categoria) LIKE '%PLANO%' OR UPPER(f.descripcion_producto) LIKE '%PLANO%')")
         elif categ_lower in ("escaner_libros", "escaner de libros"):
-            where_clauses.append("UPPER(f.categoria) LIKE '%ESCANER DE LIBROS%'")
+            where_clauses.append("(UPPER(f.categoria) LIKE '%LIBRO%' OR UPPER(f.descripcion_producto) LIKE '%LIBRO%')")
         else:
             where_clauses.append("(UPPER(f.categoria) LIKE UPPER(:categoria) OR UPPER(f.catalogo) LIKE UPPER(:categoria) OR UPPER(f.descripcion_producto) LIKE UPPER(:categoria))")
             params["categoria"] = f"%{categoria}%"
@@ -177,6 +184,13 @@ def get_proveedor_fichas(
         where_clauses.append("f.existencia_stock > 0")
     elif stock_filter == "zero_stock":
         where_clauses.append("(f.existencia_stock IS NULL OR f.existencia_stock = 0)")
+
+    if pdf_filter:
+        pdf_l = pdf_filter.lower().strip()
+        if pdf_l in ("with_pdf", "con_pdf", "pdf", "1", "true"):
+            where_clauses.append(f"({pdf_select} IS NOT NULL AND {pdf_select} != '' AND {pdf_select} != '#')")
+        elif pdf_l in ("no_pdf", "sin_pdf", "0", "false"):
+            where_clauses.append(f"({pdf_select} IS NULL OR {pdf_select} = '' OR {pdf_select} = '#')")
 
     where_sql = " AND ".join(where_clauses)
     is_consolidated = (not proveedor or proveedor.lower() == "all")
@@ -190,8 +204,6 @@ def get_proveedor_fichas(
         plazo_expr = "COALESCE((f.raw_json->'plazos_por_region'->>:selected_reg)::int, (f.raw_json->'plazos_por_region'->>'LIMA')::int, f.plazo_entrega_dias, 90)"
     else:
         plazo_expr = "COALESCE((f.raw_json->'plazos_por_region'->>'LIMA')::int, f.plazo_entrega_dias, 90)"
-
-    pdf_join, pdf_select = _get_fichas_pdf_join(db)
 
     if is_consolidated:
         having_clauses = []
