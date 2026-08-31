@@ -7,7 +7,54 @@ from typing import Optional, List, Dict
 from app.db.database import get_db
 from app.services.proveedores_scraper import run_worker_pool_extraction, fetch_single_combo
 
-router = APIRouter(prefix="/proveedores", tags=["proveedores"])
+def _get_fichas_pdf_join(db: Session) -> tuple[str, str]:
+    """
+    Returns (join_sql, select_expr) to link PDF from fichas_producto by nro_parte.
+    """
+    try:
+        rows = db.execute(text(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'fichas_producto'"
+        )).fetchall()
+        cols = [r[0] for r in rows]
+        if not cols:
+            return "", "f.pdf_url"
+            
+        col_set = set(cols)
+        
+        # 1. Detect nro_parte column
+        nro_col = next((c for c in [
+            "nro_parte_o_código_único_de_identificación",
+            "nro_parte_o_cdigo_nico_de_identificacin",
+            "nro_parte", "codigo_ficha", "cod_ficha", "codigo"
+        ] if c in col_set), None)
+        if not nro_col:
+            nro_col = next((c for c in cols if 'parte' in c.lower() or 'codigo' in c.lower()), None)
+            
+        # 2. Detect pdf column
+        pdf_col = next((c for c in [
+            "ficha_técnica", "ficha_tcnica", "ficha_tecnica", "url_pdf", "pdf_url"
+        ] if c in col_set), None)
+        if not pdf_col:
+            pdf_col = next((c for c in cols if 'pdf' in c.lower() or 'ficha' in c.lower() or 'url' in c.lower()), None)
+            
+        if nro_col and pdf_col:
+            join_sql = f"""
+                LEFT JOIN (
+                    SELECT DISTINCT ON (UPPER(TRIM(fp."{nro_col}")))
+                        UPPER(TRIM(fp."{nro_col}")) AS _match_nro,
+                        fp."{pdf_col}" AS _linked_pdf
+                    FROM fichas_producto fp
+                    WHERE fp."{pdf_col}" IS NOT NULL AND fp."{pdf_col}" != '' AND fp."{pdf_col}" != '#'
+                    ORDER BY UPPER(TRIM(fp."{nro_col}")), fp."{pdf_col}" DESC
+                ) fp_pdf ON UPPER(TRIM(f.nro_parte)) = fp_pdf._match_nro
+            """
+            select_expr = "COALESCE(NULLIF(NULLIF(f.pdf_url, ''), '#'), fp_pdf._linked_pdf)"
+            return join_sql, select_expr
+    except Exception:
+        pass
+        
+    return "", "f.pdf_url"
+
 
 @router.get("/fichas")
 def get_proveedor_fichas(
@@ -142,6 +189,8 @@ def get_proveedor_fichas(
     else:
         plazo_expr = "COALESCE((f.raw_json->'plazos_por_region'->>'LIMA')::int, f.plazo_entrega_dias, 90)"
 
+    pdf_join, pdf_select = _get_fichas_pdf_join(db)
+
     if is_consolidated:
         having_clauses = []
         if proveedor_filter:
@@ -185,7 +234,7 @@ def get_proveedor_fichas(
                     COALESCE(f.raw_json->'plazos_por_region', '{{}}'::json) AS plazos_por_region,
                     f.region,
                     f.provincia,
-                    f.pdf_url,
+                    {pdf_select} AS pdf_url,
                     f.fecha_extraccion,
                     CASE 
                         WHEN UPPER(TRIM(COALESCE(f.nro_parte, ''))) IN ('', '-', 'S/N', 'SN', 'COLECTIVO', 'VARIOS', '0', 'NO TIENE', 'SIN NUMERO', 'SIN NUMERO DE PARTE', 'NO APLICA') 
@@ -193,6 +242,7 @@ def get_proveedor_fichas(
                         ELSE UPPER(TRIM(f.nro_parte))
                     END AS group_key
                 FROM ofertas_proveedor_history f
+                {pdf_join}
                 WHERE {where_sql}
             ),
             dedup_provider_offers AS (
@@ -234,6 +284,7 @@ def get_proveedor_fichas(
                     MAX(r.plazo_entrega_dias) AS max_plazo_entrega,
                     MAX(r.region) AS region,
                     MAX(r.provincia) AS provincia,
+                    MAX(r.pdf_url) AS pdf_url,
                     SUM(COALESCE(r.existencia_stock, 0)) AS existencia_stock,
                     COUNT(DISTINCT r.ruc_proveedor) AS total_proveedores,
                     json_agg(
@@ -270,6 +321,7 @@ def get_proveedor_fichas(
                 g.max_plazo_entrega,
                 g.region,
                 g.provincia,
+                g.pdf_url,
                 g.existencia_stock,
                 g.total_proveedores,
                 g.ofertas,
@@ -309,7 +361,7 @@ def get_proveedor_fichas(
                 COALESCE(f.raw_json->'plazos_por_region', '{{}}'::json) AS plazos_por_region,
                 f.region,
                 f.provincia,
-                f.pdf_url,
+                {pdf_select} AS pdf_url,
                 f.raw_json,
                 f.fecha_extraccion::text AS fecha_extraccion,
                 1 AS total_proveedores,
@@ -323,12 +375,13 @@ def get_proveedor_fichas(
                     'plazos_por_region', COALESCE(f.raw_json->'plazos_por_region', '{{}}'::json),
                     'region', f.region,
                     'provincia', f.provincia,
-                    'pdf_url', f.pdf_url,
+                    'pdf_url', {pdf_select},
                     'estado', 'VIGENTE',
                     'fecha_extraccion', f.fecha_extraccion::text
                 )) AS ofertas,
                 COUNT(*) OVER() AS total_count
             FROM ofertas_proveedor_history f
+            {pdf_join}
             WHERE {where_sql}
             ORDER BY {order_by_sql}
             LIMIT :limit OFFSET :offset

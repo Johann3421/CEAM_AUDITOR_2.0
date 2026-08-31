@@ -1204,7 +1204,7 @@ const ProveedorFichas = () => {
                 {/* 6. Stock Total */}
                 <th 
                   onClick={() => toggleSort('stock')}
-                  style={{ width: 100, textAlign: 'center', padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}
+                  style={{ width: 95, textAlign: 'center', padding: '10px 10px', cursor: 'pointer', userSelect: 'none' }}
                   title="Ordenar por Existencias"
                 >
                   <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
@@ -1217,8 +1217,16 @@ const ProveedorFichas = () => {
                   </div>
                 </th>
 
-                {/* 7. Datos / Acciones */}
-                <th style={{ width: 85, textAlign: 'center', padding: '10px 14px' }}>
+                {/* 7. PDF Ficha Técnica */}
+                <th style={{ width: 85, textAlign: 'center', padding: '10px 8px' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                    <FileText size={13} style={{ color: '#dc2626' }} />
+                    <span>PDF</span>
+                  </div>
+                </th>
+
+                {/* 8. Datos / JSON */}
+                <th style={{ width: 75, textAlign: 'center', padding: '10px 8px' }}>
                   <span>Datos</span>
                 </th>
               </tr>
@@ -1226,7 +1234,7 @@ const ProveedorFichas = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-secondary)' }}>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-secondary)' }}>
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
                       <RefreshCw size={16} className="spin" />
                       <span>Cargando datos de la base de datos...</span>
@@ -1235,7 +1243,7 @@ const ProveedorFichas = () => {
                 </tr>
               ) : fichas.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
                     No hay ofertas con los filtros aplicados. Puedes cambiar los filtros o extraer nuevas categorías.
                   </td>
                 </tr>
@@ -1365,7 +1373,7 @@ const ProveedorFichas = () => {
                       </td>
 
                       {/* 6. Stock Total */}
-                      <td style={{ padding: '10px 14px', textAlign: 'center', verticalAlign: 'middle' }}>
+                      <td style={{ padding: '10px 10px', textAlign: 'center', verticalAlign: 'middle' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                           <span style={{ 
                             display: 'inline-block',
@@ -1385,32 +1393,61 @@ const ProveedorFichas = () => {
                         </div>
                       </td>
 
-                      {/* 7. Acciones & JSON View */}
-                      <td style={{ padding: '10px 14px', textAlign: 'center', verticalAlign: 'middle' }}>
-                        <div style={{ display: 'flex', justifyContent: 'center', gap: 4 }}>
-                          <button
-                            className="btn btn-sm"
-                            onClick={() => setSelectedJsonItem(f)}
-                            style={{ padding: '3px 6px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3 }}
-                            title="Ver JSON completo de este registro"
+                      {/* 7. Columna PDF Ficha Técnica */}
+                      <td style={{ padding: '10px 8px', textAlign: 'center', verticalAlign: 'middle' }}>
+                        {f.pdf_url && f.pdf_url.trim() !== '' && f.pdf_url !== '#' ? (
+                          <a
+                            href={f.pdf_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 4,
+                              padding: '5px 8px',
+                              borderRadius: 6,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              background: '#fef2f2',
+                              color: '#dc2626',
+                              border: '1px solid #fecaca',
+                              textDecoration: 'none',
+                              transition: 'all 0.15s ease',
+                              cursor: 'pointer',
+                              boxShadow: '0 1px 2px rgba(220,38,38,0.06)'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = '#fee2e2';
+                              e.currentTarget.style.borderColor = '#fca5a5';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = '#fef2f2';
+                              e.currentTarget.style.borderColor = '#fecaca';
+                            }}
+                            title={`Descargar / Abrir Ficha Técnica PDF (${f.nro_parte || ''})`}
                           >
-                            <Code size={12} style={{ color: 'var(--c-brand)' }} />
-                            <span>JSON</span>
-                          </button>
+                            <FileText size={13} style={{ color: '#dc2626' }} />
+                            <span>PDF</span>
+                          </a>
+                        ) : (
+                          <span style={{ color: '#cbd5e1', fontSize: 12, fontWeight: 500 }} title="Ficha técnica no adjunta aún">
+                            —
+                          </span>
+                        )}
+                      </td>
 
-                          {f.pdf_url && f.pdf_url !== '#' && (
-                            <a
-                              href={f.pdf_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn btn-sm"
-                              style={{ padding: '3px 5px' }}
-                              title="Ver PDF Ficha Técnica"
-                            >
-                              <ExternalLink size={12} />
-                            </a>
-                          )}
-                        </div>
+                      {/* 8. Acciones & JSON View */}
+                      <td style={{ padding: '10px 8px', textAlign: 'center', verticalAlign: 'middle' }}>
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => setSelectedJsonItem(f)}
+                          style={{ padding: '4px 6px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                          title="Ver JSON completo de este registro"
+                        >
+                          <Code size={12} style={{ color: 'var(--c-brand)' }} />
+                          <span>JSON</span>
+                        </button>
                       </td>
                     </tr>
                   );
