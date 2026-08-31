@@ -7,6 +7,8 @@ from typing import Optional, List, Dict
 from app.db.database import get_db
 from app.services.proveedores_scraper import run_worker_pool_extraction, fetch_single_combo
 
+router = APIRouter(prefix="/proveedores", tags=["proveedores"])
+
 def _get_fichas_pdf_join(db: Session) -> tuple[str, str]:
     """
     Returns (join_sql, select_expr) to link PDF from fichas_producto by nro_parte.
