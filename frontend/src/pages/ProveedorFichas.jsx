@@ -658,10 +658,11 @@ const ProveedorFichas = () => {
               const isJorge = (o.nombre_proveedor || '').toUpperCase().includes('JORGE') || (o.nombre_proveedor || '').toUpperCase().includes('ROJAS');
               const provLabel = isJorge ? 'Jorge Rojas' : 'The King';
               
-              // Resolver plazo: si hay filtro regional, buscar en plazos_por_region, en el plazo_entrega_dias de la API, o default nacional (90 días)
+              // Resolver plazo: si hay filtro regional, buscar en plazos_por_region con la clave normalizada
               let plazo = null;
               if (isFilteredRegion) {
-                plazo = o.plazos_por_region?.[regionFilter] ?? o.plazo_entrega_dias ?? o.plazos_por_region?.['LIMA'] ?? 90;
+                const regKey = (regionFilter || '').toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                plazo = o.plazos_por_region?.[regKey] ?? o.plazos_por_region?.[regionFilter] ?? o.plazo_entrega_dias ?? o.plazos_por_region?.['LIMA'] ?? 90;
               } else {
                 plazo = o.plazos_por_region?.['LIMA'] ?? o.plazo_entrega_dias ?? 90;
               }
@@ -694,7 +695,8 @@ const ProveedorFichas = () => {
               const single = ofertas[0] || f;
               let plazo = null;
               if (isFilteredRegion) {
-                plazo = single.plazos_por_region?.[regionFilter] ?? f.plazo_entrega_dias ?? single.plazo_entrega_dias ?? single.plazos_por_region?.['LIMA'] ?? 90;
+                const regKey = (regionFilter || '').toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                plazo = single.plazos_por_region?.[regKey] ?? single.plazos_por_region?.[regionFilter] ?? f.plazo_entrega_dias ?? single.plazo_entrega_dias ?? single.plazos_por_region?.['LIMA'] ?? 90;
               } else {
                 plazo = single.plazos_por_region?.['LIMA'] ?? f.min_plazo_entrega ?? f.plazo_entrega_dias ?? single.plazo_entrega_dias ?? 90;
               }

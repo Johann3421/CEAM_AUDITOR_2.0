@@ -921,10 +921,10 @@ async def async_extract_plazos_regionales(
                     if reg_key == "LIMA":
                         sql_text = f"""
                             UPDATE ofertas_proveedor_history
-                            SET raw_json = jsonb_set(
-                                    COALESCE(raw_json::jsonb, '{{}}'::jsonb),
-                                    ARRAY['plazos_por_region', :region],
-                                    to_jsonb(CAST(:plazo AS integer))
+                            SET raw_json = COALESCE(raw_json::jsonb, '{{}}'::jsonb) || 
+                                jsonb_build_object(
+                                    'plazos_por_region', 
+                                    COALESCE((raw_json::jsonb->'plazos_por_region'), '{{}}'::jsonb) || jsonb_build_object(:region, CAST(:plazo AS integer))
                                 ),
                                 plazo_entrega_dias = :plazo
                             WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
@@ -933,10 +933,10 @@ async def async_extract_plazos_regionales(
                     else:
                         sql_text = f"""
                             UPDATE ofertas_proveedor_history
-                            SET raw_json = jsonb_set(
-                                    COALESCE(raw_json::jsonb, '{{}}'::jsonb),
-                                    ARRAY['plazos_por_region', :region],
-                                    to_jsonb(CAST(:plazo AS integer))
+                            SET raw_json = COALESCE(raw_json::jsonb, '{{}}'::jsonb) || 
+                                jsonb_build_object(
+                                    'plazos_por_region', 
+                                    COALESCE((raw_json::jsonb->'plazos_por_region'), '{{}}'::jsonb) || jsonb_build_object(:region, CAST(:plazo AS integer))
                                 )
                             WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
                               AND {cat_condition}

@@ -134,6 +134,9 @@ def get_proveedor_fichas(
 
     selected_reg = region.strip().upper() if (region and region.lower() != "all") else None
     if selected_reg:
+        import unicodedata
+        n = unicodedata.normalize('NFKD', selected_reg)
+        selected_reg = ''.join(c for c in n if not unicodedata.combining(c))
         params["selected_reg"] = selected_reg
         plazo_expr = "COALESCE((f.raw_json->'plazos_por_region'->>:selected_reg)::int, (f.raw_json->'plazos_por_region'->>'LIMA')::int, f.plazo_entrega_dias, 90)"
     else:
