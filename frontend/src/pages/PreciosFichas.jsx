@@ -57,7 +57,7 @@ const PreciosFichas = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentSearch, setCurrentSearch] = useState('');
   const [filters, setFilters] = useState({ 
-    marca: '', acuerdo_marco: '', nro_parte: '',
+    marca: '', acuerdo_marco: '', categoria: '', nro_parte: '',
     precio_referencia: '', precio_min: '', precio_max: '',
     volatilidad: '', ordenes: ''
   });
@@ -84,6 +84,7 @@ const PreciosFichas = () => {
       if (soloConPrecio) addParam('con_precio', true);
       if (currentSearch) addParam('search', currentSearch);
       if (filters.marca) addParam('marca', filters.marca);
+      if (filters.categoria) addParam('categoria', filters.categoria);
       if (filters.acuerdo_marco) addParam('acuerdo_marco', filters.acuerdo_marco);
       if (filters.nro_parte) addParam('nro_parte', filters.nro_parte);
       if (filters.precio_min) addParam('precio_min', filters.precio_min);
@@ -145,6 +146,7 @@ const PreciosFichas = () => {
       if (soloConPrecio) params.con_precio = true;
       if (currentSearch) params.search = currentSearch;
       if (filters.marca) params.marca = filters.marca;
+      if (filters.categoria) params.categoria = filters.categoria;
       if (filters.acuerdo_marco) params.acuerdo_marco = filters.acuerdo_marco;
       if (filters.nro_parte) params.nro_parte = filters.nro_parte;
       if (filters.precio_min) params.precio_min = filters.precio_min;
@@ -410,6 +412,15 @@ const PreciosFichas = () => {
                 </th>
                 <th>
                   <HeaderFilter 
+                    title="Categoría" 
+                    column="categoria" 
+                    currentFilter={filters.categoria}
+                    onFilterChange={(v) => { setFilters(prev => ({...prev, categoria: v})); setPage(0); }}
+                    apiCall={fichasProductoApi.getColumnFilter}
+                  />
+                </th>
+                <th>
+                  <HeaderFilter 
                     title="Acuerdo Marco" 
                     column="acuerdo_marco" 
                     currentFilter={filters.acuerdo_marco}
@@ -484,14 +495,14 @@ const PreciosFichas = () => {
               {loading ? (
                 [...Array(8)].map((_, i) => (
                   <tr key={i}>
-                    {[...Array(8)].map((__, j) => (
+                    {[...Array(9)].map((__, j) => (
                       <td key={j}><div className="skeleton" style={{ height: 16 }} /></td>
                     ))}
                   </tr>
                 ))
               ) : fichas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: 32, color: 'var(--c-text-tertiary)' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--c-text-tertiary)' }}>
                     No hay fichas{soloConPrecio ? ' con precio' : ''} en esta página.
                   </td>
                 </tr>
@@ -500,6 +511,7 @@ const PreciosFichas = () => {
                   const nroParte = f.nro_parte_o_cdigo_nico_de_identificacin
                     || f['nro_parte_o_código_único_de_identificación']
                     || f.nro_parte || '—';
+                  const categoria = f['categoría'] || f.categora || f.categoria || f['catálogo'] || f.catalogo || '—';
                   const acuerdo = f.acuerdo_marco || '—';
                   const shortAcuerdo = acuerdo.match(/([A-Z]{2,}-[A-Z]{2,}-\d{4}-\d+)/i)?.[1] || acuerdo.split(' ')[0];
 
@@ -511,6 +523,24 @@ const PreciosFichas = () => {
                         </span>
                       </td>
                       <td style={{ fontSize: 12 }}>{f.marca || '—'}</td>
+                      <td style={{ fontSize: 12 }}>
+                        <span style={{ 
+                          display: 'inline-block',
+                          fontSize: 11, 
+                          fontWeight: 600,
+                          color: '#1e293b',
+                          background: '#f1f5f9',
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          border: '1px solid #e2e8f0',
+                          maxWidth: 180,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }} title={categoria}>
+                          {categoria}
+                        </span>
+                      </td>
                       <td>
                         <span style={{ fontSize: 11, color: 'var(--c-text-tertiary)' }}>{shortAcuerdo}</span>
                       </td>

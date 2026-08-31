@@ -50,10 +50,11 @@ def _build_fichas_where(
 
     _f("acuerdo_marco", acuerdo_marco, "acuerdo")
     _f("catálogo", catalogo, "catalogo")
+    _f("catalogo", catalogo, "catalogo")
 
-    # categoria column may be stored as "categoría" (with accent) or "categora" (scraped variant)
+    # categoria column may be stored as "categoría" (with accent), "categora" (scraped variant), or "categoria"
     if categoria:
-        cat_col = next((c for c in ("categoría", "categora") if c in col_set), None)
+        cat_col = next((c for c in ("categoría", "categora", "categoria") if c in col_set), None)
         if cat_col:
             filters.append(f'"{cat_col}" ILIKE :categoria')
             params["categoria"] = f"%{categoria}%"
@@ -760,19 +761,26 @@ def fichas_summary(
 @router.get("/filters/{col_name}")
 def get_fichas_filter_values(col_name: str, db: Session = Depends(get_db)):
     """Return distinct non-null values for a fichas column (for Excel-like dropdowns)."""
-    allowed = {"marca", "categoría", "categora", "acuerdo_marco", "estado_ficha_producto"}
+    allowed = {"marca", "categoría", "categora", "categoria", "acuerdo_marco", "estado_ficha_producto", "catálogo", "catalogo", "nro_parte"}
     cols = _safe_col(db)
     col_set = set(cols)
 
     # Accept either spelling; find actual column name in DB
     candidates = [col_name]
-    if col_name == "categoria":
-        candidates = ["categoría", "categora"]
+    if col_name in ("categoria", "categoría", "categora"):
+        candidates = ["categoría", "categora", "categoria"]
+    elif col_name in ("catalogo", "catálogo"):
+        candidates = ["catálogo", "catalogo"]
+    elif col_name in ("nro_parte", "codigo"):
+        candidates = [
+            "nro_parte_o_código_único_de_identificación",
+            "nro_parte_o_cdigo_nico_de_identificacin",
+            "nro_parte"
+        ]
+
     matched = next((c for c in candidates if c in col_set), None)
-    if matched is None or matched not in {c for c in col_set if c in allowed or col_name in allowed}:
-        # Still allow if the matched col exists even if alias differs
-        if matched is None:
-            return {"values": []}
+    if matched is None:
+        return {"values": []}
 
     try:
         rows = db.execute(
