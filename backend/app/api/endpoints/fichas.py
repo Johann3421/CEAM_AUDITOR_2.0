@@ -1062,6 +1062,9 @@ def enrich_precios(db: Session = Depends(get_db)):
             not_found += 1
             continue
         cp = canonical_price(prices)
+        if not cp:
+            not_found += 1
+            continue
         update_batch.append({
             "pr": cp["precio_referencia"],
             "pmin": cp["precio_min"],
