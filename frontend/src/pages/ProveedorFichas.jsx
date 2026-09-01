@@ -8,7 +8,7 @@ import {
   Code, Copy, Check, Cpu, HardDrive, Monitor, Download, Trash2,
   ArrowUp, ArrowDown, ChevronsUpDown, Filter, Layers, CheckCircle2, ChevronDown, ChevronUp,
   Laptop, MonitorCheck, Printer, Sparkles, Tv, Smartphone, Server, Zap, Projector, Award, Scale, Users,
-  Clock, MapPin
+  Clock, MapPin, FileSpreadsheet
 } from 'lucide-react';
 
 const MAIN_PROVIDERS = [
@@ -216,6 +216,7 @@ const ProveedorFichas = () => {
   const [copied, setCopied] = useState(false);
   const [copiedPart, setCopiedPart] = useState(null);
   const [exportingJson, setExportingJson] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [expandedDescId, setExpandedDescId] = useState(null);
 
   const fetchCategoriesCount = (prov = selectedProvider) => {
@@ -234,8 +235,10 @@ const ProveedorFichas = () => {
       await proveedoresApi.reclassify();
       fetchCategoriesCount(selectedProvider);
       fetchFichasData();
+      alert("Reclasificación masiva de categorías completada con éxito.");
     } catch (e) {
       console.error(e);
+      alert("Error al reclasificar las fichas.");
     } finally {
       setReclassifying(false);
     }
@@ -406,6 +409,40 @@ const ProveedorFichas = () => {
       alert("Error al descargar el JSON de ofertas.");
     } finally {
       setExportingJson(false);
+    }
+  };
+
+  const handleDownloadExcel = async () => {
+    setExportingExcel(true);
+    try {
+      const params = {};
+      if (selectedProvider !== 'all') params.proveedor = selectedProvider;
+      if (proveedorColFilter !== 'all') params.proveedor_filter = proveedorColFilter;
+      if (regionFilter !== 'all') params.region = regionFilter;
+      if (search) params.search = search;
+      if (marcaFilter) params.marca = marcaFilter;
+      if (activeTab !== 'all') params.categoria = activeTab;
+      if (stockFilter) params.stock_filter = stockFilter;
+      if (pdfFilter !== 'all') params.pdf_filter = pdfFilter;
+      if (sortBy) params.sort_by = sortBy;
+
+      const res = await proveedoresApi.exportExcel(params);
+      const blob = new Blob([res.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `reporte_ofertas_perucompras_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Error exportando Excel:', e);
+      alert('Error al descargar el reporte Excel de ofertas.');
+    } finally {
+      setExportingExcel(false);
     }
   };
 
@@ -832,6 +869,17 @@ const ProveedorFichas = () => {
           >
             <Download size={15} />
             {exportingJson ? 'Generando...' : '📥 Descargar JSON'}
+          </button>
+
+          <button
+            className="btn btn-secondary"
+            onClick={handleDownloadExcel}
+            disabled={exportingExcel || totalFichas === 0}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600 }}
+            title="Descargar reporte profesional en Excel (.xlsx) con análisis de precios y catálogo completo"
+          >
+            <FileSpreadsheet size={15} style={{ color: '#16a34a' }} />
+            {exportingExcel ? 'Generando Excel...' : '📊 Descargar Excel'}
           </button>
 
           <button

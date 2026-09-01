@@ -826,6 +826,494 @@ def export_all_fichas_json(db: Session = Depends(get_db)):
         logging.getLogger("ceam.proveedores").error("Error en export_all_fichas_json: %s", e)
         return {"error": str(e)}
 
+
+@router.get("/export-excel")
+def export_proveedor_fichas_excel(
+    proveedor: Optional[str] = Query(None, description="Filtro por proveedor"),
+    proveedor_filter: Optional[str] = Query(None, description="Filtro de competencia/exclusivo"),
+    region: Optional[str] = Query(None, description="Filtro por región"),
+    search: Optional[str] = Query(None, description="Búsqueda por texto"),
+    marca: Optional[str] = Query(None, description="Filtro por marca"),
+    nro_parte: Optional[str] = Query(None, description="Filtro por nro_parte"),
+    catalogo: Optional[str] = Query(None, description="Filtro por catálogo"),
+    categoria: Optional[str] = Query(None, description="Filtro por categoría"),
+    stock_filter: Optional[str] = Query(None, description="Filtro de stock"),
+    pdf_filter: Optional[str] = Query(None, description="Filtro de PDF"),
+    sort_by: Optional[str] = Query(None, description="Ordenamiento"),
+    cpu: Optional[str] = Query(None),
+    ram: Optional[str] = Query(None),
+    disco: Optional[str] = Query(None),
+    pantalla: Optional[str] = Query(None),
+    so: Optional[str] = Query(None),
+    panel: Optional[str] = Query(None),
+    resolucion: Optional[str] = Query(None),
+    cpu_gen: Optional[str] = Query(None),
+    ram_tech: Optional[str] = Query(None),
+    disco_tipo: Optional[str] = Query(None),
+    vga: Optional[str] = Query(None),
+    hdmi: Optional[str] = Query(None),
+    wifi: Optional[str] = Query(None),
+    bluetooth: Optional[str] = Query(None),
+    lan: Optional[str] = Query(None),
+    office: Optional[str] = Query(None),
+    garantia: Optional[str] = Query(None),
+    unidad_optica: Optional[str] = Query(None),
+    camara: Optional[str] = Query(None),
+    tactil: Optional[str] = Query(None),
+    con_orden: Optional[bool] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Genera y descarga un reporte profesional en Excel (.xlsx) con análisis comparativo,
+    resumen ejecutivo de KPIs, distribución por categorías y catálogo completo de ofertas.
+    """
+    import io
+    from datetime import datetime
+    from fastapi.responses import StreamingResponse
+    from openpyxl import Workbook
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    # 1. Obtener datos filtrados
+    res = get_proveedor_fichas(
+        proveedor=proveedor,
+        proveedor_filter=proveedor_filter,
+        region=region,
+        search=search,
+        marca=marca,
+        nro_parte=nro_parte,
+        catalogo=catalogo,
+        categoria=categoria,
+        stock_filter=stock_filter,
+        pdf_filter=pdf_filter,
+        sort_by=sort_by,
+        cpu=cpu,
+        ram=ram,
+        disco=disco,
+        pantalla=pantalla,
+        so=so,
+        panel=panel,
+        resolucion=resolucion,
+        cpu_gen=cpu_gen,
+        ram_tech=ram_tech,
+        disco_tipo=disco_tipo,
+        vga=vga,
+        hdmi=hdmi,
+        wifi=wifi,
+        bluetooth=bluetooth,
+        lan=lan,
+        office=office,
+        garantia=garantia,
+        unidad_optica=unidad_optica,
+        camara=camara,
+        tactil=tactil,
+        con_orden=con_orden,
+        page=1,
+        limit=100000,
+        db=db
+    )
+
+    items = res.get("items", [])
+    total_fichas = res.get("total", len(items))
+    total_competing = res.get("total_competing", 0)
+    total_stock = res.get("total_stock", 0)
+
+    # 2. Conteo por categorías para Resumen
+    cat_counts = get_categories_count(proveedor=proveedor, db=db)
+
+    # 3. Construcción del Workbook
+    wb = Workbook()
+
+    # ── Paleta y Estilos ───────────────────────────────────────────────────
+    FONT_FAMILY = "Segoe UI"
+    NAVY_MAIN   = PatternFill("solid", fgColor="0F172A") # Slate 900
+    NAVY_HDR    = PatternFill("solid", fgColor="1E3A8A") # Blue 900
+    BLUE_ACCENT = PatternFill("solid", fgColor="2563EB") # Blue 600
+    LIGHT_BG    = PatternFill("solid", fgColor="F8FAFC") # Slate 50
+    CARD_BG     = PatternFill("solid", fgColor="F1F5F9") # Slate 100
+    GREEN_FILL  = PatternFill("solid", fgColor="DCFCE7") # Green 100
+    GREEN_TXT   = Font(name=FONT_FAMILY, size=9, bold=True, color="166534")
+    PURPLE_FILL = PatternFill("solid", fgColor="F3E8FF") # Purple 100
+    PURPLE_TXT  = Font(name=FONT_FAMILY, size=9, bold=True, color="6B21A8")
+    
+    TITLE_FONT  = Font(name=FONT_FAMILY, size=13, bold=True, color="FFFFFF")
+    SUB_FONT    = Font(name=FONT_FAMILY, size=9, italic=True, color="CBD5E1")
+    HDR_FONT    = Font(name=FONT_FAMILY, size=10, bold=True, color="FFFFFF")
+    BOLD_FONT   = Font(name=FONT_FAMILY, size=10, bold=True, color="0F172A")
+    BASE_FONT   = Font(name=FONT_FAMILY, size=9, color="1E293B")
+    MUTED_FONT  = Font(name=FONT_FAMILY, size=8, color="64748B")
+    KPI_VAL_FONT= Font(name=FONT_FAMILY, size=15, bold=True, color="0F172A")
+    KPI_LBL_FONT= Font(name=FONT_FAMILY, size=8, bold=True, color="64748B")
+
+    thin_border_side = Side(style="thin", color="CBD5E1")
+    BORDER_ALL = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
+    BORDER_BOTTOM_DOUBLE = Border(
+        left=thin_border_side, right=thin_border_side, top=thin_border_side,
+        bottom=Side(style="double", color="0F172A")
+    )
+
+    ALIGN_CENTER = Alignment(horizontal="center", vertical="center")
+    ALIGN_LEFT   = Alignment(horizontal="left", vertical="center")
+    ALIGN_RIGHT  = Alignment(horizontal="right", vertical="center")
+    ALIGN_WRAP   = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+    FMT_MONEY = '[$S/-es-PE] #,##0.00'
+    FMT_NUM   = '#,##0'
+    FMT_PCT   = '0.0%'
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # HOJA 1: RESUMEN EJECUTIVO
+    # ═════════════════════════════════════════════════════════════════════════
+    ws_resumen = wb.active
+    ws_resumen.title = "Resumen Ejecutivo"
+    ws_resumen.views.sheetView[0].showGridLines = True
+
+    # Banner Header
+    ws_resumen.merge_cells("A1:G1")
+    t1 = ws_resumen["A1"]
+    t1.value = "PERÚ COMPRAS — REPORTE DE INTELIGENCIA DE PRECIOS Y OFERTAS"
+    t1.fill = NAVY_MAIN
+    t1.font = TITLE_FONT
+    t1.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws_resumen.row_dimensions[1].height = 30
+
+    ws_resumen.merge_cells("A2:G2")
+    t2 = ws_resumen["A2"]
+    now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    prov_str = "TODOS LOS PROVEEDORES (CONSOLIDADO)" if (not proveedor or proveedor == "all") else proveedor.upper()
+    t2.value = f"Sistema CEAM Auditor 2.0  |  Alcance: {prov_str}  |  Región: {region or 'Nacional'}  |  Generado: {now_str}"
+    t2.fill = NAVY_HDR
+    t2.font = SUB_FONT
+    t2.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws_resumen.row_dimensions[2].height = 20
+
+    # KPI 1: Fichas Únicas
+    ws_resumen.merge_cells("A4:B4")
+    ws_resumen["A4"].value = "FICHAS ÚNICAS"
+    ws_resumen["A4"].font = KPI_LBL_FONT
+    ws_resumen["A4"].alignment = ALIGN_CENTER
+    ws_resumen["A4"].fill = CARD_BG
+
+    ws_resumen.merge_cells("A5:B5")
+    ws_resumen["A5"].value = total_fichas
+    ws_resumen["A5"].number_format = FMT_NUM
+    ws_resumen["A5"].font = KPI_VAL_FONT
+    ws_resumen["A5"].alignment = ALIGN_CENTER
+    ws_resumen["A5"].fill = CARD_BG
+
+    ws_resumen.merge_cells("A6:B6")
+    ws_resumen["A6"].value = "Catálogo total analizado"
+    ws_resumen["A6"].font = MUTED_FONT
+    ws_resumen["A6"].alignment = ALIGN_CENTER
+    ws_resumen["A6"].fill = CARD_BG
+
+    # KPI 2: Con Competencia
+    ws_resumen.merge_cells("C4:D4")
+    ws_resumen["C4"].value = "CON COMPETENCIA (DOBLE OFERTA)"
+    ws_resumen["C4"].font = KPI_LBL_FONT
+    ws_resumen["C4"].alignment = ALIGN_CENTER
+    ws_resumen["C4"].fill = CARD_BG
+
+    ws_resumen.merge_cells("C5:D5")
+    ws_resumen["C5"].value = total_competing
+    ws_resumen["C5"].number_format = FMT_NUM
+    ws_resumen["C5"].font = KPI_VAL_FONT
+    ws_resumen["C5"].alignment = ALIGN_CENTER
+    ws_resumen["C5"].fill = CARD_BG
+
+    ws_resumen.merge_cells("C6:D6")
+    ws_resumen["C6"].value = "Con disputa entre 2 o más proveedores"
+    ws_resumen["C6"].font = MUTED_FONT
+    ws_resumen["C6"].alignment = ALIGN_CENTER
+    ws_resumen["C6"].fill = CARD_BG
+
+    # KPI 3: Stock Total
+    ws_resumen.merge_cells("E4:F4")
+    ws_resumen["E4"].value = "STOCK TOTAL DISPONIBLE"
+    ws_resumen["E4"].font = KPI_LBL_FONT
+    ws_resumen["E4"].alignment = ALIGN_CENTER
+    ws_resumen["E4"].fill = CARD_BG
+
+    ws_resumen.merge_cells("E5:F5")
+    ws_resumen["E5"].value = total_stock
+    ws_resumen["E5"].number_format = FMT_NUM
+    ws_resumen["E5"].font = KPI_VAL_FONT
+    ws_resumen["E5"].alignment = ALIGN_CENTER
+    ws_resumen["E5"].fill = CARD_BG
+
+    ws_resumen.merge_cells("E6:F6")
+    ws_resumen["E6"].value = "Unidades físicas en vista"
+    ws_resumen["E6"].font = MUTED_FONT
+    ws_resumen["E6"].alignment = ALIGN_CENTER
+    ws_resumen["E6"].fill = CARD_BG
+
+    # KPI 4: Precio Promedio
+    ws_resumen["G4"].value = "PRECIO PROMEDIO"
+    ws_resumen["G4"].font = KPI_LBL_FONT
+    ws_resumen["G4"].alignment = ALIGN_CENTER
+    ws_resumen["G4"].fill = CARD_BG
+
+    avg_price = (sum(float(it.get("min_precio") or 0) for it in items) / len(items)) if items else 0
+    ws_resumen["G5"].value = avg_price
+    ws_resumen["G5"].number_format = FMT_MONEY
+    ws_resumen["G5"].font = KPI_VAL_FONT
+    ws_resumen["G5"].alignment = ALIGN_CENTER
+    ws_resumen["G5"].fill = CARD_BG
+
+    ws_resumen["G6"].value = "Precio referencial calculado"
+    ws_resumen["G6"].font = MUTED_FONT
+    ws_resumen["G6"].alignment = ALIGN_CENTER
+    ws_resumen["G6"].fill = CARD_BG
+
+    for r in range(4, 7):
+        for c in range(1, 8):
+            cell = ws_resumen.cell(row=r, column=c)
+            cell.border = BORDER_ALL
+
+    # Table: Distribución por 14 Categorías Oficiales
+    ws_resumen.cell(row=8, column=1, value="DISTRIBUCIÓN POR CATEGORÍAS OFICIALES (ACUERDO MARCO 249)").font = BOLD_FONT
+    
+    cat_headers = ["Catálogo Oficial", "Categoría de Producto", "Total Ofertas", "% del Catálogo"]
+    for ci, h in enumerate(cat_headers, start=1):
+        c = ws_resumen.cell(row=9, column=ci, value=h)
+        c.fill = NAVY_HDR
+        c.font = HDR_FONT
+        c.alignment = ALIGN_CENTER
+        c.border = BORDER_ALL
+    ws_resumen.row_dimensions[9].height = 22
+
+    CATEGORY_DISTRIB = [
+        ("Catálogo 252: Computadoras de Escritorio", "COMPUTADORA DE ESCRITORIO", cat_counts.get("escritorio", 0)),
+        ("Catálogo 252: Computadoras de Escritorio", "COMPUTADORA TODO EN UNO", cat_counts.get("aio", 0)),
+        ("Catálogo 252: Computadoras de Escritorio", "ESTACION DE TRABAJO (WORKSTATION)", cat_counts.get("workstation", 0)),
+        ("Catálogo 252: Computadoras de Escritorio", "MONITOR", cat_counts.get("monitor", 0)),
+        ("Catálogo 252: Computadoras de Escritorio", "PANTALLA PUBLICITARIA", cat_counts.get("pantalla_pub", 0)),
+        ("Catálogo 252: Computadoras de Escritorio", "PANTALLA INTERACTIVA", cat_counts.get("pantalla_int", 0)),
+        ("Catálogo 252: Computadoras de Escritorio", "ALMACENAMIENTO INTERNO", cat_counts.get("almacenamiento_int", 0)),
+        ("Catálogo 252: Computadoras de Escritorio", "ALMACENAMIENTO EXTERNO", cat_counts.get("almacenamiento_ext", 0)),
+        ("Catálogo 250: Computadoras Portátiles", "COMPUTADORA PORTATIL (LAPTOP)", cat_counts.get("portatil", 0)),
+        ("Catálogo 250: Computadoras Portátiles", "ESTACION DE TRABAJO PORTATIL", cat_counts.get("workstation_portatil", 0)),
+        ("Catálogo 250: Computadoras Portátiles", "TABLETA", cat_counts.get("tableta", 0)),
+        ("Catálogo 251: Escáneres", "ESCANER DE DOCUMENTOS", cat_counts.get("escaner_docs", 0)),
+        ("Catálogo 251: Escáneres", "ESCANER DE PLANOS", cat_counts.get("escaner_planos", 0)),
+        ("Catálogo 251: Escáneres", "ESCANER DE LIBROS", cat_counts.get("escaner_libros", 0)),
+    ]
+
+    total_cat_sum = sum(cnt for _, _, cnt in CATEGORY_DISTRIB) or 1
+    current_row = 10
+    for cat_oficial, cat_nombre, cnt in CATEGORY_DISTRIB:
+        fill = LIGHT_BG if current_row % 2 == 0 else PatternFill(fill_type=None)
+        
+        c1 = ws_resumen.cell(row=current_row, column=1, value=cat_oficial)
+        c2 = ws_resumen.cell(row=current_row, column=2, value=cat_nombre)
+        c3 = ws_resumen.cell(row=current_row, column=3, value=cnt)
+        c4 = ws_resumen.cell(row=current_row, column=4, value=f"=C{current_row}/C{len(CATEGORY_DISTRIB)+10}")
+
+        c1.font = BASE_FONT; c1.alignment = ALIGN_LEFT; c1.border = BORDER_ALL; c1.fill = fill
+        c2.font = BASE_FONT; c2.alignment = ALIGN_LEFT; c2.border = BORDER_ALL; c2.fill = fill
+        c3.font = BASE_FONT; c3.alignment = ALIGN_RIGHT; c3.border = BORDER_ALL; c3.fill = fill; c3.number_format = FMT_NUM
+        c4.font = BASE_FONT; c4.alignment = ALIGN_RIGHT; c4.border = BORDER_ALL; c4.fill = fill; c4.number_format = FMT_PCT
+        current_row += 1
+
+    # Total Row for Categories
+    tot_row = current_row
+    c1 = ws_resumen.cell(row=tot_row, column=1, value="TOTAL CONSOLIDADO")
+    c2 = ws_resumen.cell(row=tot_row, column=2, value="")
+    c3 = ws_resumen.cell(row=tot_row, column=3, value=f"=SUM(C10:C{tot_row-1})")
+    c4 = ws_resumen.cell(row=tot_row, column=4, value="100.0%")
+    ws_resumen.merge_cells(f"A{tot_row}:B{tot_row}")
+    c1.font = BOLD_FONT; c1.alignment = ALIGN_LEFT; c1.fill = CARD_BG; c1.border = BORDER_BOTTOM_DOUBLE
+    c2.border = BORDER_BOTTOM_DOUBLE
+    c3.font = BOLD_FONT; c3.alignment = ALIGN_RIGHT; c3.fill = CARD_BG; c3.border = BORDER_BOTTOM_DOUBLE; c3.number_format = FMT_NUM
+    c4.font = BOLD_FONT; c4.alignment = ALIGN_RIGHT; c4.fill = CARD_BG; c4.border = BORDER_BOTTOM_DOUBLE
+
+    # Adjust widths in Resumen
+    ws_resumen.column_dimensions["A"].width = 38
+    ws_resumen.column_dimensions["B"].width = 36
+    ws_resumen.column_dimensions["C"].width = 18
+    ws_resumen.column_dimensions["D"].width = 18
+    ws_resumen.column_dimensions["E"].width = 18
+    ws_resumen.column_dimensions["F"].width = 18
+    ws_resumen.column_dimensions["G"].width = 22
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # HOJA 2: CATÁLOGO Y COMPARATIVA
+    # ═════════════════════════════════════════════════════════════════════════
+    ws_data = wb.create_sheet(title="Catálogo y Ofertas")
+    ws_data.views.sheetView[0].showGridLines = True
+
+    # Title Bar
+    ws_data.merge_cells("A1:O1")
+    dt1 = ws_data["A1"]
+    dt1.value = f"DETALLE DE CATÁLOGO Y COMPARATIVA DE PRECIOS ({len(items):,} FICHAS EXTRAÍDAS)"
+    dt1.fill = NAVY_MAIN
+    dt1.font = Font(name=FONT_FAMILY, size=11, bold=True, color="FFFFFF")
+    dt1.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws_data.row_dimensions[1].height = 24
+
+    # Headers
+    DATA_HEADERS = [
+        ("N° Parte / Código", 22, ALIGN_CENTER),
+        ("Marca", 16, ALIGN_CENTER),
+        ("Descripción / Especificación Técnica", 48, ALIGN_LEFT),
+        ("Categoría Oficial", 28, ALIGN_LEFT),
+        ("Catálogo", 22, ALIGN_LEFT),
+        ("Tipo de Oferta", 22, ALIGN_CENTER),
+        ("Proveedores Oferentes", 32, ALIGN_LEFT),
+        ("Precio Mínimo (S/)", 18, ALIGN_RIGHT),
+        ("Precio Máximo (S/)", 18, ALIGN_RIGHT),
+        ("Stock Total", 14, ALIGN_RIGHT),
+        ("Plazo Entrega (Días)", 16, ALIGN_CENTER),
+        ("Última OCAM", 18, ALIGN_CENTER),
+        ("Fecha OCAM", 15, ALIGN_CENTER),
+        ("Ficha Técnica (PDF)", 18, ALIGN_CENTER),
+        ("Fecha Extracción", 16, ALIGN_CENTER),
+    ]
+
+    for ci, (h_title, h_width, h_align) in enumerate(DATA_HEADERS, start=1):
+        cell = ws_data.cell(row=2, column=ci, value=h_title)
+        cell.fill = NAVY_HDR
+        cell.font = HDR_FONT
+        cell.alignment = ALIGN_CENTER
+        cell.border = BORDER_ALL
+        ws_data.column_dimensions[get_column_letter(ci)].width = h_width
+    ws_data.row_dimensions[2].height = 24
+
+    # Data Rows
+    row_idx = 3
+    for it in items:
+        fill = LIGHT_BG if row_idx % 2 == 0 else PatternFill(fill_type=None)
+        
+        ofertas = it.get("ofertas") or []
+        prov_names = []
+        for o in ofertas:
+            if isinstance(o, dict) and o.get("nombre_proveedor"):
+                p_name = o["nombre_proveedor"].strip()
+                if "JORGE" in p_name.upper() or "ROJAS" in p_name.upper():
+                    prov_names.append("Jorge Rojas Villanueva")
+                elif "KING" in p_name.upper():
+                    prov_names.append("The King Computer")
+                else:
+                    prov_names.append(p_name)
+        if not prov_names:
+            prov_names = [it.get("proveedor") or it.get("nombre_proveedor") or "The King Computer"]
+        prov_str = ", ".join(dict.fromkeys(prov_names))
+
+        is_competing = len(ofertas) > 1 or it.get("total_proveedores", 1) > 1
+        tipo_oferta = "Con Competencia (2+)" if is_competing else "Oferta Exclusiva (1)"
+
+        p_min = float(it.get("min_precio") or it.get("precio_ofertado") or 0)
+        p_max = float(it.get("max_precio") or it.get("precio_ofertado") or p_min)
+        stock_val = int(it.get("existencia_stock") or 0)
+        plazo_val = it.get("min_plazo_entrega") or it.get("plazo_entrega_dias")
+
+        c1  = ws_data.cell(row=row_idx, column=1, value=it.get("nro_parte") or "S/N")
+        c2  = ws_data.cell(row=row_idx, column=2, value=it.get("marca") or "—")
+        c3  = ws_data.cell(row=row_idx, column=3, value=it.get("descripcion") or it.get("descripcion_producto") or "—")
+        c4  = ws_data.cell(row=row_idx, column=4, value=it.get("categoria") or "—")
+        c5  = ws_data.cell(row=row_idx, column=5, value=it.get("catalogo") or "—")
+        c6  = ws_data.cell(row=row_idx, column=6, value=tipo_oferta)
+        c7  = ws_data.cell(row=row_idx, column=7, value=prov_str)
+        c8  = ws_data.cell(row=row_idx, column=8, value=p_min)
+        c9  = ws_data.cell(row=row_idx, column=9, value=p_max)
+        c10 = ws_data.cell(row=row_idx, column=10, value=stock_val)
+        c11 = ws_data.cell(row=row_idx, column=11, value=plazo_val if plazo_val is not None else "—")
+        c12 = ws_data.cell(row=row_idx, column=12, value=it.get("orden_min") or "—")
+        c13 = ws_data.cell(row=row_idx, column=13, value=str(it.get("fecha_orden_min") or "")[:10] or "—")
+        
+        pdf_val = it.get("pdf_url")
+        c14 = ws_data.cell(row=row_idx, column=14)
+        if pdf_val and str(pdf_val).startswith("http"):
+            c14.value = "Ver Ficha PDF"
+            c14.hyperlink = pdf_val
+            c14.font = Font(name=FONT_FAMILY, size=9, color="2563EB", underline="single")
+        else:
+            c14.value = "—"
+            c14.font = BASE_FONT
+
+        c15 = ws_data.cell(row=row_idx, column=15, value=str(it.get("fecha_extraccion") or "")[:10] or "—")
+
+        # Formats & alignments
+        c1.alignment = ALIGN_CENTER; c1.font = Font(name="Consolas", size=9, bold=True, color="1E3A8A")
+        c2.alignment = ALIGN_CENTER; c2.font = BASE_FONT
+        c3.alignment = ALIGN_WRAP;   c3.font = BASE_FONT
+        c4.alignment = ALIGN_LEFT;   c4.font = BASE_FONT
+        c5.alignment = ALIGN_LEFT;   c5.font = BASE_FONT
+        
+        c6.alignment = ALIGN_CENTER
+        if is_competing:
+            c6.fill = PURPLE_FILL
+            c6.font = PURPLE_TXT
+        else:
+            c6.fill = fill
+            c6.font = BASE_FONT
+
+        c7.alignment = ALIGN_LEFT;   c7.font = BASE_FONT
+        c8.alignment = ALIGN_RIGHT;  c8.font = Font(name=FONT_FAMILY, size=9, bold=True); c8.number_format = FMT_MONEY
+        c9.alignment = ALIGN_RIGHT;  c9.font = BASE_FONT; c9.number_format = FMT_MONEY
+        c10.alignment = ALIGN_RIGHT; c10.font = Font(name=FONT_FAMILY, size=9, bold=(stock_val > 0), color="166534" if stock_val > 0 else "64748B"); c10.number_format = FMT_NUM
+        c11.alignment = ALIGN_CENTER; c11.font = BASE_FONT
+        c12.alignment = ALIGN_CENTER; c12.font = Font(name="Consolas", size=9, color="0284C7")
+        c13.alignment = ALIGN_CENTER; c13.font = BASE_FONT
+        c14.alignment = ALIGN_CENTER
+        c15.alignment = ALIGN_CENTER; c15.font = BASE_FONT
+
+        for col_i in range(1, 16):
+            cell = ws_data.cell(row=row_idx, column=col_i)
+            cell.border = BORDER_ALL
+            if col_i != 6 or not is_competing:
+                if not cell.fill or cell.fill.fill_type is None:
+                    cell.fill = fill
+
+        ws_data.row_dimensions[row_idx].height = 20
+        row_idx += 1
+
+    # Totals Row at the end
+    end_row = row_idx
+    ws_data.cell(row=end_row, column=1, value="TOTAL / PROMEDIO").font = BOLD_FONT
+    ws_data.cell(row=end_row, column=1).alignment = ALIGN_LEFT
+    ws_data.cell(row=end_row, column=1).fill = CARD_BG
+    ws_data.cell(row=end_row, column=1).border = BORDER_BOTTOM_DOUBLE
+
+    for c in range(2, 8):
+        ws_data.cell(row=end_row, column=c).fill = CARD_BG
+        ws_data.cell(row=end_row, column=c).border = BORDER_BOTTOM_DOUBLE
+
+    ws_data.merge_cells(f"A{end_row}:G{end_row}")
+
+    # Min price average
+    c8 = ws_data.cell(row=end_row, column=8, value=f"=AVERAGE(H3:H{end_row-1})")
+    c8.font = BOLD_FONT; c8.alignment = ALIGN_RIGHT; c8.fill = CARD_BG; c8.border = BORDER_BOTTOM_DOUBLE; c8.number_format = FMT_MONEY
+
+    # Max price average
+    c9 = ws_data.cell(row=end_row, column=9, value=f"=AVERAGE(I3:I{end_row-1})")
+    c9.font = BOLD_FONT; c9.alignment = ALIGN_RIGHT; c9.fill = CARD_BG; c9.border = BORDER_BOTTOM_DOUBLE; c9.number_format = FMT_MONEY
+
+    # Stock total sum
+    c10 = ws_data.cell(row=end_row, column=10, value=f"=SUM(J3:J{end_row-1})")
+    c10.font = BOLD_FONT; c10.alignment = ALIGN_RIGHT; c10.fill = CARD_BG; c10.border = BORDER_BOTTOM_DOUBLE; c10.number_format = FMT_NUM
+
+    for c in range(11, 16):
+        ws_data.cell(row=end_row, column=c).fill = CARD_BG
+        ws_data.cell(row=end_row, column=c).border = BORDER_BOTTOM_DOUBLE
+
+    # Auto-filter & Freeze Panes
+    ws_data.auto_filter.ref = f"A2:O{end_row-1}"
+    ws_data.freeze_panes = "A3"
+
+    # Save to Stream and Return
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"reporte_ofertas_perucompras_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
 @router.get("/categories-count")
 def get_categories_count(
     proveedor: Optional[str] = Query(None),

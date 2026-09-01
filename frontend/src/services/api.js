@@ -70,6 +70,7 @@ export const proveedoresApi = {
   scrapePlazos: (params) => api.post('/proveedores/scrape-plazos', null, { params }),
   getScrapeStatus: () => api.get('/proveedores/scrape-status'),
   exportJson: () => api.get('/proveedores/export-json'),
+  exportExcel: (params) => api.get('/proveedores/export-excel', { params, responseType: 'blob' }),
   clearData: (params) => api.post('/proveedores/clear', null, { params }),
 };
 
