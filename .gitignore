@@ -11,19 +11,21 @@ Thumbs.db
 *.sublime-workspace
 .gemini/
 
-# --- Backend (Python) ---
-backend/__pycache__/
-backend/*.pyc
-backend/*.pyo
-backend/*.pyd
+# --- Python Bytecode & Caches ---
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
 backend/.venv/
 backend/env/
 backend/venv/
 backend/.env
-backend/.pytest_cache/
 backend/alembic/env.py.bak
-backend/*.db
-backend/*.log
+*.db
+*.log
 
 # --- Frontend (Node) ---
 frontend/node_modules/
@@ -42,11 +44,25 @@ redis_data/
 *.tar
 docker-compose.override.yml
 
-# --- Playwright ---
+# --- Playwright & Scraper Scratch ---
 test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+scratch/
+tmp/
+*.dump
+*_dump.json
+*.xlsx
+
+# --- Ephemeral image captures ---
+after_buscar.png
+before_buscar.png
+mejoraplazo*.png
+captcha_*.png
+debug_shot.png
+backend/*.png
 
 # Ignore custom user file
 Alertas Deudas y Órdenes — Control Deudas v3 (Evolution API).json
+Flujo Alertas Fichas Suspendidas (CEAM).json
