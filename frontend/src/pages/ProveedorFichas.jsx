@@ -180,6 +180,8 @@ const ProveedorFichas = () => {
   const [sortBy, setSortBy] = useState('');
   const [fichas, setFichas] = useState([]);
   const [totalFichas, setTotalFichas] = useState(0);
+  const [totalCompeting, setTotalCompeting] = useState(0);
+  const [totalStockGlobal, setTotalStockGlobal] = useState(0);
   const [categoriesCount, setCategoriesCount] = useState({
     total: 0,
     escritorio: 0,
@@ -291,9 +293,13 @@ const ProveedorFichas = () => {
         if (res.data?.items && res.data.items.length > 0) {
           setFichas(res.data.items);
           setTotalFichas(res.data.total || res.data.items.length);
+          setTotalCompeting(res.data.total_competing ?? 0);
+          setTotalStockGlobal(res.data.total_stock ?? 0);
         } else {
           setFichas([]);
           setTotalFichas(0);
+          setTotalCompeting(0);
+          setTotalStockGlobal(0);
         }
       })
       .catch(() => {
@@ -448,8 +454,9 @@ const ProveedorFichas = () => {
   };
 
   const kpiStats = useMemo(() => {
-    const totalStock = fichas.reduce((acc, curr) => acc + (curr.existencia_stock || 0), 0);
-    const competingCount = fichas.filter(f => Array.isArray(f.ofertas) && f.ofertas.length > 1).length;
+    // Use backend-provided global aggregates for accuracy across all pages
+    const competingCount = totalCompeting;
+    const totalStock = totalStockGlobal;
     const avgPrecio = fichas.length
       ? fichas.reduce((acc, curr) => {
           const p = curr.min_precio != null ? curr.min_precio : (curr.precio_ofertado || curr.precio_referencia || 0);
@@ -463,7 +470,7 @@ const ProveedorFichas = () => {
       totalStock,
       avgPrecio
     };
-  }, [fichas, totalFichas]);
+  }, [fichas, totalFichas, totalCompeting, totalStockGlobal]);
 
   // Las 14 Categorías Oficiales exactas de Perú Compras (Acuerdo 249)
   const CATEGORY_BUTTONS = [

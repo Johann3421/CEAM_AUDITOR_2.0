@@ -632,7 +632,9 @@ def get_proveedor_fichas(
                 g.existencia_stock,
                 g.total_proveedores,
                 g.ofertas,
-                COUNT(*) OVER() AS total_count
+                COUNT(*) OVER() AS total_count,
+                SUM(CASE WHEN g.total_proveedores > 1 THEN 1 ELSE 0 END) OVER() AS total_competing_count,
+                SUM(COALESCE(g.existencia_stock, 0)) OVER() AS total_stock_global
             FROM grouped_items g
             ORDER BY {order_by_sql}
             LIMIT :limit OFFSET :offset
@@ -691,7 +693,9 @@ def get_proveedor_fichas(
                     'estado', 'VIGENTE',
                     'fecha_extraccion', f.fecha_extraccion::text
                 )) AS ofertas,
-                COUNT(*) OVER() AS total_count
+                COUNT(*) OVER() AS total_count,
+                0::bigint AS total_competing_count,
+                SUM(COALESCE(f.existencia_stock, 0)) OVER() AS total_stock_global
             FROM ofertas_proveedor_history f
             {pdf_join}
             WHERE {where_sql}
@@ -706,6 +710,8 @@ def get_proveedor_fichas(
 
         if rows and len(rows) > 0:
             total_items = rows[0]["total_count"] if "total_count" in rows[0] else len(rows)
+            total_competing = int(rows[0].get("total_competing_count") or 0)
+            total_stock_global = int(rows[0].get("total_stock_global") or 0)
             items = []
             for r in rows:
                 item_dict = dict(r)
@@ -714,6 +720,9 @@ def get_proveedor_fichas(
                         item_dict["ofertas"] = json.loads(item_dict["ofertas"])
                     except Exception:
                         item_dict["ofertas"] = []
+                # Remove window columns from item dicts (they're aggregate-level)
+                item_dict.pop("total_competing_count", None)
+                item_dict.pop("total_stock_global", None)
                 items.append(item_dict)
 
             return {
@@ -721,6 +730,8 @@ def get_proveedor_fichas(
                 "page": page,
                 "limit": limit,
                 "total": total_items,
+                "total_competing": total_competing,
+                "total_stock": total_stock_global,
                 "is_consolidated": is_consolidated
             }
     except Exception as e:
