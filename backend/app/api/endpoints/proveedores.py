@@ -45,23 +45,7 @@ def _get_fichas_pdf_join(db: Session):
         if nro_col:
             pdf_select_field = f'fp."{pdf_col}" AS _linked_pdf,' if pdf_col else "NULL::text AS _linked_pdf,"
             ord_min_field = 'fp.orden_min AS _linked_orden_min,' if 'orden_min' in col_set else "NULL::text AS _linked_orden_min,"
-            if 'fecha_orden_min' in col_set:
-                fec_min_field = """COALESCE(
-                    fp.fecha_orden_min::text,
-                    (SELECT COALESCE(po.fecha_publicacion, po.fecha_aceptacion)::text 
-                     FROM purchase_orders po 
-                     WHERE po.orden_electronica = fp.orden_min OR po.nro_orden_fisica = fp.orden_min 
-                     LIMIT 1)
-                ) AS _linked_fecha_orden_min,"""
-            elif 'orden_min' in col_set:
-                fec_min_field = """(
-                    SELECT COALESCE(po.fecha_publicacion, po.fecha_aceptacion)::text 
-                    FROM purchase_orders po 
-                    WHERE po.orden_electronica = fp.orden_min OR po.nro_orden_fisica = fp.orden_min 
-                    LIMIT 1
-                ) AS _linked_fecha_orden_min,"""
-            else:
-                fec_min_field = "NULL::text AS _linked_fecha_orden_min,"
+            fec_min_field = 'fp.fecha_orden_min::text AS _linked_fecha_orden_min,' if 'fecha_orden_min' in col_set else "NULL::text AS _linked_fecha_orden_min,"
             pref_field = 'fp.precio_referencia AS _linked_precio_ref,' if 'precio_referencia' in col_set else "NULL::numeric AS _linked_precio_ref,"
             pmin_field = 'fp.precio_min AS _linked_precio_min,' if 'precio_min' in col_set else "NULL::numeric AS _linked_precio_min,"
             momin_field = 'fp.monto_orden_min AS _linked_monto_orden_min' if 'monto_orden_min' in col_set else "NULL::numeric AS _linked_monto_orden_min"
@@ -79,8 +63,16 @@ def _get_fichas_pdf_join(db: Session):
                         {momin_field}
                     FROM fichas_producto fp
                     WHERE fp."{nro_col}" IS NOT NULL AND fp."{nro_col}" != ''
-                    ORDER BY UPPER(TRIM(fp."{nro_col}")){order_by_extra}
-                ) fp_pdf ON UPPER(TRIM(f.nro_parte)) = fp_pdf._match_nro
+                    ORDER BY 
+                        UPPER(TRIM(fp."{nro_col}")),
+                        (fp.orden_min IS NOT NULL AND fp.orden_min != '') DESC,
+                        (fp.precio_min IS NOT NULL) DESC,
+                        fp.precio_min ASC NULLS LAST
+                        {order_by_extra}
+                ) fp_pdf ON (
+                    UPPER(TRIM(f.nro_parte)) = fp_pdf._match_nro
+                    OR UPPER(TRIM(SUBSTRING(f.descripcion_producto FROM '([A-Za-z0-9\\-\\*\\#]{{6,30}})\\s+(?i)sist'))) = fp_pdf._match_nro
+                )
             """
             select_expr = "COALESCE(NULLIF(NULLIF(f.pdf_url, ''), '#'), fp_pdf._linked_pdf)" if pdf_col else "f.pdf_url"
             return (
