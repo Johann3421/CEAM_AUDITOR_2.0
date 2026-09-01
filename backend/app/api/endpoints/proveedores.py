@@ -69,10 +69,7 @@ def _get_fichas_pdf_join(db: Session):
                         (fp.precio_min IS NOT NULL) DESC,
                         fp.precio_min ASC NULLS LAST
                         {order_by_extra}
-                ) fp_pdf ON (
-                    UPPER(TRIM(f.nro_parte)) = fp_pdf._match_nro
-                    OR UPPER(TRIM(SUBSTRING(f.descripcion_producto FROM '([A-Za-z0-9\\-\\*\\#]{{6,30}})\\s+(?i)sist'))) = fp_pdf._match_nro
-                )
+                ) fp_pdf ON UPPER(TRIM(f.nro_parte)) = fp_pdf._match_nro
             """
             select_expr = "COALESCE(NULLIF(NULLIF(f.pdf_url, ''), '#'), fp_pdf._linked_pdf)" if pdf_col else "f.pdf_url"
             return (
