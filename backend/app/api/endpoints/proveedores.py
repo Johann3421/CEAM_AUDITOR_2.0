@@ -1,4 +1,5 @@
 import json
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -71,6 +72,13 @@ def get_proveedor_fichas(
     stock_filter: Optional[str] = Query(None, description="Filtro de stock: 'with_stock' o 'zero_stock'"),
     pdf_filter: Optional[str] = Query(None, description="Filtro de PDF: 'with_pdf' o 'no_pdf'"),
     sort_by: Optional[str] = Query(None, description="Ordenamiento: precio_asc, precio_desc, stock_desc, marca_asc"),
+    cpu: Optional[str] = Query(None, description="Filtro de CPU"),
+    ram: Optional[str] = Query(None, description="Filtro de Memoria RAM"),
+    disco: Optional[str] = Query(None, description="Filtro de Disco / Almacenamiento"),
+    pantalla: Optional[str] = Query(None, description="Filtro de Pantalla en pulgadas"),
+    so: Optional[str] = Query(None, description="Filtro de Sistema Operativo"),
+    panel: Optional[str] = Query(None, description="Filtro de Tipo de Panel (IPS, VA, etc.)"),
+    resolucion: Optional[str] = Query(None, description="Filtro de Resolución"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=5000),
     db: Session = Depends(get_db)
@@ -191,6 +199,108 @@ def get_proveedor_fichas(
             where_clauses.append(f"({pdf_select} IS NOT NULL AND {pdf_select} != '' AND {pdf_select} != '#')")
         elif pdf_l in ("no_pdf", "sin_pdf", "0", "false"):
             where_clauses.append(f"({pdf_select} IS NULL OR {pdf_select} = '' OR {pdf_select} = '#')")
+
+    # ── Filtros de Características Técnicas por Componente ───────────────
+    if cpu and cpu != 'Todos':
+        cpu_u = cpu.upper().strip()
+        if 'I9' in cpu_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%I9%' OR UPPER(f.descripcion_producto) LIKE '%CORE I9%')")
+        elif 'I7' in cpu_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%I7%' OR UPPER(f.descripcion_producto) LIKE '%CORE I7%')")
+        elif 'I5' in cpu_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%I5%' OR UPPER(f.descripcion_producto) LIKE '%CORE I5%')")
+        elif 'I3' in cpu_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%I3%' OR UPPER(f.descripcion_producto) LIKE '%CORE I3%')")
+        elif 'RYZEN 9' in cpu_u:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%RYZEN 9%'")
+        elif 'RYZEN 7' in cpu_u:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%RYZEN 7%'")
+        elif 'RYZEN 5' in cpu_u:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%RYZEN 5%'")
+        elif 'RYZEN 3' in cpu_u:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%RYZEN 3%'")
+        elif 'CELERON' in cpu_u:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%CELERON%'")
+        elif 'XEON' in cpu_u:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%XEON%'")
+        elif 'PENTIUM' in cpu_u:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%PENTIUM%'")
+        else:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE :cpu_filter")
+            params["cpu_filter"] = f"%{cpu}%"
+
+    if ram and ram != 'Todos':
+        m_ram = re.search(r'\b(\d+)\s*GB\b', ram, re.I)
+        if m_ram:
+            val = m_ram.group(1)
+            where_clauses.append(f"(UPPER(f.descripcion_producto) LIKE '%{val} GB%' OR UPPER(f.descripcion_producto) LIKE '%{val}GB%')")
+        else:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE :ram_filter")
+            params["ram_filter"] = f"%{ram}%"
+
+    if disco and disco != 'Todos':
+        disco_u = disco.upper().strip()
+        if '128' in disco_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%128%GB%' OR UPPER(f.descripcion_producto) LIKE '%128GB%')")
+        elif '256' in disco_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%256%GB%' OR UPPER(f.descripcion_producto) LIKE '%256GB%')")
+        elif '512' in disco_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%512%GB%' OR UPPER(f.descripcion_producto) LIKE '%512GB%')")
+        elif '1 TB' in disco_u or '1TB' in disco_u:
+            if 'HDD' in disco_u:
+                where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%1%TB%' AND UPPER(f.descripcion_producto) LIKE '%HDD%')")
+            else:
+                where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%1%TB%' AND UPPER(f.descripcion_producto) NOT LIKE '%HDD%')")
+        elif '2 TB' in disco_u or '2TB' in disco_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%2%TB%')")
+        else:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE :disco_filter")
+            params["disco_filter"] = f"%{disco}%"
+
+    if pantalla and pantalla != 'Todos':
+        m_pan = re.search(r'(\d+(?:\.\d+)?)', pantalla)
+        if m_pan:
+            val = m_pan.group(1)
+            where_clauses.append(f"(UPPER(f.descripcion_producto) LIKE '%{val}\"%' OR UPPER(f.descripcion_producto) LIKE '%{val} PULG%' OR UPPER(f.descripcion_producto) LIKE '%{val}PULG%' OR UPPER(f.descripcion_producto) LIKE '%{val} %')")
+        elif pantalla == 'Sin pantalla':
+            where_clauses.append("UPPER(f.descripcion_producto) NOT LIKE '%PANTALLA%'")
+
+    if so and so != 'Todos':
+        so_u = so.upper()
+        if '11 PRO' in so_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%W11 PRO%' OR UPPER(f.descripcion_producto) LIKE '%W11P%' OR UPPER(f.descripcion_producto) LIKE '%WIN 11 PRO%' OR UPPER(f.descripcion_producto) LIKE '%WINDOWS 11 PRO%')")
+        elif '11 HOME' in so_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%W11 HOME%' OR UPPER(f.descripcion_producto) LIKE '%W11H%' OR UPPER(f.descripcion_producto) LIKE '%WIN 11 HOME%' OR UPPER(f.descripcion_producto) LIKE '%WINDOWS 11 HOME%')")
+        elif '10' in so_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%W10%' OR UPPER(f.descripcion_producto) LIKE '%WINDOWS 10%')")
+        elif 'FREE' in so_u or 'DOS' in so_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%FREEDOS%' OR UPPER(f.descripcion_producto) LIKE '%FREE DOS%' OR UPPER(f.descripcion_producto) LIKE '%NO TIENE%')")
+        elif 'LINUX' in so_u or 'UBUNTU' in so_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%UBUNTU%' OR UPPER(f.descripcion_producto) LIKE '%LINUX%')")
+
+    if panel and panel != 'Todos':
+        panel_u = panel.upper().strip()
+        if panel_u == 'IPS':
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%IPS%'")
+        elif panel_u == 'VA':
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '% VA %' OR UPPER(f.descripcion_producto) LIKE '%VA-%' OR UPPER(f.descripcion_producto) LIKE 'VA %')")
+        elif panel_u == 'TN':
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '% TN %' OR UPPER(f.descripcion_producto) LIKE 'TN %')")
+        elif panel_u == 'OLED':
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%OLED%'")
+
+    if resolucion and resolucion != 'Todos':
+        res_u = resolucion.upper()
+        if '4K' in res_u or '3840' in res_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%3840X2160%' OR UPPER(f.descripcion_producto) LIKE '%4K%')")
+        elif '2K' in res_u or '2560' in res_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%2560X1440%' OR UPPER(f.descripcion_producto) LIKE '%2K%')")
+        elif 'FHD' in res_u or '1920' in res_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%1920X1080%' OR UPPER(f.descripcion_producto) LIKE '%FHD%' OR UPPER(f.descripcion_producto) LIKE '%FULL HD%')")
+        elif '1600' in res_u or 'HD+' in res_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%1600X900%' OR UPPER(f.descripcion_producto) LIKE '%HD+%')")
+        elif 'HD' in res_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%1366X768%' OR UPPER(f.descripcion_producto) LIKE '%HD%')")
 
     where_sql = " AND ".join(where_clauses)
     is_consolidated = (not proveedor or proveedor.lower() == "all")
