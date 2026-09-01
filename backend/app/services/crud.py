@@ -56,7 +56,8 @@ def get_orders(
                 PurchaseOrder.nombre_proveedor.ilike(f"%{search}%"),
                 PurchaseOrder.nro_orden_fisica.ilike(f"%{search}%"),
                 PurchaseOrder.orden_electronica.ilike(f"%{search}%"),
-                PurchaseOrder.nro_parte.ilike(f"%{search}%")
+                PurchaseOrder.nro_parte.ilike(f"%{search}%"),
+                PurchaseOrder.detalle_producto.ilike(f"%{search}%")
             )
         )
 
@@ -118,6 +119,7 @@ def count_orders_filtered(
                 PurchaseOrder.nro_orden_fisica.ilike(f"%{search}%"),
                 PurchaseOrder.orden_electronica.ilike(f"%{search}%"),
                 PurchaseOrder.nro_parte.ilike(f"%{search}%"),
+                PurchaseOrder.detalle_producto.ilike(f"%{search}%"),
             )
         )
     return int(q.scalar() or 0)

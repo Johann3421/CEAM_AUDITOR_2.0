@@ -65,16 +65,31 @@ try:
                 WHERE fp.fecha_orden_min IS NULL
                   AND fp.orden_min IS NOT NULL
                   AND fp.orden_min != ''
-                  AND (po.orden_electronica = fp.orden_min OR po.nro_orden_fisica = fp.orden_min);
-            """))
-            _c.execute(text("""
+                  AND po.orden_electronica = fp.orden_min;
+
+                UPDATE fichas_producto fp
+                SET fecha_orden_min = COALESCE(po.fecha_publicacion, po.fecha_aceptacion)
+                FROM purchase_orders po
+                WHERE fp.fecha_orden_min IS NULL
+                  AND fp.orden_min IS NOT NULL
+                  AND fp.orden_min != ''
+                  AND po.nro_orden_fisica = fp.orden_min;
+
                 UPDATE fichas_producto fp
                 SET fecha_orden_max = COALESCE(po.fecha_publicacion, po.fecha_aceptacion)
                 FROM purchase_orders po
                 WHERE fp.fecha_orden_max IS NULL
                   AND fp.orden_max IS NOT NULL
                   AND fp.orden_max != ''
-                  AND (po.orden_electronica = fp.orden_max OR po.nro_orden_fisica = fp.orden_max);
+                  AND po.orden_electronica = fp.orden_max;
+
+                UPDATE fichas_producto fp
+                SET fecha_orden_max = COALESCE(po.fecha_publicacion, po.fecha_aceptacion)
+                FROM purchase_orders po
+                WHERE fp.fecha_orden_max IS NULL
+                  AND fp.orden_max IS NOT NULL
+                  AND fp.orden_max != ''
+                  AND po.nro_orden_fisica = fp.orden_max;
             """))
         except Exception:
             pass
