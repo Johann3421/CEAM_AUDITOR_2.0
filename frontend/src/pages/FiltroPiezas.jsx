@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Cpu, HardDrive, Monitor, Layers, Search, Filter,
@@ -363,8 +363,11 @@ const FiltroPiezas = () => {
     fetchCounts(selectedProveedor);
   }, [selectedProveedor, fetchCounts]);
 
+  const reqIdRef = useRef(0);
+
   // ── Fetch Catalog Items from Backend with Global Specs Filtering ────────
   const fetchData = useCallback(async () => {
+    const currentReqId = ++reqIdRef.current;
     setLoading(true);
     setErrorMsg(null);
     try {
@@ -435,6 +438,8 @@ const FiltroPiezas = () => {
       if (filterOs !== 'Todos') params.so = filterOs;
 
       const res = await proveedoresApi.getFichas(params);
+      if (currentReqId !== reqIdRef.current) return; // Stale request, ignore
+
       const raw = res.data?.items || [];
       setTotalItems(res.data?.total ?? raw.length);
       
@@ -445,12 +450,15 @@ const FiltroPiezas = () => {
       }));
       setItems(enriched);
     } catch (err) {
+      if (currentReqId !== reqIdRef.current) return;
       console.error('Error fetching piezas data:', err);
       setErrorMsg(err?.response?.data?.detail || err.message || 'Error al cargar los productos');
       setItems([]);
       setTotalItems(0);
     } finally {
-      setLoading(false);
+      if (currentReqId === reqIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [
     selectedProveedor, selectedCategory, selectedRegion, soloConStock,
@@ -1207,387 +1215,391 @@ const FiltroPiezas = () => {
       )}
 
       {/* ── 5. Results Grid or Table ─────────────────────────────────────── */}
-      {loading ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="card" style={{ padding: 20, height: 260 }}>
-              <div className="skeleton" style={{ height: 20, width: '60%', marginBottom: 12 }} />
-              <div className="skeleton" style={{ height: 40, width: '100%', marginBottom: 14 }} />
-              <div className="skeleton" style={{ height: 24, width: '80%', marginBottom: 8 }} />
-              <div className="skeleton" style={{ height: 36, width: '100%', marginTop: 'auto' }} />
-            </div>
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <div className="card" style={{ padding: 48, textAlign: 'center', color: 'var(--c-text-tertiary)' }}>
-          <AlertCircle size={36} style={{ margin: '0 auto 12px', opacity: 0.5 }} />
-          <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--c-text)' }}>No se encontraron fichas</h3>
-          <p style={{ fontSize: 13, marginTop: 4 }}>
-            Ningún producto coincide con los filtros aplicados en {activeCategoryConfig.label}.
-          </p>
-          {hasActiveFilters && (
-            <button onClick={handleResetFilters} className="btn btn-primary" style={{ marginTop: 16 }}>
-              Restablecer Filtros
-            </button>
-          )}
-        </div>
-      ) : viewMode === 'grid' ? (
-        /* ── Grid View ───────────────────────────────────────────────────── */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
-          {items.map((item, idx) => {
-            const nroParte = item.nro_parte || 'S/N';
-            const desc = item.descripcion || item.descripcion_producto || 'Sin descripción';
-            const pdfUrl = item.pdf_url;
-            const ofertas = Array.isArray(item.ofertas) ? item.ofertas : [];
-            const isCopied = copiedPart === nroParte;
-            const sp = item.specs || {};
+      {viewMode === 'grid' ? (
+        loading ? (
+          /* Grid View Skeleton */
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="card" style={{ padding: 20, height: 260 }}>
+                <div className="skeleton" style={{ height: 20, width: '60%', marginBottom: 12 }} />
+                <div className="skeleton" style={{ height: 40, width: '100%', marginBottom: 14 }} />
+                <div className="skeleton" style={{ height: 24, width: '80%', marginBottom: 8 }} />
+                <div className="skeleton" style={{ height: 36, width: '100%', marginTop: 'auto' }} />
+              </div>
+            ))}
+          </div>
+        ) : items.length === 0 ? (
+          <div className="card" style={{ padding: 48, textAlign: 'center', color: 'var(--c-text-tertiary)' }}>
+            <AlertCircle size={36} style={{ margin: '0 auto 12px', opacity: 0.5 }} />
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--c-text)' }}>No se encontraron fichas</h3>
+            <p style={{ fontSize: 13, marginTop: 4 }}>
+              Ningún producto coincide con los filtros aplicados en {activeCategoryConfig.label}.
+            </p>
+            {hasActiveFilters && (
+              <button onClick={handleResetFilters} className="btn btn-primary" style={{ marginTop: 16 }}>
+                Restablecer Filtros
+              </button>
+            )}
+          </div>
+        ) : (
+          /* ── Grid View Cards ─────────────────────────────────────────────── */
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
+            {items.map((item, idx) => {
+              const nroParte = item.nro_parte || 'S/N';
+              const desc = item.descripcion || item.descripcion_producto || 'Sin descripción';
+              const pdfUrl = item.pdf_url;
+              const ofertas = Array.isArray(item.ofertas) ? item.ofertas : [];
+              const isCopied = copiedPart === nroParte;
+              const sp = item.specs || {};
 
-            return (
-              <div
-                key={item.id || idx}
-                className="card fade-up"
-                style={{
-                  padding: 18,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  border: '1px solid var(--c-border)',
-                  background: 'var(--c-surface)',
-                  transition: 'transform 0.15s, box-shadow 0.15s',
-                }}
-              >
-                <div>
-                  {/* Top Bar: Part Number & Brand & Category Badge */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--c-brand)', fontSize: 13 }}>
-                        {nroParte}
-                      </span>
-                      <button
-                        onClick={() => copyPartNumber(nroParte)}
-                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: isCopied ? 'var(--c-success)' : 'var(--c-text-tertiary)', padding: 2 }}
-                        title="Copiar Nro de Parte"
-                      >
-                        {isCopied ? <Check size={13} /> : <Copy size={13} />}
-                      </button>
-                    </div>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <span className="badge badge-info" style={{ fontSize: 10 }}>{item.marca || 'GENÉRICO'}</span>
-                      <span className="badge" style={{ fontSize: 10, background: '#f1f5f9', color: '#475569' }}>
-                        {item.categoria || item.catalogo || sp.formFactor}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Description */}
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--c-text-secondary)',
-                      marginBottom: 10,
-                      lineHeight: 1.45,
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                      height: 35
-                    }}
-                    title={desc}
-                  >
-                    {desc}
-                  </div>
-
-                  {/* Main Specification Chips */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-                    {sp.cpu && sp.cpu !== 'S/D' && (
-                      <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(37,99,235,0.08)', color: 'var(--c-brand)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Cpu size={12} /> {sp.cpuFull || sp.cpu} {sp.cpuGen ? `(${sp.cpuGen})` : ''}
-                      </span>
-                    )}
-                    {sp.ram && sp.ram !== 'S/D' && (
-                      <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(5,150,105,0.08)', color: 'var(--c-success)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Layers size={12} /> {sp.ram} {sp.ramTech ? `(${sp.ramTech})` : ''}
-                      </span>
-                    )}
-                    {sp.storage && sp.storage !== 'S/D' && (
-                      <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(217,119,6,0.08)', color: 'var(--c-warning)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <HardDrive size={12} /> {sp.storage} {sp.discoTipo && !sp.storage.includes(sp.discoTipo) ? `• ${sp.discoTipo}` : ''}
-                      </span>
-                    )}
-                    {sp.display && sp.display !== 'S/D' && sp.display !== 'Sin pantalla' && (
-                      <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(124,58,237,0.08)', color: '#7c3aed', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Monitor size={12} /> {sp.display} {sp.resolution ? `(${sp.resolution.split(' ')[0]})` : ''}
-                      </span>
-                    )}
-                    {sp.panel && sp.panel !== 'S/D' && (
-                      <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: '#f8fafc', border: '1px solid #e2e8f0', color: '#334155', fontWeight: 600 }}>
-                        Panel {sp.panel}
-                      </span>
-                    )}
-                    {sp.os && sp.os !== 'S/D' && (
-                      <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: '#f1f5f9', color: '#475569', fontWeight: 500 }}>
-                        {sp.os}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Ports & Features Badges (VGA, HDMI, LAN, Wi-Fi, Office, Garantía) */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
-                    {sp.vga && (
-                      <span style={{
-                        fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 700,
-                        background: sp.vga === 'SI' ? 'rgba(34,197,94,0.1)' : '#f8fafc',
-                        color: sp.vga === 'SI' ? '#166534' : '#94a3b8',
-                        border: sp.vga === 'SI' ? '1px solid rgba(34,197,94,0.3)' : '1px solid #e2e8f0'
-                      }}>
-                        VGA: {sp.vga}
-                      </span>
-                    )}
-                    {sp.hdmi && (
-                      <span style={{
-                        fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 700,
-                        background: sp.hdmi === 'SI' ? 'rgba(37,99,235,0.1)' : '#f8fafc',
-                        color: sp.hdmi === 'SI' ? '#1e40af' : '#94a3b8',
-                        border: sp.hdmi === 'SI' ? '1px solid rgba(37,99,235,0.3)' : '1px solid #e2e8f0'
-                      }}>
-                        HDMI: {sp.hdmi}
-                      </span>
-                    )}
-                    {sp.wifi && (
-                      <span style={{
-                        fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600,
-                        background: sp.wifi === 'SI' ? '#eff6ff' : '#f8fafc',
-                        color: sp.wifi === 'SI' ? '#0284c7' : '#94a3b8',
-                        border: '1px solid #e2e8f0'
-                      }}>
-                        Wi-Fi: {sp.wifi}
-                      </span>
-                    )}
-                    {sp.lan && (
-                      <span style={{
-                        fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600,
-                        background: sp.lan === 'SI' ? '#f0fdf4' : '#f8fafc',
-                        color: sp.lan === 'SI' ? '#15803d' : '#94a3b8',
-                        border: '1px solid #e2e8f0'
-                      }}>
-                        LAN: {sp.lan}
-                      </span>
-                    )}
-                    {sp.office && sp.office !== 'Sin Office' && (
-                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>
-                        💼 {sp.office}
-                      </span>
-                    )}
-                    {sp.garantia && (
-                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0' }}>
-                        🛡️ {sp.garantia}
-                      </span>
-                    )}
-                    {sp.unidadOptica && sp.unidadOptica === 'SI' && (
-                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600, background: '#f1f5f9', color: '#334155' }}>
-                        💿 Lector DVD
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Footer Section: Provider Offers & Price */}
-                <div style={{ borderTop: '1px solid var(--c-border-light)', paddingTop: 12, marginTop: 'auto' }}>
-                  {/* Consolidated mode: multiple provider comparison */}
-                  {selectedProveedor === 'all' && ofertas.length > 0 ? (
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', marginBottom: 6, fontWeight: 600 }}>
-                        Ofertas disponibles ({ofertas.length}):
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {ofertas.map((of, ofIdx) => {
-                          const isKing = of.nombre_proveedor?.toUpperCase().includes('KING');
-                          const plazo = of.plazo_entrega_dias || 90;
-                          return (
-                            <div
-                              key={ofIdx}
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                fontSize: 11,
-                                padding: '4px 8px',
-                                borderRadius: 6,
-                                background: isKing ? 'rgba(30,41,59,0.04)' : 'rgba(15,118,110,0.04)',
-                                border: '1px solid var(--c-border-light)'
-                              }}
-                            >
-                              <span style={{ fontWeight: 600, color: isKing ? '#1e293b' : '#0f766e', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {isKing ? '👑 THE KING' : '🏢 JORGE ROJAS'}
-                              </span>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ color: 'var(--c-text-tertiary)', fontSize: 10 }}>{plazo}d</span>
-                                <strong style={{ color: 'var(--c-text)', fontSize: 12 }}>S/ {fmt(of.precio_ofertado)}</strong>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    /* Single Provider Mode */
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                      <div>
-                        <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', display: 'block' }}>
-                          {item.nombre_proveedor || item.proveedor || 'Proveedor'}
+              return (
+                <div
+                  key={item.id || idx}
+                  className="card fade-up"
+                  style={{
+                    padding: 18,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    border: '1px solid var(--c-border)',
+                    background: 'var(--c-surface)',
+                    transition: 'transform 0.15s, box-shadow 0.15s',
+                  }}
+                >
+                  <div>
+                    {/* Top Bar: Part Number & Brand & Category Badge */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--c-brand)', fontSize: 13 }}>
+                          {nroParte}
                         </span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                          <span style={{ fontSize: 11, color: (item.existencia_stock > 0) ? 'var(--c-success)' : 'var(--c-text-tertiary)', fontWeight: 600 }}>
-                            Stock: {item.existencia_stock ?? 0}
-                          </span>
-                          <span style={{ fontSize: 11, color: 'var(--c-text-tertiary)' }}>•</span>
-                          <span style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>
-                            Plazo: {item.plazo_entrega_dias ?? 90} días
-                          </span>
-                        </div>
+                        <button
+                          onClick={() => copyPartNumber(nroParte)}
+                          style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: isCopied ? 'var(--c-success)' : 'var(--c-text-tertiary)', padding: 2 }}
+                          title="Copiar Nro de Parte"
+                        >
+                          {isCopied ? <Check size={13} /> : <Copy size={13} />}
+                        </button>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', display: 'block' }}>Precio Ofertado</span>
-                        <strong style={{ fontSize: 15, color: 'var(--c-text)', fontWeight: 800 }}>
-                          S/ {fmt(item.min_precio || item.precio_ofertado)}
-                        </strong>
-                        {item.orden_min ? (
-                          <div style={{ marginTop: 2 }}>
-                            <span
-                              onClick={() => navigate(`/orders?search=${item.orden_min}`)}
-                              title={`Ver orden: ${item.orden_min}`}
-                              style={{
-                                cursor: 'pointer',
-                                color: 'var(--c-brand)',
-                                textDecoration: 'underline',
-                                fontSize: 10,
-                                fontFamily: 'monospace',
-                                display: 'block'
-                              }}
-                            >
-                              {item.orden_min}
-                            </span>
-                            {(() => {
-                              const mes = formatMesOrden(item.fecha_orden_min, item.orden_min);
-                              const badge = getAntiguedadBadge(item.fecha_orden_min, item.orden_min);
-                              if (!mes) return null;
-                              return (
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 1 }}>
-                                  <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)' }}>📅 {mes}</span>
-                                  {badge && (
-                                    <span style={{
-                                      fontSize: 9,
-                                      fontWeight: 600,
-                                      padding: '1px 4px',
-                                      borderRadius: 4,
-                                      color: badge.color,
-                                      background: badge.bg
-                                    }}>
-                                      {badge.text}
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        ) : (
-                          item.fecha_extraccion && (
-                            <div style={{ fontSize: 9, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
-                              📅 Catálogo {formatMesOrden(item.fecha_extraccion)} (Vigente)
-                            </div>
-                          )
-                        )}
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <span className="badge badge-info" style={{ fontSize: 10 }}>{item.marca || 'GENÉRICO'}</span>
+                        <span className="badge" style={{ fontSize: 10, background: '#f1f5f9', color: '#475569' }}>
+                          {item.categoria || item.catalogo || sp.formFactor}
+                        </span>
                       </div>
                     </div>
-                  )}
 
-                  {/* Actions Bar */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 8 }}>
-                    {selectedProveedor === 'all' && (
-                      <div>
-                        <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', display: 'block' }}>Mejor Precio</span>
-                        <strong style={{ fontSize: 15, color: 'var(--c-text)', fontWeight: 800 }}>
-                          S/ {fmt(item.min_precio)}
-                        </strong>
-                        {item.orden_min ? (
-                          <div style={{ marginTop: 2 }}>
-                            <span
-                              onClick={() => navigate(`/orders?search=${item.orden_min}`)}
-                              title={`Ver orden: ${item.orden_min}`}
-                              style={{
-                                cursor: 'pointer',
-                                color: 'var(--c-brand)',
-                                textDecoration: 'underline',
-                                fontSize: 10,
-                                fontFamily: 'monospace',
-                                display: 'block'
-                              }}
-                            >
-                              {item.orden_min}
-                            </span>
-                            {(() => {
-                              const mes = formatMesOrden(item.fecha_orden_min, item.orden_min);
-                              const badge = getAntiguedadBadge(item.fecha_orden_min, item.orden_min);
-                              if (!mes) return null;
-                              return (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
-                                  <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)' }}>📅 {mes}</span>
-                                  {badge && (
-                                    <span style={{
-                                      fontSize: 9,
-                                      fontWeight: 600,
-                                      padding: '1px 4px',
-                                      borderRadius: 4,
-                                      color: badge.color,
-                                      background: badge.bg
-                                    }}>
-                                      {badge.text}
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        ) : (
-                          item.fecha_extraccion && (
-                            <div style={{ fontSize: 9, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
-                              📅 Catálogo {formatMesOrden(item.fecha_extraccion)} (Vigente)
-                            </div>
-                          )
-                        )}
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
-                      {pdfUrl && pdfUrl !== '#' && (
-                        <a
-                          href={pdfUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn btn-sm"
-                          style={{
-                            fontSize: 11,
-                            padding: '4px 10px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            background: 'rgba(37,99,235,0.08)',
-                            color: 'var(--c-brand)',
-                            borderColor: 'rgba(37,99,235,0.25)',
-                            fontWeight: 600
-                          }}
-                          title="Abrir Ficha Técnica Oficial PDF"
-                        >
-                          <FileText size={13} />
-                          Ficha PDF
-                        </a>
+                    {/* Description */}
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: 'var(--c-text-secondary)',
+                        marginBottom: 10,
+                        lineHeight: 1.45,
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        height: 35
+                      }}
+                      title={desc}
+                    >
+                      {desc}
+                    </div>
+
+                    {/* Main Specification Chips */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+                      {sp.cpu && sp.cpu !== 'S/D' && (
+                        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(37,99,235,0.08)', color: 'var(--c-brand)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <Cpu size={12} /> {sp.cpuFull || sp.cpu} {sp.cpuGen ? `(${sp.cpuGen})` : ''}
+                        </span>
+                      )}
+                      {sp.ram && sp.ram !== 'S/D' && (
+                        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(5,150,105,0.08)', color: 'var(--c-success)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <Layers size={12} /> {sp.ram} {sp.ramTech ? `(${sp.ramTech})` : ''}
+                        </span>
+                      )}
+                      {sp.storage && sp.storage !== 'S/D' && (
+                        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(217,119,6,0.08)', color: 'var(--c-warning)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <HardDrive size={12} /> {sp.storage} {sp.discoTipo && !sp.storage.includes(sp.discoTipo) ? `• ${sp.discoTipo}` : ''}
+                        </span>
+                      )}
+                      {sp.display && sp.display !== 'S/D' && sp.display !== 'Sin pantalla' && (
+                        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(124,58,237,0.08)', color: '#7c3aed', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <Monitor size={12} /> {sp.display} {sp.resolution ? `(${sp.resolution.split(' ')[0]})` : ''}
+                        </span>
+                      )}
+                      {sp.panel && sp.panel !== 'S/D' && (
+                        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: '#f8fafc', border: '1px solid #e2e8f0', color: '#334155', fontWeight: 600 }}>
+                          Panel {sp.panel}
+                        </span>
+                      )}
+                      {sp.os && sp.os !== 'S/D' && (
+                        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: '#f1f5f9', color: '#475569', fontWeight: 500 }}>
+                          {sp.os}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Ports & Features Badges (VGA, HDMI, LAN, Wi-Fi, Office, Garantía) */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
+                      {sp.vga && (
+                        <span style={{
+                          fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 700,
+                          background: sp.vga === 'SI' ? 'rgba(34,197,94,0.1)' : '#f8fafc',
+                          color: sp.vga === 'SI' ? '#166534' : '#94a3b8',
+                          border: sp.vga === 'SI' ? '1px solid rgba(34,197,94,0.3)' : '1px solid #e2e8f0'
+                        }}>
+                          VGA: {sp.vga}
+                        </span>
+                      )}
+                      {sp.hdmi && (
+                        <span style={{
+                          fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 700,
+                          background: sp.hdmi === 'SI' ? 'rgba(37,99,235,0.1)' : '#f8fafc',
+                          color: sp.hdmi === 'SI' ? '#1e40af' : '#94a3b8',
+                          border: sp.hdmi === 'SI' ? '1px solid rgba(37,99,235,0.3)' : '1px solid #e2e8f0'
+                        }}>
+                          HDMI: {sp.hdmi}
+                        </span>
+                      )}
+                      {sp.wifi && (
+                        <span style={{
+                          fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 700,
+                          background: sp.wifi === 'SI' ? 'rgba(2,132,199,0.1)' : '#f8fafc',
+                          color: sp.wifi === 'SI' ? '#0284c7' : '#94a3b8',
+                          border: sp.wifi === 'SI' ? '1px solid rgba(2,132,199,0.3)' : '1px solid #e2e8f0'
+                        }}>
+                          Wi-Fi: {sp.wifi}
+                        </span>
+                      )}
+                      {sp.lan && (
+                        <span style={{
+                          fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 700,
+                          background: sp.lan === 'SI' ? 'rgba(100,116,139,0.1)' : '#f8fafc',
+                          color: sp.lan === 'SI' ? '#334155' : '#94a3b8',
+                          border: '1px solid #e2e8f0'
+                        }}>
+                          LAN: {sp.lan}
+                        </span>
+                      )}
+                      {sp.office && sp.office !== 'Sin Office' && (
+                        <span style={{
+                          fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 700,
+                          background: 'rgba(234,88,12,0.1)', color: '#c2410c', border: '1px solid rgba(234,88,12,0.25)'
+                        }}>
+                          {sp.office}
+                        </span>
+                      )}
+                      {sp.garantia && (
+                        <span style={{
+                          fontSize: 10, padding: '2px 6px', borderRadius: 4, fontWeight: 600,
+                          background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0'
+                        }}>
+                          🛡️ {sp.garantia}
+                        </span>
                       )}
                     </div>
                   </div>
+
+                  {/* Footer Section: Provider Offers & Price */}
+                  <div style={{ borderTop: '1px solid var(--c-border-light)', paddingTop: 12, marginTop: 'auto' }}>
+                    {/* Consolidated mode: multiple provider comparison */}
+                    {selectedProveedor === 'all' && ofertas.length > 0 ? (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, color: 'var(--c-text-tertiary)', marginBottom: 6, fontWeight: 600 }}>
+                          Ofertas disponibles ({ofertas.length}):
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {ofertas.map((of, ofIdx) => {
+                            const isKing = of.nombre_proveedor?.toUpperCase().includes('KING');
+                            const plazo = of.plazo_entrega_dias || 90;
+                            return (
+                              <div
+                                key={ofIdx}
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  fontSize: 11,
+                                  padding: '4px 8px',
+                                  borderRadius: 6,
+                                  background: isKing ? 'rgba(30,41,59,0.04)' : 'rgba(15,118,110,0.04)',
+                                  border: '1px solid var(--c-border-light)'
+                                }}
+                              >
+                                <span style={{ fontWeight: 600, color: isKing ? '#1e293b' : '#0f766e', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {isKing ? '👑 THE KING' : '🏢 JORGE ROJAS'}
+                                </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <span style={{ color: 'var(--c-text-tertiary)', fontSize: 10 }}>{plazo}d</span>
+                                  <strong style={{ color: 'var(--c-text)', fontSize: 12 }}>S/ {fmt(of.precio_ofertado)}</strong>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      /* Single Provider Mode */
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                        <div>
+                          <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', display: 'block' }}>
+                            {item.nombre_proveedor || item.proveedor || 'Proveedor'}
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                            <span style={{ fontSize: 11, color: (item.existencia_stock > 0) ? 'var(--c-success)' : 'var(--c-text-tertiary)', fontWeight: 600 }}>
+                              Stock: {item.existencia_stock ?? 0}
+                            </span>
+                            <span style={{ fontSize: 11, color: 'var(--c-text-tertiary)' }}>•</span>
+                            <span style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>
+                              Plazo: {item.plazo_entrega_dias ?? 90} días
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', display: 'block' }}>Precio Ofertado</span>
+                          <strong style={{ fontSize: 15, color: 'var(--c-text)', fontWeight: 800 }}>
+                            S/ {fmt(item.min_precio || item.precio_ofertado)}
+                          </strong>
+                          {item.orden_min ? (
+                            <div style={{ marginTop: 2 }}>
+                              <span
+                                onClick={() => navigate(`/orders?search=${item.orden_min}`)}
+                                title={`Ver orden: ${item.orden_min}`}
+                                style={{
+                                  cursor: 'pointer',
+                                  color: 'var(--c-brand)',
+                                  textDecoration: 'underline',
+                                  fontSize: 10,
+                                  fontFamily: 'monospace',
+                                  display: 'block'
+                                }}
+                              >
+                                {item.orden_min}
+                              </span>
+                              {(() => {
+                                const mes = formatMesOrden(item.fecha_orden_min, item.orden_min);
+                                const badge = getAntiguedadBadge(item.fecha_orden_min, item.orden_min);
+                                if (!mes) return null;
+                                return (
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 1 }}>
+                                    <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)' }}>📅 {mes}</span>
+                                    {badge && (
+                                      <span style={{
+                                        fontSize: 9,
+                                        fontWeight: 600,
+                                        padding: '1px 4px',
+                                        borderRadius: 4,
+                                        color: badge.color,
+                                        background: badge.bg
+                                      }}>
+                                        {badge.text}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          ) : (
+                            item.fecha_extraccion && (
+                              <div style={{ fontSize: 9, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
+                                📅 Catálogo {formatMesOrden(item.fecha_extraccion)} (Vigente)
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Actions Bar */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 8 }}>
+                      {selectedProveedor === 'all' && (
+                        <div>
+                          <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', display: 'block' }}>Mejor Precio</span>
+                          <strong style={{ fontSize: 15, color: 'var(--c-text)', fontWeight: 800 }}>
+                            S/ {fmt(item.min_precio)}
+                          </strong>
+                          {item.orden_min ? (
+                            <div style={{ marginTop: 2 }}>
+                              <span
+                                onClick={() => navigate(`/orders?search=${item.orden_min}`)}
+                                title={`Ver orden: ${item.orden_min}`}
+                                style={{
+                                  cursor: 'pointer',
+                                  color: 'var(--c-brand)',
+                                  textDecoration: 'underline',
+                                  fontSize: 10,
+                                  fontFamily: 'monospace',
+                                  display: 'block'
+                                }}
+                              >
+                                {item.orden_min}
+                              </span>
+                              {(() => {
+                                const mes = formatMesOrden(item.fecha_orden_min, item.orden_min);
+                                const badge = getAntiguedadBadge(item.fecha_orden_min, item.orden_min);
+                                if (!mes) return null;
+                                return (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
+                                    <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)' }}>📅 {mes}</span>
+                                    {badge && (
+                                      <span style={{
+                                        fontSize: 9,
+                                        fontWeight: 600,
+                                        padding: '1px 4px',
+                                        borderRadius: 4,
+                                        color: badge.color,
+                                        background: badge.bg
+                                      }}>
+                                        {badge.text}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          ) : (
+                            item.fecha_extraccion && (
+                              <div style={{ fontSize: 9, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
+                                📅 Catálogo {formatMesOrden(item.fecha_extraccion)} (Vigente)
+                              </div>
+                            )
+                          )}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+                        {pdfUrl && pdfUrl !== '#' && (
+                          <a
+                            href={pdfUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-sm"
+                            style={{
+                              fontSize: 11,
+                              padding: '4px 10px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              background: 'rgba(37,99,235,0.08)',
+                              color: 'var(--c-brand)',
+                              borderColor: 'rgba(37,99,235,0.25)',
+                              fontWeight: 600
+                            }}
+                            title="Abrir Ficha Técnica Oficial PDF"
+                          >
+                            <FileText size={13} />
+                            Ficha PDF
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )
       ) : (
         /* ── Table View ──────────────────────────────────────────────────── */
         <div className="card fade-up" style={{ padding: 0 }}>
@@ -1613,140 +1625,177 @@ const FiltroPiezas = () => {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item, idx) => {
-                  const nroParte = item.nro_parte || 'S/N';
-                  const pdfUrl = item.pdf_url;
-                  const ofertas = Array.isArray(item.ofertas) ? item.ofertas : [];
-                  const sp = item.specs || {};
-
-                  return (
-                    <tr key={item.id || idx}>
-                      <td style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--c-brand)', whiteSpace: 'nowrap' }}>
-                        {nroParte}
-                      </td>
-                      <td style={{ fontSize: 12, fontWeight: 600 }}>{item.marca || '—'}</td>
-                      <td style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>{item.categoria || item.catalogo || sp.formFactor}</td>
-                      {showCpuRamStorage && (
-                        <td style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-brand)' }}>
-                          {sp.cpuFull || sp.cpu || '—'}
-                          {sp.cpuGen && <span style={{ fontSize: 10, color: '#64748b', display: 'block' }}>{sp.cpuGen}</span>}
-                        </td>
-                      )}
-                      {showCpuRamStorage && (
-                        <td style={{ fontSize: 11 }}>
-                          {sp.ram || '—'}
-                          {sp.ramTech && <span style={{ fontSize: 10, color: '#059669', display: 'block', fontWeight: 600 }}>{sp.ramTech}</span>}
-                        </td>
-                      )}
-                      {(showCpuRamStorage || catType === 'storage') && (
-                        <td style={{ fontSize: 11 }}>
-                          {sp.storage || '—'}
-                          {sp.discoTipo && <span style={{ fontSize: 10, color: '#d97706', display: 'block' }}>{sp.discoTipo}</span>}
-                        </td>
-                      )}
-                      {showPorts && (
-                        <td style={{ fontSize: 11, fontWeight: 700, color: sp.vga === 'SI' ? '#166534' : '#94a3b8' }}>
-                          {sp.vga || '—'}
-                        </td>
-                      )}
-                      {showPorts && (
-                        <td style={{ fontSize: 11, fontWeight: 700, color: sp.hdmi === 'SI' ? '#1e40af' : '#94a3b8' }}>
-                          {sp.hdmi || '—'}
-                        </td>
-                      )}
-                      {showPorts && (
-                        <td style={{ fontSize: 11, color: sp.wifi === 'SI' ? '#0284c7' : '#94a3b8' }}>
-                          {sp.wifi || '—'}
-                        </td>
-                      )}
-                      {showDisplay && <td style={{ fontSize: 11 }}>{sp.display || '—'}</td>}
-                      {showPeripherals && <td style={{ fontSize: 10, color: sp.office && sp.office !== 'Sin Office' ? '#c2410c' : '#94a3b8' }}>{sp.office || '—'}</td>}
-                      {showOs && <td style={{ fontSize: 11, color: 'var(--c-text-tertiary)' }}>{sp.os || '—'}</td>}
-                      <td style={{ fontSize: 11 }}>
-                        {ofertas.length > 1 ? (
-                          <span className="badge badge-info" style={{ fontSize: 10 }}>{ofertas.length} Proveedores</span>
-                        ) : (
-                          item.nombre_proveedor || item.proveedor || (ofertas[0]?.nombre_proveedor) || '—'
-                        )}
-                      </td>
-                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap', verticalAlign: 'top', minWidth: 140 }}>
-                        <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--c-text)' }}>
-                          S/ {fmt(item.min_precio || item.precio_ofertado)}
-                        </div>
-                        {item.orden_min ? (
-                          <div style={{ marginTop: 3 }}>
-                            <a
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/orders?search=${encodeURIComponent(item.orden_min)}`);
-                              }}
-                              title={`Ver orden de compra: ${item.orden_min}`}
-                              style={{
-                                cursor: 'pointer',
-                                color: 'var(--c-brand)',
-                                textDecoration: 'underline',
-                                fontSize: 11,
-                                fontFamily: 'monospace',
-                                fontWeight: 700,
-                                display: 'inline-block'
-                              }}
-                            >
-                              {item.orden_min}
-                            </a>
-                            {(() => {
-                              const mes = formatMesOrden(item.fecha_orden_min, item.orden_min);
-                              const badge = getAntiguedadBadge(item.fecha_orden_min, item.orden_min);
-                              return (
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 }}>
-                                  {mes && (
-                                    <span
-                                      style={{ fontSize: 10, color: 'var(--c-text-tertiary)', fontWeight: 600 }}
-                                      title={item.fecha_orden_min ? `Fecha extraída: ${item.fecha_orden_min}` : undefined}
-                                    >
-                                      📅 {mes}
-                                    </span>
-                                  )}
-                                  {badge && (
-                                    <span style={{
-                                      fontSize: 9,
-                                      fontWeight: 600,
-                                      padding: '1px 5px',
-                                      borderRadius: 4,
-                                      color: badge.color,
-                                      background: badge.bg
-                                    }}>
-                                      {badge.text}
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        ) : (
-                          item.fecha_extraccion ? (
-                            <div style={{ fontSize: 10, color: 'var(--c-text-tertiary)', marginTop: 3 }}>
-                              📅 {formatMesOrden(item.fecha_extraccion) || 'Catálogo'} (Vigente)
-                            </div>
-                          ) : null
-                        )}
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        {pdfUrl && pdfUrl !== '#' ? (
-                          <a
-                            href={pdfUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="btn btn-sm"
-                            style={{ padding: '3px 8px', fontSize: 11 }}
-                            title="Descargar / Ver PDF"
-                          >
-                            <ExternalLink size={12} />
-                          </a>
-                        ) : '—'}
-                      </td>
+                {loading ? (
+                  [...Array(10)].map((_, i) => (
+                    <tr key={i}>
+                      <td><div className="skeleton" style={{ height: 16, width: 120 }} /></td>
+                      <td><div className="skeleton" style={{ height: 16, width: 60 }} /></td>
+                      <td><div className="skeleton" style={{ height: 16, width: 90 }} /></td>
+                      {showCpuRamStorage && <td><div className="skeleton" style={{ height: 16, width: 100 }} /></td>}
+                      {showCpuRamStorage && <td><div className="skeleton" style={{ height: 16, width: 60 }} /></td>}
+                      {(showCpuRamStorage || catType === 'storage') && <td><div className="skeleton" style={{ height: 16, width: 80 }} /></td>}
+                      {showPorts && <td><div className="skeleton" style={{ height: 16, width: 35 }} /></td>}
+                      {showPorts && <td><div className="skeleton" style={{ height: 16, width: 35 }} /></td>}
+                      {showPorts && <td><div className="skeleton" style={{ height: 16, width: 35 }} /></td>}
+                      {showDisplay && <td><div className="skeleton" style={{ height: 16, width: 50 }} /></td>}
+                      {showPeripherals && <td><div className="skeleton" style={{ height: 16, width: 60 }} /></td>}
+                      {showOs && <td><div className="skeleton" style={{ height: 16, width: 70 }} /></td>}
+                      <td><div className="skeleton" style={{ height: 16, width: 110 }} /></td>
+                      <td style={{ textAlign: 'right' }}><div className="skeleton" style={{ height: 16, width: 80, marginLeft: 'auto' }} /></td>
+                      <td style={{ textAlign: 'center' }}><div className="skeleton" style={{ height: 16, width: 30, margin: '0 auto' }} /></td>
                     </tr>
-                  );
-                })}
+                  ))
+                ) : items.length === 0 ? (
+                  <tr>
+                    <td colSpan={20} style={{ textAlign: 'center', padding: 48, color: 'var(--c-text-tertiary)' }}>
+                      <AlertCircle size={36} style={{ margin: '0 auto 12px', opacity: 0.5 }} />
+                      <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--c-text)' }}>No se encontraron fichas</h3>
+                      <p style={{ fontSize: 13, marginTop: 4 }}>
+                        Ningún producto coincide con los filtros aplicados en {activeCategoryConfig.label}.
+                      </p>
+                      {hasActiveFilters && (
+                        <button onClick={handleResetFilters} className="btn btn-primary" style={{ marginTop: 16 }}>
+                          Restablecer Filtros
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  items.map((item, idx) => {
+                    const nroParte = item.nro_parte || 'S/N';
+                    const pdfUrl = item.pdf_url;
+                    const ofertas = Array.isArray(item.ofertas) ? item.ofertas : [];
+                    const sp = item.specs || {};
+
+                    return (
+                      <tr key={item.id || idx}>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--c-brand)', whiteSpace: 'nowrap' }}>
+                          {nroParte}
+                        </td>
+                        <td style={{ fontSize: 12, fontWeight: 600 }}>{item.marca || '—'}</td>
+                        <td style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>{item.categoria || item.catalogo || sp.formFactor}</td>
+                        {showCpuRamStorage && (
+                          <td style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-brand)' }}>
+                            {sp.cpuFull || sp.cpu || '—'}
+                            {sp.cpuGen && <span style={{ fontSize: 10, color: '#64748b', display: 'block' }}>{sp.cpuGen}</span>}
+                          </td>
+                        )}
+                        {showCpuRamStorage && (
+                          <td style={{ fontSize: 11 }}>
+                            {sp.ram || '—'}
+                            {sp.ramTech && <span style={{ fontSize: 10, color: '#059669', display: 'block', fontWeight: 600 }}>{sp.ramTech}</span>}
+                          </td>
+                        )}
+                        {(showCpuRamStorage || catType === 'storage') && (
+                          <td style={{ fontSize: 11 }}>
+                            {sp.storage || '—'}
+                            {sp.discoTipo && <span style={{ fontSize: 10, color: '#d97706', display: 'block' }}>{sp.discoTipo}</span>}
+                          </td>
+                        )}
+                        {showPorts && (
+                          <td style={{ fontSize: 11, fontWeight: 700, color: sp.vga === 'SI' ? '#166534' : '#94a3b8' }}>
+                            {sp.vga || '—'}
+                          </td>
+                        )}
+                        {showPorts && (
+                          <td style={{ fontSize: 11, fontWeight: 700, color: sp.hdmi === 'SI' ? '#1e40af' : '#94a3b8' }}>
+                            {sp.hdmi || '—'}
+                          </td>
+                        )}
+                        {showPorts && (
+                          <td style={{ fontSize: 11, color: sp.wifi === 'SI' ? '#0284c7' : '#94a3b8' }}>
+                            {sp.wifi || '—'}
+                          </td>
+                        )}
+                        {showDisplay && <td style={{ fontSize: 11 }}>{sp.display || '—'}</td>}
+                        {showPeripherals && <td style={{ fontSize: 10, color: sp.office && sp.office !== 'Sin Office' ? '#c2410c' : '#94a3b8' }}>{sp.office || '—'}</td>}
+                        {showOs && <td style={{ fontSize: 11, color: 'var(--c-text-tertiary)' }}>{sp.os || '—'}</td>}
+                        <td style={{ fontSize: 11 }}>
+                          {ofertas.length > 1 ? (
+                            <span className="badge badge-info" style={{ fontSize: 10 }}>{ofertas.length} Proveedores</span>
+                          ) : (
+                            item.nombre_proveedor || item.proveedor || (ofertas[0]?.nombre_proveedor) || '—'
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap', verticalAlign: 'top', minWidth: 140 }}>
+                          <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--c-text)' }}>
+                            S/ {fmt(item.min_precio || item.precio_ofertado)}
+                          </div>
+                          {item.orden_min ? (
+                            <div style={{ marginTop: 3 }}>
+                              <a
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/orders?search=${encodeURIComponent(item.orden_min)}`);
+                                }}
+                                title={`Ver orden de compra: ${item.orden_min}`}
+                                style={{
+                                  cursor: 'pointer',
+                                  color: 'var(--c-brand)',
+                                  textDecoration: 'underline',
+                                  fontSize: 11,
+                                  fontFamily: 'monospace',
+                                  fontWeight: 700,
+                                  display: 'inline-block'
+                                }}
+                              >
+                                {item.orden_min}
+                              </a>
+                              {(() => {
+                                const mes = formatMesOrden(item.fecha_orden_min, item.orden_min);
+                                const badge = getAntiguedadBadge(item.fecha_orden_min, item.orden_min);
+                                return (
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 }}>
+                                    {mes && (
+                                      <span
+                                        style={{ fontSize: 10, color: 'var(--c-text-tertiary)', fontWeight: 600 }}
+                                        title={item.fecha_orden_min ? `Fecha extraída: ${item.fecha_orden_min}` : undefined}
+                                      >
+                                        📅 {mes}
+                                      </span>
+                                    )}
+                                    {badge && (
+                                      <span style={{
+                                        fontSize: 9,
+                                        fontWeight: 600,
+                                        padding: '1px 5px',
+                                        borderRadius: 4,
+                                        color: badge.color,
+                                        background: badge.bg
+                                      }}>
+                                        {badge.text}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          ) : (
+                            item.fecha_extraccion ? (
+                              <div style={{ fontSize: 10, color: 'var(--c-text-tertiary)', marginTop: 3 }}>
+                                📅 {formatMesOrden(item.fecha_extraccion) || 'Catálogo'} (Vigente)
+                              </div>
+                            ) : null
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          {pdfUrl && pdfUrl !== '#' ? (
+                            <a
+                              href={pdfUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-sm"
+                              style={{ padding: '3px 8px', fontSize: 11 }}
+                              title="Descargar / Ver PDF"
+                            >
+                              <ExternalLink size={12} />
+                            </a>
+                          ) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>

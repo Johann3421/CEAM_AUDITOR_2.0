@@ -500,15 +500,15 @@ def get_proveedor_fichas(
 
         having_sql = f"HAVING {' AND '.join(having_clauses)}" if having_clauses else ""
 
-        order_by_sql = "g.id DESC"
+        order_by_sql = "g.id DESC, g.group_key ASC"
         if sort_by == "precio_asc":
-            order_by_sql = "g.min_precio ASC NULLS LAST"
+            order_by_sql = "g.min_precio ASC NULLS LAST, g.group_key ASC"
         elif sort_by == "precio_desc":
-            order_by_sql = "g.min_precio DESC NULLS LAST"
+            order_by_sql = "g.min_precio DESC NULLS LAST, g.group_key ASC"
         elif sort_by == "stock_desc":
-            order_by_sql = "g.existencia_stock DESC NULLS LAST"
+            order_by_sql = "g.existencia_stock DESC NULLS LAST, g.group_key ASC"
         elif sort_by == "marca_asc":
-            order_by_sql = "g.marca ASC"
+            order_by_sql = "g.marca ASC, g.group_key ASC"
 
         sql = f"""
             WITH raw_matched AS (
