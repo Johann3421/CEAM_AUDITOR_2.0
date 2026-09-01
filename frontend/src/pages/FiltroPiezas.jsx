@@ -22,7 +22,8 @@ const REGIONES_PERU = [
 const formatMesOrden = (fechaStr, ordenStr) => {
   if (fechaStr) {
     try {
-      const d = new Date(fechaStr.includes('T') ? fechaStr : `${fechaStr}T12:00:00`);
+      const s = String(fechaStr);
+      const d = new Date(s.includes('T') ? s : `${s}T12:00:00`);
       if (!isNaN(d.getTime())) {
         const mes = d.toLocaleDateString('es-PE', { month: 'short', year: 'numeric' });
         return mes.charAt(0).toUpperCase() + mes.slice(1);
@@ -30,8 +31,10 @@ const formatMesOrden = (fechaStr, ordenStr) => {
     } catch (_) {}
   }
   if (ordenStr) {
-    const yMatch = ordenStr.match(/202[0-9]/);
-    if (yMatch) return `Año ${yMatch[0]}`;
+    try {
+      const yMatch = String(ordenStr).match(/202[0-9]/);
+      if (yMatch) return `Año ${yMatch[0]}`;
+    } catch (_) {}
   }
   return null;
 };
@@ -39,11 +42,16 @@ const formatMesOrden = (fechaStr, ordenStr) => {
 const getAntiguedadBadge = (fechaStr, ordenStr) => {
   let dateObj = null;
   if (fechaStr) {
-    const d = new Date(fechaStr.includes('T') ? fechaStr : `${fechaStr}T12:00:00`);
-    if (!isNaN(d.getTime())) dateObj = d;
+    try {
+      const s = String(fechaStr);
+      const d = new Date(s.includes('T') ? s : `${s}T12:00:00`);
+      if (!isNaN(d.getTime())) dateObj = d;
+    } catch (_) {}
   } else if (ordenStr) {
-    const y = ordenStr.match(/202[0-9]/);
-    if (y) dateObj = new Date(`${y[0]}-06-01`);
+    try {
+      const y = String(ordenStr).match(/202[0-9]/);
+      if (y) dateObj = new Date(`${y[0]}-06-01`);
+    } catch (_) {}
   }
   if (!dateObj) return null;
 
