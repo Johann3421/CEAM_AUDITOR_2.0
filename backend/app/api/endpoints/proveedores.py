@@ -72,7 +72,7 @@ def get_proveedor_fichas(
     pdf_filter: Optional[str] = Query(None, description="Filtro de PDF: 'with_pdf' o 'no_pdf'"),
     sort_by: Optional[str] = Query(None, description="Ordenamiento: precio_asc, precio_desc, stock_desc, marca_asc"),
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=1000),
+    limit: int = Query(50, ge=1, le=5000),
     db: Session = Depends(get_db)
 ):
     """

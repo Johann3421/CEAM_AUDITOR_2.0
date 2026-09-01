@@ -32,12 +32,14 @@ const FiltroPiezas = () => {
 
   // ── States ──────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
   const [rawItems, setRawItems] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [providersList, setProvidersList] = useState([]);
   
   // Selected Provider Filter: 'all' | 'thekingcomputer' | 'jorge_rojas' | etc.
   const [selectedProveedor, setSelectedProveedor] = useState('all');
-  const [selectedFamily, setSelectedFamily] = useState('computadoras');
+  const [selectedFamily, setSelectedFamily] = useState('all');
   const [selectedRegion, setSelectedRegion] = useState('LIMA');
   const [soloConStock, setSoloConStock] = useState(false);
   const [search, setSearch] = useState('');
@@ -68,9 +70,10 @@ const FiltroPiezas = () => {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
       const params = {
-        limit: 2000,
+        limit: 1000,
         region: selectedRegion,
       };
       if (selectedProveedor !== 'all') {
@@ -82,6 +85,7 @@ const FiltroPiezas = () => {
 
       const res = await proveedoresApi.getFichas(params);
       const items = res.data?.items || [];
+      setTotalCount(res.data?.total || items.length);
       
       // Parse specs for each item
       const enriched = items.map(item => ({
@@ -91,6 +95,7 @@ const FiltroPiezas = () => {
       setRawItems(enriched);
     } catch (err) {
       console.error('Error fetching piezas data:', err);
+      setErrorMsg(err?.response?.data?.detail || err.message || 'Error al cargar los productos');
     } finally {
       setLoading(false);
     }

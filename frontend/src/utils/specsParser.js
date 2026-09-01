@@ -39,7 +39,8 @@ export function parseProductSpecs(item) {
     formFactor = 'Workstation';
   } else if (
     desc.includes('ESCRITORIO') || desc.includes('TORRE') || desc.includes('SFF') || desc.includes('MINI PC') ||
-    cat.includes('ESCRITORIO')
+    desc.includes('COMPUTADORA') || cat.includes('COMPUTADORA') || cat.includes('ESCRITORIO') ||
+    desc.includes('PROCESADOR:') || desc.includes('RAM:')
   ) {
     family = 'computadoras';
     formFactor = 'Desktop / Torre';
