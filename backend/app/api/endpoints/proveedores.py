@@ -50,6 +50,7 @@ def _get_fichas_pdf_join(db: Session):
             pmin_field = 'fp.precio_min AS _linked_precio_min,' if 'precio_min' in col_set else "NULL::numeric AS _linked_precio_min,"
             momin_field = 'fp.monto_orden_min AS _linked_monto_orden_min' if 'monto_orden_min' in col_set else "NULL::numeric AS _linked_monto_orden_min"
 
+            order_by_extra = f', fp."{pdf_col}" DESC NULLS LAST' if pdf_col else ''
             join_sql = f"""
                 LEFT JOIN (
                     SELECT DISTINCT ON (UPPER(TRIM(fp."{nro_col}")))
@@ -62,7 +63,7 @@ def _get_fichas_pdf_join(db: Session):
                         {momin_field}
                     FROM fichas_producto fp
                     WHERE fp."{nro_col}" IS NOT NULL AND fp."{nro_col}" != ''
-                    ORDER BY UPPER(TRIM(fp."{nro_col}")), fp.id DESC
+                    ORDER BY UPPER(TRIM(fp."{nro_col}")){order_by_extra}
                 ) fp_pdf ON UPPER(TRIM(f.nro_parte)) = fp_pdf._match_nro
             """
             select_expr = "COALESCE(NULLIF(NULLIF(f.pdf_url, ''), '#'), fp_pdf._linked_pdf)" if pdf_col else "f.pdf_url"
