@@ -45,7 +45,23 @@ def _get_fichas_pdf_join(db: Session):
         if nro_col:
             pdf_select_field = f'fp."{pdf_col}" AS _linked_pdf,' if pdf_col else "NULL::text AS _linked_pdf,"
             ord_min_field = 'fp.orden_min AS _linked_orden_min,' if 'orden_min' in col_set else "NULL::text AS _linked_orden_min,"
-            fec_min_field = 'fp.fecha_orden_min::text AS _linked_fecha_orden_min,' if 'fecha_orden_min' in col_set else "NULL::text AS _linked_fecha_orden_min,"
+            if 'fecha_orden_min' in col_set:
+                fec_min_field = """COALESCE(
+                    fp.fecha_orden_min::text,
+                    (SELECT COALESCE(po.fecha_publicacion, po.fecha_aceptacion)::text 
+                     FROM purchase_orders po 
+                     WHERE po.orden_electronica = fp.orden_min OR po.nro_orden_fisica = fp.orden_min 
+                     LIMIT 1)
+                ) AS _linked_fecha_orden_min,"""
+            elif 'orden_min' in col_set:
+                fec_min_field = """(
+                    SELECT COALESCE(po.fecha_publicacion, po.fecha_aceptacion)::text 
+                    FROM purchase_orders po 
+                    WHERE po.orden_electronica = fp.orden_min OR po.nro_orden_fisica = fp.orden_min 
+                    LIMIT 1
+                ) AS _linked_fecha_orden_min,"""
+            else:
+                fec_min_field = "NULL::text AS _linked_fecha_orden_min,"
             pref_field = 'fp.precio_referencia AS _linked_precio_ref,' if 'precio_referencia' in col_set else "NULL::numeric AS _linked_precio_ref,"
             pmin_field = 'fp.precio_min AS _linked_precio_min,' if 'precio_min' in col_set else "NULL::numeric AS _linked_precio_min,"
             momin_field = 'fp.monto_orden_min AS _linked_monto_orden_min' if 'monto_orden_min' in col_set else "NULL::numeric AS _linked_monto_orden_min"

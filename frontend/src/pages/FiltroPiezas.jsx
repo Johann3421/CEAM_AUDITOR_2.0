@@ -1669,34 +1669,43 @@ const FiltroPiezas = () => {
                           item.nombre_proveedor || item.proveedor || (ofertas[0]?.nombre_proveedor) || '—'
                         )}
                       </td>
-                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap', verticalAlign: 'top', minWidth: 140 }}>
                         <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--c-text)' }}>
                           S/ {fmt(item.min_precio || item.precio_ofertado)}
                         </div>
                         {item.orden_min ? (
-                          <div style={{ marginTop: 2 }}>
-                            <div
-                              onClick={() => navigate(`/orders?search=${item.orden_min}`)}
-                              title={`Ir a orden: ${item.orden_min}`}
+                          <div style={{ marginTop: 3 }}>
+                            <a
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/orders?search=${encodeURIComponent(item.orden_min)}`);
+                              }}
+                              title={`Ver orden de compra: ${item.orden_min}`}
                               style={{
                                 cursor: 'pointer',
                                 color: 'var(--c-brand)',
                                 textDecoration: 'underline',
-                                fontSize: 10,
-                                fontFamily: 'monospace'
+                                fontSize: 11,
+                                fontFamily: 'monospace',
+                                fontWeight: 700,
+                                display: 'inline-block'
                               }}
                             >
                               {item.orden_min}
-                            </div>
+                            </a>
                             {(() => {
                               const mes = formatMesOrden(item.fecha_orden_min, item.orden_min);
                               const badge = getAntiguedadBadge(item.fecha_orden_min, item.orden_min);
-                              if (!mes) return null;
                               return (
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 }}>
-                                  <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', fontWeight: 500 }}>
-                                    📅 {mes}
-                                  </span>
+                                  {mes && (
+                                    <span
+                                      style={{ fontSize: 10, color: 'var(--c-text-tertiary)', fontWeight: 600 }}
+                                      title={item.fecha_orden_min ? `Fecha extraída: ${item.fecha_orden_min}` : undefined}
+                                    >
+                                      📅 {mes}
+                                    </span>
+                                  )}
                                   {badge && (
                                     <span style={{
                                       fontSize: 9,
@@ -1714,11 +1723,11 @@ const FiltroPiezas = () => {
                             })()}
                           </div>
                         ) : (
-                          item.fecha_extraccion && (
-                            <div style={{ fontSize: 9, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
-                              📅 Catálogo {formatMesOrden(item.fecha_extraccion)} (Vigente)
+                          item.fecha_extraccion ? (
+                            <div style={{ fontSize: 10, color: 'var(--c-text-tertiary)', marginTop: 3 }}>
+                              📅 {formatMesOrden(item.fecha_extraccion) || 'Catálogo'} (Vigente)
                             </div>
-                          )
+                          ) : null
                         )}
                       </td>
                       <td style={{ textAlign: 'center' }}>

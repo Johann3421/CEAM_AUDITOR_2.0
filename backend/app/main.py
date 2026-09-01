@@ -55,6 +55,29 @@ try:
             ).fetchone()
             if not exists:
                 _c.execute(text(f'ALTER TABLE {table} ADD COLUMN "{col}" {coltype}'))
+
+        # 3. Backfill fecha_orden_min and fecha_orden_max in fichas_producto from purchase_orders
+        try:
+            _c.execute(text("""
+                UPDATE fichas_producto fp
+                SET fecha_orden_min = COALESCE(po.fecha_publicacion, po.fecha_aceptacion)
+                FROM purchase_orders po
+                WHERE fp.fecha_orden_min IS NULL
+                  AND fp.orden_min IS NOT NULL
+                  AND fp.orden_min != ''
+                  AND (po.orden_electronica = fp.orden_min OR po.nro_orden_fisica = fp.orden_min);
+            """))
+            _c.execute(text("""
+                UPDATE fichas_producto fp
+                SET fecha_orden_max = COALESCE(po.fecha_publicacion, po.fecha_aceptacion)
+                FROM purchase_orders po
+                WHERE fp.fecha_orden_max IS NULL
+                  AND fp.orden_max IS NOT NULL
+                  AND fp.orden_max != ''
+                  AND (po.orden_electronica = fp.orden_max OR po.nro_orden_fisica = fp.orden_max);
+            """))
+        except Exception:
+            pass
 except Exception:
     pass  # SQLite in tests / table not created yet
 
