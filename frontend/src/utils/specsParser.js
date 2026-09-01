@@ -139,17 +139,78 @@ export function parseProductSpecs(item) {
   else if (rawOs.includes('UBUNTU') || rawOs.includes('LINUX')) os = 'Linux / Ubuntu';
   else if (rawOs.includes('FREEDOS') || rawOs.includes('FREE DOS') || rawOs.includes('DOS') || rawOs.includes('NO TIENE') || rawOs.includes('SIN SISTEMA')) os = 'FreeDOS / Sin SO';
 
+  // 10. Puertos y Conectividad (VGA, HDMI, LAN, WLAN, Bluetooth)
+  const vga = desc.includes('VGA: SI') ? 'SI' : desc.includes('VGA: NO') ? 'NO' : (desc.includes('VGA') ? 'SI' : null);
+  const hdmi = desc.includes('HDMI: SI') ? 'SI' : desc.includes('HDMI: NO') ? 'NO' : (desc.includes('HDMI') ? 'SI' : null);
+  const wifi = desc.includes('WLAN: SI') || desc.includes('WI-FI') ? 'SI' : desc.includes('WLAN: NO') ? 'NO' : null;
+  const bluetooth = desc.includes('BLUETOOTH: SI') ? 'SI' : desc.includes('BLUETOOTH: NO') ? 'NO' : null;
+  const lan = desc.includes('LAN: SI') ? 'SI' : desc.includes('LAN: NO') ? 'NO' : null;
+  const unidadOptica = desc.includes('UNIDAD OPTICA: SI') ? 'SI' : desc.includes('UNIDAD OPTICA: NO') ? 'NO' : null;
+  const camara = desc.includes('CAMARA WEB: SI') ? 'SI' : desc.includes('CAMARA WEB: NO') ? 'NO' : null;
+  const tactil = desc.includes('TACTIL') || desc.includes('TOUCH') ? 'SI' : null;
+
+  // 11. Tecnologías de RAM y Disco
+  let ramTech = null;
+  if (desc.includes('LPDDR5')) ramTech = 'LPDDR5';
+  else if (desc.includes('DDR5')) ramTech = 'DDR5';
+  else if (desc.includes('DDR4')) ramTech = 'DDR4';
+
+  let discoTipo = null;
+  if (desc.includes('SSD') && desc.includes('HDD')) discoTipo = 'Híbrido SSD + HDD';
+  else if (desc.includes('NVME')) discoTipo = 'NVMe M.2 SSD';
+  else if (desc.includes('M.2')) discoTipo = 'M.2 SSD';
+  else if (desc.includes('SSD')) discoTipo = 'SSD Sata/M.2';
+  else if (desc.includes('HDD')) discoTipo = 'HDD Mecánico';
+
+  // 12. Generación CPU
+  let cpuGen = null;
+  if (desc.includes('CORE ULTRA')) cpuGen = 'Core Ultra';
+  else if (desc.includes('-14') || desc.includes(' 14700') || desc.includes(' 14400')) cpuGen = '14ª Gen';
+  else if (desc.includes('-13') || desc.includes(' 13700') || desc.includes(' 13400') || desc.includes(' 13500')) cpuGen = '13ª Gen';
+  else if (desc.includes('-12') || desc.includes(' 12700') || desc.includes(' 12400') || desc.includes(' 12100')) cpuGen = '12ª Gen';
+  else if (desc.includes('-11') || desc.includes(' 11700') || desc.includes(' 11400')) cpuGen = '11ª Gen';
+  else if (desc.includes('-10') || desc.includes(' 10700') || desc.includes(' 10400')) cpuGen = '10ª Gen';
+  else if (desc.includes('RYZEN 7') || desc.includes('RYZEN 8')) cpuGen = 'Ryzen 7000/8000';
+  else if (desc.includes('RYZEN 5')) cpuGen = 'Ryzen 5000';
+
+  // 13. Office y Garantía
+  let office = null;
+  if (desc.includes('HOME & BUSINESS 2024') || desc.includes('HOME AND BUSINESS 2024')) office = 'Office H&B 2024';
+  else if (desc.includes('HOME & BUSINESS 2021') || desc.includes('HOME AND BUSINESS 2021')) office = 'Office H&B 2021';
+  else if (desc.includes('OFFICE HOME & BUSINESS') || desc.includes('OFFICE HOME AND BUSINESS')) office = 'Office Home & Business';
+  else if (desc.includes('SUITE OFIMATICA: NO')) office = 'Sin Office';
+
+  let garantia = null;
+  if (desc.includes('36 MESES ON-SITE')) garantia = '36m On-Site';
+  else if (desc.includes('36 MESES')) garantia = '36 Meses';
+  else if (desc.includes('24 MESES')) garantia = '24 Meses';
+  else if (desc.includes('12 MESES')) garantia = '12 Meses';
+
   return {
     family,
     formFactor,
     cpu: cpu || null,
     cpuFull: cpuFull || cpu || null,
+    cpuGen,
     ram: ram || null,
+    ramTech,
     storage: storage || null,
+    discoTipo,
     display: display || null,
     resolution: resolution || null,
     panel: panel || null,
     conectividad: conectividad.length > 0 ? conectividad.join(' • ') : null,
+    vga,
+    hdmi,
+    wifi,
+    bluetooth,
+    lan,
+    unidadOptica,
+    camara,
+    tactil,
+    office,
+    garantia,
     os: os || null,
   };
 }
+

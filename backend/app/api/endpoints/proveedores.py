@@ -79,6 +79,19 @@ def get_proveedor_fichas(
     so: Optional[str] = Query(None, description="Filtro de Sistema Operativo"),
     panel: Optional[str] = Query(None, description="Filtro de Tipo de Panel (IPS, VA, etc.)"),
     resolucion: Optional[str] = Query(None, description="Filtro de Resolución"),
+    cpu_gen: Optional[str] = Query(None, description="Filtro de Generación CPU: gen14, gen13, gen12, gen11, gen10, ultra, ryzen7000, ryzen5000"),
+    ram_tech: Optional[str] = Query(None, description="Filtro de Tecnología RAM: DDR4, DDR5, LPDDR5"),
+    disco_tipo: Optional[str] = Query(None, description="Filtro de Tipo de Disco: NVMe, M.2, hibrido, solo_ssd, solo_hdd"),
+    vga: Optional[str] = Query(None, description="Filtro de Puerto VGA: si, no"),
+    hdmi: Optional[str] = Query(None, description="Filtro de Puerto HDMI: si, no"),
+    wifi: Optional[str] = Query(None, description="Filtro de Wi-Fi / WLAN: si, no"),
+    bluetooth: Optional[str] = Query(None, description="Filtro de Bluetooth: si, no"),
+    lan: Optional[str] = Query(None, description="Filtro de Puerto de Red LAN: si, no"),
+    office: Optional[str] = Query(None, description="Filtro de Suite Ofimática: home_business, si, no"),
+    garantia: Optional[str] = Query(None, description="Filtro de Garantía: 36, 24, 12"),
+    unidad_optica: Optional[str] = Query(None, description="Filtro de Unidad Óptica: si, no"),
+    camara: Optional[str] = Query(None, description="Filtro de Cámara Web: si, no"),
+    tactil: Optional[str] = Query(None, description="Filtro de Pantalla Táctil: si, no"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=5000),
     db: Session = Depends(get_db)
@@ -301,6 +314,124 @@ def get_proveedor_fichas(
             where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%1600X900%' OR UPPER(f.descripcion_producto) LIKE '%HD+%')")
         elif 'HD' in res_u:
             where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%1366X768%' OR UPPER(f.descripcion_producto) LIKE '%HD%')")
+
+    # ── Puertos y Conectividad (VGA, HDMI, WLAN, LAN, BT) ───────────────
+    if vga and vga != 'Todos':
+        vga_l = vga.lower()
+        if vga_l in ('si', 'con_vga', '1', 'true'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%VGA: SI%'")
+        elif vga_l in ('no', 'sin_vga', '0', 'false'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%VGA: NO%'")
+
+    if hdmi and hdmi != 'Todos':
+        hdmi_l = hdmi.lower()
+        if hdmi_l in ('si', 'con_hdmi', '1', 'true'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%HDMI: SI%'")
+        elif hdmi_l in ('no', 'sin_hdmi', '0', 'false'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%HDMI: NO%'")
+
+    if wifi and wifi != 'Todos':
+        wifi_l = wifi.lower()
+        if wifi_l in ('si', 'con_wifi', '1', 'true'):
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%WLAN: SI%' OR UPPER(f.descripcion_producto) LIKE '%WI-FI%')")
+        elif wifi_l in ('no', 'sin_wifi', '0', 'false'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%WLAN: NO%'")
+
+    if bluetooth and bluetooth != 'Todos':
+        bt_l = bluetooth.lower()
+        if bt_l in ('si', 'con_bt', '1', 'true'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%BLUETOOTH: SI%'")
+        elif bt_l in ('no', 'sin_bt', '0', 'false'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%BLUETOOTH: NO%'")
+
+    if lan and lan != 'Todos':
+        lan_l = lan.lower()
+        if lan_l in ('si', 'con_lan', '1', 'true'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%LAN: SI%'")
+        elif lan_l in ('no', 'sin_lan', '0', 'false'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%LAN: NO%'")
+
+    if unidad_optica and unidad_optica != 'Todos':
+        uo_l = unidad_optica.lower()
+        if uo_l in ('si', 'con_dvd', '1', 'true'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%UNIDAD OPTICA: SI%'")
+        elif uo_l in ('no', 'sin_dvd', '0', 'false'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%UNIDAD OPTICA: NO%'")
+
+    if camara and camara != 'Todos':
+        cam_l = camara.lower()
+        if cam_l in ('si', 'con_camara', '1', 'true'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%CAMARA WEB: SI%'")
+        elif cam_l in ('no', 'sin_camara', '0', 'false'):
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%CAMARA WEB: NO%'")
+
+    if tactil and tactil != 'Todos':
+        tac_l = tactil.lower()
+        if tac_l in ('si', 'tactil', 'touch', '1', 'true'):
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%TACTIL%' OR UPPER(f.descripcion_producto) LIKE '%TOUCH%')")
+        elif tac_l in ('no', 'no_tactil', '0', 'false'):
+            where_clauses.append("(UPPER(f.descripcion_producto) NOT LIKE '%TACTIL%' AND UPPER(f.descripcion_producto) NOT LIKE '%TOUCH%')")
+
+    # ── Tecnologías Específicas de RAM y Disco ───────────────────────────
+    if ram_tech and ram_tech != 'Todos':
+        rt_u = ram_tech.upper()
+        if rt_u == 'DDR5':
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%DDR5%'")
+        elif rt_u == 'DDR4':
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%DDR4%'")
+        elif 'LPDDR' in rt_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%LPDDR5%' OR UPPER(f.descripcion_producto) LIKE '%LPDDR4%')")
+
+    if disco_tipo and disco_tipo != 'Todos':
+        dt_u = disco_tipo.upper()
+        if 'NVME' in dt_u:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%NVME%'")
+        elif 'M.2' in dt_u:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%M.2%'")
+        elif 'HIBRIDO' in dt_u or 'SSD + HDD' in dt_u or 'SSD/HDD' in dt_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%SSD%' AND UPPER(f.descripcion_producto) LIKE '%HDD%')")
+        elif 'SOLO SSD' in dt_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%SSD%' AND UPPER(f.descripcion_producto) NOT LIKE '%HDD%')")
+        elif 'SOLO HDD' in dt_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%HDD%' AND UPPER(f.descripcion_producto) NOT LIKE '%SSD%')")
+
+    # ── Generación de CPU ────────────────────────────────────────────────
+    if cpu_gen and cpu_gen != 'Todos':
+        cg_u = cpu_gen.upper()
+        if '14' in cg_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%-14%' OR UPPER(f.descripcion_producto) LIKE '% 14700%' OR UPPER(f.descripcion_producto) LIKE '% 14400%' OR UPPER(f.descripcion_producto) LIKE '% 14900%')")
+        elif '13' in cg_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%-13%' OR UPPER(f.descripcion_producto) LIKE '% 13700%' OR UPPER(f.descripcion_producto) LIKE '% 13400%' OR UPPER(f.descripcion_producto) LIKE '% 13500%')")
+        elif '12' in cg_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%-12%' OR UPPER(f.descripcion_producto) LIKE '% 12700%' OR UPPER(f.descripcion_producto) LIKE '% 12400%' OR UPPER(f.descripcion_producto) LIKE '% 12100%')")
+        elif '11' in cg_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%-11%' OR UPPER(f.descripcion_producto) LIKE '% 11700%' OR UPPER(f.descripcion_producto) LIKE '% 11400%')")
+        elif '10' in cg_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%-10%' OR UPPER(f.descripcion_producto) LIKE '% 10700%' OR UPPER(f.descripcion_producto) LIKE '% 10400%')")
+        elif 'ULTRA' in cg_u:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%CORE ULTRA%'")
+        elif '7000' in cg_u or '8000' in cg_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%RYZEN%7%' OR UPPER(f.descripcion_producto) LIKE '%RYZEN%8%')")
+        elif '5000' in cg_u:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%RYZEN%5%'")
+
+    # ── Office y Garantía ────────────────────────────────────────────────
+    if office and office != 'Todos':
+        off_l = office.lower()
+        if 'home' in off_l or 'business' in off_l:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%OFFICE HOME & BUSINESS%' OR UPPER(f.descripcion_producto) LIKE '%OFFICE HOME AND BUSINESS%')")
+        elif off_l in ('si', 'con_office', '1', 'true'):
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%OFFICE%' OR UPPER(f.descripcion_producto) LIKE '%OFIMATICA PRE-INSTALADA%')")
+        elif off_l in ('no', 'sin_office', '0', 'false'):
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%SUITE OFIMATICA: NO%' OR (UPPER(f.descripcion_producto) NOT LIKE '%OFFICE%' AND UPPER(f.descripcion_producto) NOT LIKE '%PRE-INSTALADA%'))")
+
+    if garantia and garantia != 'Todos':
+        if '36' in garantia:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%36 MESES%'")
+        elif '24' in garantia:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%24 MESES%'")
+        elif '12' in garantia:
+            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%12 MESES%'")
 
     where_sql = " AND ".join(where_clauses)
     is_consolidated = (not proveedor or proveedor.lower() == "all")
