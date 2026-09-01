@@ -892,12 +892,31 @@ def enrich_precios(db: Session = Depends(get_db)):
         ("orden_max", "TEXT"),
         ("monto_orden_min", "NUMERIC(14,4)"),
         ("monto_orden_max", "NUMERIC(14,4)"),
+        ("fecha_orden_min", "DATE"),
+        ("fecha_orden_max", "DATE"),
     ]
     try:
         for col_name, col_type in price_cols:
             db.execute(text(f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
         # Ensure column type is NUMERIC(14,2) if it was previously created as NUMERIC(7,2)
         db.execute(text(f"ALTER TABLE {_TABLE} ALTER COLUMN precio_volatilidad TYPE NUMERIC(14,2)"))
+        
+        # Backfill existing orden dates from purchase_orders if empty
+        db.execute(text(f"""
+            UPDATE {_TABLE} fp
+            SET fecha_orden_min = po.fecha_publicacion
+            FROM purchase_orders po
+            WHERE fp.orden_min IS NOT NULL 
+              AND (po.orden_electronica = fp.orden_min OR po.nro_orden_fisica = fp.orden_min)
+              AND fp.fecha_orden_min IS NULL;
+
+            UPDATE {_TABLE} fp
+            SET fecha_orden_max = po.fecha_publicacion
+            FROM purchase_orders po
+            WHERE fp.orden_max IS NOT NULL 
+              AND (po.orden_electronica = fp.orden_max OR po.nro_orden_fisica = fp.orden_max)
+              AND fp.fecha_orden_max IS NULL;
+        """))
         db.commit()
     except Exception as e:
         db.rollback()
@@ -939,7 +958,8 @@ def enrich_precios(db: Session = Depends(get_db)):
             END                                                   AS precio_efectivo,
             orden_electronica,
             nro_orden_fisica,
-            COALESCE(monto_total, 0)                              AS monto_total
+            COALESCE(monto_total, 0)                              AS monto_total,
+            COALESCE(fecha_publicacion, fecha_aceptacion)         AS fecha_orden
         FROM purchase_orders
         CROSS JOIN LATERAL jsonb_array_elements(
             CASE
@@ -966,7 +986,8 @@ def enrich_precios(db: Session = Depends(get_db)):
             precio_unitario                                       AS precio_efectivo,
             orden_electronica,
             nro_orden_fisica,
-            COALESCE(monto_total, 0)                              AS monto_total
+            COALESCE(monto_total, 0)                              AS monto_total,
+            COALESCE(fecha_publicacion, fecha_aceptacion)         AS fecha_orden
         FROM purchase_orders
         WHERE nro_parte IS NOT NULL
           AND nro_parte NOT IN ('', 'null', '[]')
@@ -975,12 +996,12 @@ def enrich_precios(db: Session = Depends(get_db)):
         """
     )).fetchall()
     price_map: dict = defaultdict(list)
-    for nro, precio, orden_elec, orden_fis, monto_tot in raw:
+    for nro, precio, orden_elec, orden_fis, monto_tot, fecha_ord in raw:
         if precio and float(precio) > 0:
             normalized = str(nro).strip().upper()
             if normalized:
                 order_ref = orden_elec or orden_fis or ""
-                price_map[normalized].append((float(precio), order_ref, float(monto_tot or 0)))
+                price_map[normalized].append((float(precio), order_ref, float(monto_tot or 0), fecha_ord))
 
     # Diagnostic: log first 5 keys so mismatches can be spotted quickly
     sample_po_keys = list(price_map.keys())[:5]
@@ -1025,17 +1046,14 @@ def enrich_precios(db: Session = Depends(get_db)):
             "n_ordenes_precio": len(precios_only),
             "orden_min": precios_s[0][1],
             "monto_orden_min": round(precios_s[0][2], 4),
+            "fecha_orden_min": precios_s[0][3],
             "orden_max": precios_s[-1][1],
             "monto_orden_max": round(precios_s[-1][2], 4),
+            "fecha_orden_max": precios_s[-1][3],
         }
 
     # 5. Update fichas_producto
     # ── STEP A: Reset all price columns to NULL first ────────────────────────
-    # This guarantees each enrich run is idempotent and deterministic.
-    # Without this, stale prices from previous runs (for products that are no
-    # longer in purchase_orders) would persist indefinitely, causing volatility
-    # values to appear to change across runs and prices to "randomly" disappear
-    # or reappear depending on which data was scraped most recently.
     try:
         db.execute(text(
             f'UPDATE {_TABLE} SET '
@@ -1043,6 +1061,7 @@ def enrich_precios(db: Session = Depends(get_db)):
             f'precio_mediana = NULL, precio_volatilidad = NULL, '
             f'n_ordenes_precio = NULL, orden_min = NULL, orden_max = NULL, '
             f'monto_orden_min = NULL, monto_orden_max = NULL, '
+            f'fecha_orden_min = NULL, fecha_orden_max = NULL, '
             f'precio_actualizado_at = NULL'
         ))
         db.commit()
@@ -1053,7 +1072,6 @@ def enrich_precios(db: Session = Depends(get_db)):
     now = datetime.now(tz=timezone.utc)
 
     # ── STEP B: Fetch distinct nro_parte values (deduplicated) ───────────────
-    # Use UPPER() so we match consistently regardless of case stored in fichas.
     fichas_keys = db.execute(
         text(f'SELECT DISTINCT UPPER(TRIM("{nro_col}")) FROM {_TABLE} WHERE "{nro_col}" IS NOT NULL AND TRIM("{nro_col}") != \'\'')
     ).fetchall()
@@ -1083,8 +1101,10 @@ def enrich_precios(db: Session = Depends(get_db)):
             "ts": now,
             "omin": cp["orden_min"],
             "momin": cp["monto_orden_min"],
+            "fomin": cp["fecha_orden_min"],
             "omax": cp["orden_max"],
             "momax": cp["monto_orden_max"],
+            "fomax": cp["fecha_orden_max"],
             "key": norm_key,
         })
         enriched += 1
@@ -1096,8 +1116,8 @@ def enrich_precios(db: Session = Depends(get_db)):
                 f'precio_referencia = :pr, precio_min = :pmin, precio_max = :pmax, '
                 f'precio_mediana = :pmed, precio_volatilidad = :pvol, '
                 f'n_ordenes_precio = :n, precio_actualizado_at = :ts, '
-                f'orden_min = :omin, monto_orden_min = :momin, '
-                f'orden_max = :omax, monto_orden_max = :momax '
+                f'orden_min = :omin, monto_orden_min = :momin, fecha_orden_min = :fomin, '
+                f'orden_max = :omax, monto_orden_max = :momax, fecha_orden_max = :fomax '
                 f'WHERE UPPER(TRIM("{nro_col}")) = :key'
             )
             # Batch execute in chunks of 500 via Connection object to prevent ORM Session executemany errors

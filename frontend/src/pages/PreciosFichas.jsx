@@ -18,6 +18,47 @@ const VolBadge = ({ vol }) => {
   return <span className="badge badge-error">Alta {v.toFixed(1)}%</span>;
 };
 
+const formatMesOrden = (fechaStr, ordenStr) => {
+  if (fechaStr) {
+    try {
+      const d = new Date(fechaStr.includes('T') ? fechaStr : `${fechaStr}T12:00:00`);
+      if (!isNaN(d.getTime())) {
+        const mes = d.toLocaleDateString('es-PE', { month: 'short', year: 'numeric' });
+        return mes.charAt(0).toUpperCase() + mes.slice(1);
+      }
+    } catch (_) {}
+  }
+  if (ordenStr) {
+    const yMatch = ordenStr.match(/202[0-9]/);
+    if (yMatch) return `Año ${yMatch[0]}`;
+  }
+  return null;
+};
+
+const getAntiguedadBadge = (fechaStr, ordenStr) => {
+  let dateObj = null;
+  if (fechaStr) {
+    const d = new Date(fechaStr.includes('T') ? fechaStr : `${fechaStr}T12:00:00`);
+    if (!isNaN(d.getTime())) dateObj = d;
+  } else if (ordenStr) {
+    const y = ordenStr.match(/202[0-9]/);
+    if (y) dateObj = new Date(`${y[0]}-06-01`);
+  }
+  if (!dateObj) return null;
+
+  const now = new Date();
+  const diffMonths = (now.getFullYear() - dateObj.getFullYear()) * 12 + (now.getMonth() - dateObj.getMonth());
+
+  if (diffMonths <= 3) {
+    return { text: 'Reciente', color: '#16a34a', bg: 'rgba(22,163,74,0.1)' };
+  } else if (diffMonths <= 12) {
+    return { text: `${diffMonths}m atrás`, color: '#0284c7', bg: 'rgba(2,132,199,0.1)' };
+  } else {
+    const years = Math.max(1, Math.floor(diffMonths / 12));
+    return { text: `Antigua (${years}a)`, color: '#b45309', bg: 'rgba(180,83,9,0.1)' };
+  }
+};
+
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
 const StatCard = ({ label, value, sub, icon: Icon, color, filtered }) => (
@@ -547,40 +588,118 @@ const PreciosFichas = () => {
                       <td style={{ textAlign: 'right', fontWeight: 600, color: f.precio_referencia ? 'var(--c-text)' : 'var(--c-text-tertiary)' }}>
                         {fmt(f.precio_referencia)}
                       </td>
-                      <td style={{ textAlign: 'right', fontSize: 12, color: 'var(--c-text-secondary)' }}>
-                        {f.orden_min ? (
-                          <div
-                            onClick={() => navigate(`/orders?search=${f.orden_min}`)}
-                            title={`Ir a orden: ${f.orden_min}`}
-                            style={{ cursor: 'pointer', color: 'var(--c-brand)', textDecoration: 'underline', fontWeight: 600 }}
-                          >
-                            {fmt(f.precio_min)}
-                          </div>
+                      <td style={{ textAlign: 'right', fontSize: 12, color: 'var(--c-text-secondary)', verticalAlign: 'top' }}>
+                        {f.precio_min != null ? (
+                          <>
+                            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--c-text)' }}>
+                              {fmt(f.precio_min)}
+                            </div>
+                            {f.orden_min && (
+                              <div
+                                onClick={() => navigate(`/orders?search=${f.orden_min}`)}
+                                title={`Ir a orden: ${f.orden_min}`}
+                                style={{
+                                  cursor: 'pointer',
+                                  color: 'var(--c-brand)',
+                                  textDecoration: 'underline',
+                                  fontSize: 10,
+                                  fontFamily: 'monospace',
+                                  marginTop: 2,
+                                  whiteSpace: 'nowrap'
+                                }}
+                              >
+                                {f.orden_min}
+                              </div>
+                            )}
+                            {(f.fecha_orden_min || f.orden_min) && (() => {
+                              const mes = formatMesOrden(f.fecha_orden_min, f.orden_min);
+                              const badge = getAntiguedadBadge(f.fecha_orden_min, f.orden_min);
+                              if (!mes) return null;
+                              return (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 }}>
+                                  <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', fontWeight: 500 }}>
+                                    📅 {mes}
+                                  </span>
+                                  {badge && (
+                                    <span style={{
+                                      fontSize: 9,
+                                      fontWeight: 600,
+                                      padding: '1px 5px',
+                                      borderRadius: 4,
+                                      color: badge.color,
+                                      background: badge.bg
+                                    }}>
+                                      {badge.text}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                            {f.monto_orden_min != null && Number(f.monto_orden_min) > 0 && (
+                              <div style={{ fontSize: 9, color: 'var(--c-text-tertiary)', marginTop: 2 }} title="Monto total contratado en la orden con precio mínimo">
+                                Tot: S/ {fmt(f.monto_orden_min)}
+                              </div>
+                            )}
+                          </>
                         ) : (
-                          fmt(f.precio_min)
-                        )}
-                        {f.monto_orden_min != null && Number(f.monto_orden_min) > 0 && (
-                          <div style={{ fontSize: 10, color: 'var(--c-text-tertiary)', marginTop: 2 }} title="Monto total de la compra en la orden con precio mínimo">
-                            Tot: S/ {fmt(f.monto_orden_min)}
-                          </div>
+                          <span style={{ color: 'var(--c-text-tertiary)' }}>—</span>
                         )}
                       </td>
-                      <td style={{ textAlign: 'right', fontSize: 12, color: 'var(--c-text-secondary)' }}>
-                        {f.orden_max ? (
-                          <div
-                            onClick={() => navigate(`/orders?search=${f.orden_max}`)}
-                            title={`Ir a orden: ${f.orden_max}`}
-                            style={{ cursor: 'pointer', color: 'var(--c-brand)', textDecoration: 'underline', fontWeight: 600 }}
-                          >
-                            {fmt(f.precio_max)}
-                          </div>
+                      <td style={{ textAlign: 'right', fontSize: 12, color: 'var(--c-text-secondary)', verticalAlign: 'top' }}>
+                        {f.precio_max != null ? (
+                          <>
+                            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--c-text)' }}>
+                              {fmt(f.precio_max)}
+                            </div>
+                            {f.orden_max && (
+                              <div
+                                onClick={() => navigate(`/orders?search=${f.orden_max}`)}
+                                title={`Ir a orden: ${f.orden_max}`}
+                                style={{
+                                  cursor: 'pointer',
+                                  color: 'var(--c-brand)',
+                                  textDecoration: 'underline',
+                                  fontSize: 10,
+                                  fontFamily: 'monospace',
+                                  marginTop: 2,
+                                  whiteSpace: 'nowrap'
+                                }}
+                              >
+                                {f.orden_max}
+                              </div>
+                            )}
+                            {(f.fecha_orden_max || f.orden_max) && (() => {
+                              const mes = formatMesOrden(f.fecha_orden_max, f.orden_max);
+                              const badge = getAntiguedadBadge(f.fecha_orden_max, f.orden_max);
+                              if (!mes) return null;
+                              return (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 }}>
+                                  <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', fontWeight: 500 }}>
+                                    📅 {mes}
+                                  </span>
+                                  {badge && (
+                                    <span style={{
+                                      fontSize: 9,
+                                      fontWeight: 600,
+                                      padding: '1px 5px',
+                                      borderRadius: 4,
+                                      color: badge.color,
+                                      background: badge.bg
+                                    }}>
+                                      {badge.text}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                            {f.monto_orden_max != null && Number(f.monto_orden_max) > 0 && (
+                              <div style={{ fontSize: 9, color: 'var(--c-text-tertiary)', marginTop: 2 }} title="Monto total contratado en la orden con precio máximo">
+                                Tot: S/ {fmt(f.monto_orden_max)}
+                              </div>
+                            )}
+                          </>
                         ) : (
-                          fmt(f.precio_max)
-                        )}
-                        {f.monto_orden_max != null && Number(f.monto_orden_max) > 0 && (
-                          <div style={{ fontSize: 10, color: 'var(--c-text-tertiary)', marginTop: 2 }} title="Monto total de la compra en la orden con precio máximo">
-                            Tot: S/ {fmt(f.monto_orden_max)}
-                          </div>
+                          <span style={{ color: 'var(--c-text-tertiary)' }}>—</span>
                         )}
                       </td>
                       <td><VolBadge vol={f.precio_volatilidad} /></td>

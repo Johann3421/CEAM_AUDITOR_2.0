@@ -10,17 +10,19 @@ from app.services.proveedores_scraper import run_worker_pool_extraction, fetch_s
 
 router = APIRouter(prefix="/proveedores", tags=["proveedores"])
 
-def _get_fichas_pdf_join(db: Session) -> tuple[str, str]:
+def _get_fichas_pdf_join(db: Session):
     """
-    Returns (join_sql, select_expr) to link PDF from fichas_producto by nro_parte.
+    Returns (join_sql, select_expr, ord_min_expr, fec_min_expr, pref_expr, pmin_expr, momin_expr) 
+    to link PDF and historical order/price data from fichas_producto by nro_parte.
     """
+    fallback = ("", "f.pdf_url", "NULL::text", "NULL::text", "NULL::numeric", "NULL::numeric", "NULL::numeric")
     try:
         rows = db.execute(text(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'fichas_producto'"
         )).fetchall()
         cols = [r[0] for r in rows]
         if not cols:
-            return "", "f.pdf_url"
+            return fallback
             
         col_set = set(cols)
         
@@ -40,23 +42,43 @@ def _get_fichas_pdf_join(db: Session) -> tuple[str, str]:
         if not pdf_col:
             pdf_col = next((c for c in cols if 'pdf' in c.lower() or 'ficha' in c.lower() or 'url' in c.lower()), None)
             
-        if nro_col and pdf_col:
+        if nro_col:
+            pdf_select_field = f'fp."{pdf_col}" AS _linked_pdf,' if pdf_col else "NULL::text AS _linked_pdf,"
+            ord_min_field = 'fp.orden_min AS _linked_orden_min,' if 'orden_min' in col_set else "NULL::text AS _linked_orden_min,"
+            fec_min_field = 'fp.fecha_orden_min::text AS _linked_fecha_orden_min,' if 'fecha_orden_min' in col_set else "NULL::text AS _linked_fecha_orden_min,"
+            pref_field = 'fp.precio_referencia AS _linked_precio_ref,' if 'precio_referencia' in col_set else "NULL::numeric AS _linked_precio_ref,"
+            pmin_field = 'fp.precio_min AS _linked_precio_min,' if 'precio_min' in col_set else "NULL::numeric AS _linked_precio_min,"
+            momin_field = 'fp.monto_orden_min AS _linked_monto_orden_min' if 'monto_orden_min' in col_set else "NULL::numeric AS _linked_monto_orden_min"
+
             join_sql = f"""
                 LEFT JOIN (
                     SELECT DISTINCT ON (UPPER(TRIM(fp."{nro_col}")))
                         UPPER(TRIM(fp."{nro_col}")) AS _match_nro,
-                        fp."{pdf_col}" AS _linked_pdf
+                        {pdf_select_field}
+                        {ord_min_field}
+                        {fec_min_field}
+                        {pref_field}
+                        {pmin_field}
+                        {momin_field}
                     FROM fichas_producto fp
-                    WHERE fp."{pdf_col}" IS NOT NULL AND fp."{pdf_col}" != '' AND fp."{pdf_col}" != '#'
-                    ORDER BY UPPER(TRIM(fp."{nro_col}")), fp."{pdf_col}" DESC
+                    WHERE fp."{nro_col}" IS NOT NULL AND fp."{nro_col}" != ''
+                    ORDER BY UPPER(TRIM(fp."{nro_col}")), fp.id DESC
                 ) fp_pdf ON UPPER(TRIM(f.nro_parte)) = fp_pdf._match_nro
             """
-            select_expr = "COALESCE(NULLIF(NULLIF(f.pdf_url, ''), '#'), fp_pdf._linked_pdf)"
-            return join_sql, select_expr
+            select_expr = "COALESCE(NULLIF(NULLIF(f.pdf_url, ''), '#'), fp_pdf._linked_pdf)" if pdf_col else "f.pdf_url"
+            return (
+                join_sql,
+                select_expr,
+                "fp_pdf._linked_orden_min",
+                "fp_pdf._linked_fecha_orden_min",
+                "fp_pdf._linked_precio_ref",
+                "fp_pdf._linked_precio_min",
+                "fp_pdf._linked_monto_orden_min"
+            )
     except Exception:
         pass
         
-    return "", "f.pdf_url"
+    return fallback
 
 
 @router.get("/fichas")
@@ -103,7 +125,7 @@ def get_proveedor_fichas(
     params = {}
     where_clauses = ["1=1"]
 
-    pdf_join, pdf_select = _get_fichas_pdf_join(db)
+    pdf_join, pdf_select, ord_min_expr, fec_min_expr, pref_expr, pmin_expr, momin_expr = _get_fichas_pdf_join(db)
 
     if proveedor and proveedor.lower() != "all":
         prov_l = proveedor.lower()
@@ -491,6 +513,11 @@ def get_proveedor_fichas(
                     f.provincia,
                     {pdf_select} AS pdf_url,
                     f.fecha_extraccion,
+                    {ord_min_expr} AS orden_min,
+                    {fec_min_expr} AS fecha_orden_min,
+                    {pref_expr} AS precio_referencia,
+                    {pmin_expr} AS precio_historico_min,
+                    {momin_expr} AS monto_orden_min,
                     CASE 
                         WHEN UPPER(TRIM(COALESCE(f.nro_parte, ''))) IN ('', '-', 'S/N', 'SN', 'COLECTIVO', 'VARIOS', '0', 'NO TIENE', 'SIN NUMERO', 'SIN NUMERO DE PARTE', 'NO APLICA') 
                         THEN CONCAT(COALESCE(NULLIF(TRIM(f.nro_parte), ''), 'S/N'), '::', MD5(COALESCE(f.descripcion_producto, f.id::text)))
@@ -519,7 +546,12 @@ def get_proveedor_fichas(
                     r.region,
                     r.provincia,
                     r.pdf_url,
-                    r.fecha_extraccion
+                    r.fecha_extraccion,
+                    r.orden_min,
+                    r.fecha_orden_min,
+                    r.precio_referencia,
+                    r.precio_historico_min,
+                    r.monto_orden_min
                 FROM raw_matched r
                 ORDER BY r.group_key, r.ruc_proveedor, r.precio_ofertado ASC NULLS LAST, r.id DESC
             ),
@@ -540,6 +572,11 @@ def get_proveedor_fichas(
                     MAX(r.region) AS region,
                     MAX(r.provincia) AS provincia,
                     MAX(r.pdf_url) AS pdf_url,
+                    MAX(r.orden_min) AS orden_min,
+                    MAX(r.fecha_orden_min) AS fecha_orden_min,
+                    MAX(r.precio_referencia) AS precio_referencia,
+                    MAX(r.precio_historico_min) AS precio_historico_min,
+                    MAX(r.monto_orden_min) AS monto_orden_min,
                     SUM(COALESCE(r.existencia_stock, 0)) AS existencia_stock,
                     COUNT(DISTINCT r.ruc_proveedor) AS total_proveedores,
                     json_agg(
@@ -577,6 +614,11 @@ def get_proveedor_fichas(
                 g.region,
                 g.provincia,
                 g.pdf_url,
+                g.orden_min,
+                g.fecha_orden_min,
+                g.precio_referencia,
+                g.precio_historico_min,
+                g.monto_orden_min,
                 g.existencia_stock,
                 g.total_proveedores,
                 g.ofertas,
@@ -617,6 +659,11 @@ def get_proveedor_fichas(
                 f.region,
                 f.provincia,
                 {pdf_select} AS pdf_url,
+                {ord_min_expr} AS orden_min,
+                {fec_min_expr} AS fecha_orden_min,
+                {pref_expr} AS precio_referencia,
+                {pmin_expr} AS precio_historico_min,
+                {momin_expr} AS monto_orden_min,
                 f.raw_json,
                 f.fecha_extraccion::text AS fecha_extraccion,
                 1 AS total_proveedores,

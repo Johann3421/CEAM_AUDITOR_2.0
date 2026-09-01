@@ -18,6 +18,47 @@ const REGIONES_PERU = [
   'AMAZONAS', 'APURIMAC', 'HUANCAVELICA', 'MADRE DE DIOS'
 ];
 
+const formatMesOrden = (fechaStr, ordenStr) => {
+  if (fechaStr) {
+    try {
+      const d = new Date(fechaStr.includes('T') ? fechaStr : `${fechaStr}T12:00:00`);
+      if (!isNaN(d.getTime())) {
+        const mes = d.toLocaleDateString('es-PE', { month: 'short', year: 'numeric' });
+        return mes.charAt(0).toUpperCase() + mes.slice(1);
+      }
+    } catch (_) {}
+  }
+  if (ordenStr) {
+    const yMatch = ordenStr.match(/202[0-9]/);
+    if (yMatch) return `Año ${yMatch[0]}`;
+  }
+  return null;
+};
+
+const getAntiguedadBadge = (fechaStr, ordenStr) => {
+  let dateObj = null;
+  if (fechaStr) {
+    const d = new Date(fechaStr.includes('T') ? fechaStr : `${fechaStr}T12:00:00`);
+    if (!isNaN(d.getTime())) dateObj = d;
+  } else if (ordenStr) {
+    const y = ordenStr.match(/202[0-9]/);
+    if (y) dateObj = new Date(`${y[0]}-06-01`);
+  }
+  if (!dateObj) return null;
+
+  const now = new Date();
+  const diffMonths = (now.getFullYear() - dateObj.getFullYear()) * 12 + (now.getMonth() - dateObj.getMonth());
+
+  if (diffMonths <= 3) {
+    return { text: 'Reciente', color: '#16a34a', bg: 'rgba(22,163,74,0.1)' };
+  } else if (diffMonths <= 12) {
+    return { text: `${diffMonths}m atrás`, color: '#0284c7', bg: 'rgba(2,132,199,0.1)' };
+  } else {
+    const years = Math.max(1, Math.floor(diffMonths / 12));
+    return { text: `Antigua (${years}a)`, color: '#b45309', bg: 'rgba(180,83,9,0.1)' };
+  }
+};
+
 const CATEGORIAS_CONFIG = [
   { id: 'all', label: 'Todas las Categorías', icon: Layers, type: 'all' },
   
@@ -1390,7 +1431,7 @@ const FiltroPiezas = () => {
                     </div>
                   ) : (
                     /* Single Provider Mode */
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                       <div>
                         <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', display: 'block' }}>
                           {item.nombre_proveedor || item.proveedor || 'Proveedor'}
@@ -1410,18 +1451,110 @@ const FiltroPiezas = () => {
                         <strong style={{ fontSize: 15, color: 'var(--c-text)', fontWeight: 800 }}>
                           S/ {fmt(item.min_precio || item.precio_ofertado)}
                         </strong>
+                        {item.orden_min ? (
+                          <div style={{ marginTop: 2 }}>
+                            <span
+                              onClick={() => navigate(`/orders?search=${item.orden_min}`)}
+                              title={`Ver orden: ${item.orden_min}`}
+                              style={{
+                                cursor: 'pointer',
+                                color: 'var(--c-brand)',
+                                textDecoration: 'underline',
+                                fontSize: 10,
+                                fontFamily: 'monospace',
+                                display: 'block'
+                              }}
+                            >
+                              {item.orden_min}
+                            </span>
+                            {(() => {
+                              const mes = formatMesOrden(item.fecha_orden_min, item.orden_min);
+                              const badge = getAntiguedadBadge(item.fecha_orden_min, item.orden_min);
+                              if (!mes) return null;
+                              return (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 1 }}>
+                                  <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)' }}>📅 {mes}</span>
+                                  {badge && (
+                                    <span style={{
+                                      fontSize: 9,
+                                      fontWeight: 600,
+                                      padding: '1px 4px',
+                                      borderRadius: 4,
+                                      color: badge.color,
+                                      background: badge.bg
+                                    }}>
+                                      {badge.text}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        ) : (
+                          item.fecha_extraccion && (
+                            <div style={{ fontSize: 9, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
+                              📅 Catálogo {formatMesOrden(item.fecha_extraccion)} (Vigente)
+                            </div>
+                          )
+                        )}
                       </div>
                     </div>
                   )}
 
                   {/* Actions Bar */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 8 }}>
                     {selectedProveedor === 'all' && (
                       <div>
                         <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', display: 'block' }}>Mejor Precio</span>
                         <strong style={{ fontSize: 15, color: 'var(--c-text)', fontWeight: 800 }}>
                           S/ {fmt(item.min_precio)}
                         </strong>
+                        {item.orden_min ? (
+                          <div style={{ marginTop: 2 }}>
+                            <span
+                              onClick={() => navigate(`/orders?search=${item.orden_min}`)}
+                              title={`Ver orden: ${item.orden_min}`}
+                              style={{
+                                cursor: 'pointer',
+                                color: 'var(--c-brand)',
+                                textDecoration: 'underline',
+                                fontSize: 10,
+                                fontFamily: 'monospace',
+                                display: 'block'
+                              }}
+                            >
+                              {item.orden_min}
+                            </span>
+                            {(() => {
+                              const mes = formatMesOrden(item.fecha_orden_min, item.orden_min);
+                              const badge = getAntiguedadBadge(item.fecha_orden_min, item.orden_min);
+                              if (!mes) return null;
+                              return (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
+                                  <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)' }}>📅 {mes}</span>
+                                  {badge && (
+                                    <span style={{
+                                      fontSize: 9,
+                                      fontWeight: 600,
+                                      padding: '1px 4px',
+                                      borderRadius: 4,
+                                      color: badge.color,
+                                      background: badge.bg
+                                    }}>
+                                      {badge.text}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        ) : (
+                          item.fecha_extraccion && (
+                            <div style={{ fontSize: 9, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
+                              📅 Catálogo {formatMesOrden(item.fecha_extraccion)} (Vigente)
+                            </div>
+                          )
+                        )}
                       </div>
                     )}
                     <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
@@ -1536,8 +1669,57 @@ const FiltroPiezas = () => {
                           item.nombre_proveedor || item.proveedor || (ofertas[0]?.nombre_proveedor) || '—'
                         )}
                       </td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                        S/ {fmt(item.min_precio || item.precio_ofertado)}
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                        <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--c-text)' }}>
+                          S/ {fmt(item.min_precio || item.precio_ofertado)}
+                        </div>
+                        {item.orden_min ? (
+                          <div style={{ marginTop: 2 }}>
+                            <div
+                              onClick={() => navigate(`/orders?search=${item.orden_min}`)}
+                              title={`Ir a orden: ${item.orden_min}`}
+                              style={{
+                                cursor: 'pointer',
+                                color: 'var(--c-brand)',
+                                textDecoration: 'underline',
+                                fontSize: 10,
+                                fontFamily: 'monospace'
+                              }}
+                            >
+                              {item.orden_min}
+                            </div>
+                            {(() => {
+                              const mes = formatMesOrden(item.fecha_orden_min, item.orden_min);
+                              const badge = getAntiguedadBadge(item.fecha_orden_min, item.orden_min);
+                              if (!mes) return null;
+                              return (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 }}>
+                                  <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', fontWeight: 500 }}>
+                                    📅 {mes}
+                                  </span>
+                                  {badge && (
+                                    <span style={{
+                                      fontSize: 9,
+                                      fontWeight: 600,
+                                      padding: '1px 5px',
+                                      borderRadius: 4,
+                                      color: badge.color,
+                                      background: badge.bg
+                                    }}>
+                                      {badge.text}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        ) : (
+                          item.fecha_extraccion && (
+                            <div style={{ fontSize: 9, color: 'var(--c-text-tertiary)', marginTop: 2 }}>
+                              📅 Catálogo {formatMesOrden(item.fecha_extraccion)} (Vigente)
+                            </div>
+                          )
+                        )}
                       </td>
                       <td style={{ textAlign: 'center' }}>
                         {pdfUrl && pdfUrl !== '#' ? (
