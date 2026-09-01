@@ -120,6 +120,7 @@ def get_proveedor_fichas(
     unidad_optica: Optional[str] = Query(None, description="Filtro de Unidad Óptica: si, no"),
     camara: Optional[str] = Query(None, description="Filtro de Cámara Web: si, no"),
     tactil: Optional[str] = Query(None, description="Filtro de Pantalla Táctil: si, no"),
+    con_orden: Optional[bool] = Query(None, description="Filtrar solo fichas con orden de compra registrada"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=5000),
     db: Session = Depends(get_db)
@@ -240,6 +241,9 @@ def get_proveedor_fichas(
             where_clauses.append(f"({pdf_select} IS NOT NULL AND {pdf_select} != '' AND {pdf_select} != '#')")
         elif pdf_l in ("no_pdf", "sin_pdf", "0", "false"):
             where_clauses.append(f"({pdf_select} IS NULL OR {pdf_select} = '' OR {pdf_select} = '#')")
+
+    if con_orden:
+        where_clauses.append(f"({ord_min_expr} IS NOT NULL AND {ord_min_expr} != '')")
 
     # ── Filtros de Características Técnicas por Componente ───────────────
     if cpu and cpu != 'Todos':

@@ -6,10 +6,11 @@ import {
   SlidersHorizontal, Laptop, Printer, Smartphone, Clock,
   FileText, Check, Copy, AlertCircle, ChevronLeft, ChevronRight,
   ChevronsLeft, ChevronsRight, Tv, MonitorCheck, Wifi, Shield,
-  Briefcase, Disc, Camera, Touchpad, Cable
+  Briefcase, Disc, Camera, Touchpad, Cable, ArrowUp, ArrowDown, ChevronsUpDown, Tag, Package
 } from 'lucide-react';
 import { proveedoresApi } from '../services/api';
 import { parseProductSpecs } from '../utils/specsParser';
+import HeaderFilter from '../components/HeaderFilter';
 
 const REGIONES_PERU = [
   'LIMA', 'CALLAO', 'AREQUIPA', 'CUSCO', 'LA LIBERTAD', 'PIURA', 'LAMBAYEQUE',
@@ -289,6 +290,8 @@ const FiltroPiezas = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedRegion, setSelectedRegion] = useState('LIMA');
   const [soloConStock, setSoloConStock] = useState(false);
+  const [soloConOrden, setSoloConOrden] = useState(false);
+  const [sortBy, setSortBy] = useState('');
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
 
@@ -379,6 +382,8 @@ const FiltroPiezas = () => {
       if (selectedProveedor !== 'all') params.proveedor = selectedProveedor;
       if (selectedCategory !== 'all') params.categoria = selectedCategory;
       if (soloConStock) params.stock_filter = 'with_stock';
+      if (soloConOrden) params.con_orden = true;
+      if (sortBy) params.sort_by = sortBy;
       if (search.trim()) params.search = search.trim();
       if (filterMarca !== 'Todos') params.marca = filterMarca;
       if (filterCpu !== 'Todos') params.cpu = filterCpu;
@@ -462,6 +467,7 @@ const FiltroPiezas = () => {
     }
   }, [
     selectedProveedor, selectedCategory, selectedRegion, soloConStock,
+    soloConOrden, sortBy,
     search, filterMarca, filterCpu, filterCpuGen, filterRam, filterRamTech,
     filterStorage, filterDiscoTipo, filterVga, filterHdmi, filterWifi, filterLan,
     filterBluetooth, filterOffice, filterGarantia, filterUnidadOptica,
@@ -509,6 +515,8 @@ const FiltroPiezas = () => {
     setFilterMarca('Todos');
     setSearch('');
     setSoloConStock(false);
+    setSoloConOrden(false);
+    setSortBy('');
     setPage(1);
   };
 
@@ -539,7 +547,7 @@ const FiltroPiezas = () => {
     filterWifi !== 'Todos' || filterLan !== 'Todos' || filterBluetooth !== 'Todos' || filterOffice !== 'Todos' ||
     filterGarantia !== 'Todos' || filterUnidadOptica !== 'Todos' || filterCamara !== 'Todos' || filterTactil !== 'Todos' ||
     filterDisplay !== 'Todos' || filterPanel !== 'Todos' || filterResolution !== 'Todos' ||
-    filterOs !== 'Todos' || filterMarca !== 'Todos' || search.trim() !== '' || soloConStock
+    filterOs !== 'Todos' || filterMarca !== 'Todos' || search.trim() !== '' || soloConStock || soloConOrden || sortBy !== ''
   );
 
   const totalPages = Math.max(1, Math.ceil(totalItems / limit));
@@ -610,6 +618,88 @@ const FiltroPiezas = () => {
           >
             <RefreshCw size={14} className={loading ? 'spin' : ''} />
           </button>
+        </div>
+      </div>
+
+      {/* ── Toolbar: Search, Stock & Order Checkboxes, Sort By ─────────── */}
+      <div className="card fade-up" style={{ marginBottom: 12, padding: '10px 16px', background: 'var(--c-surface)', border: '1px solid var(--c-border)' }}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+          
+          {/* Search Input */}
+          <div style={{ position: 'relative', flex: '1 1 280px', minWidth: 240 }}>
+            <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--c-text-tertiary)' }} />
+            <input
+              type="text"
+              className="form-input"
+              placeholder="Buscar por N° Parte, Marca, Modelo, Procesador o Especificación…"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              style={{ paddingLeft: 32, paddingRight: search ? 30 : 12, fontSize: 13, width: '100%', borderRadius: 8 }}
+            />
+            {search && (
+              <button
+                onClick={() => { setSearch(''); setPage(1); }}
+                style={{
+                  position: 'absolute',
+                  right: 8,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--c-text-tertiary)',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+                title="Limpiar búsqueda"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Toggles: Stock & OCAM */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--c-text-primary)', cursor: 'pointer', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={soloConOrden}
+                onChange={(e) => { setSoloConOrden(e.target.checked); setPage(1); }}
+                style={{ cursor: 'pointer', width: 15, height: 15, accentColor: 'var(--c-brand)' }}
+              />
+              <span>🏷️ Solo con OCAM / Precio Histórico</span>
+            </label>
+
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--c-text-primary)', cursor: 'pointer', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={soloConStock}
+                onChange={(e) => { setSoloConStock(e.target.checked); setPage(1); }}
+                style={{ cursor: 'pointer', width: 15, height: 15, accentColor: '#16a34a' }}
+              />
+              <span>📦 Solo con Stock (&gt; 0)</span>
+            </label>
+          </div>
+
+          {/* Sort By Select */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-secondary)', whiteSpace: 'nowrap' }}>
+              Ordenar por:
+            </span>
+            <select
+              className="form-select"
+              value={sortBy}
+              onChange={(e) => { setSortBy(e.target.value); setPage(1); }}
+              style={{ fontSize: 12, padding: '5px 10px', borderRadius: 8, minWidth: 175 }}
+            >
+              <option value="">Por defecto (Relevancia)</option>
+              <option value="precio_asc">Precio: Menor a Mayor (S/ ↑)</option>
+              <option value="precio_desc">Precio: Mayor a Menor (S/ ↓)</option>
+              <option value="stock_desc">Stock: Mayor a Menor (↓)</option>
+              <option value="marca_asc">Marca: A - Z</option>
+            </select>
+          </div>
+
         </div>
       </div>
 
@@ -1607,8 +1697,24 @@ const FiltroPiezas = () => {
             <table className="data-table" style={{ fontSize: '0.85rem' }}>
               <thead>
                 <tr>
-                  <th>N° Parte</th>
-                  <th>Marca</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>
+                    <HeaderFilter
+                      title="N° Parte"
+                      column="nro_parte"
+                      currentFilter={search}
+                      onFilterChange={(v) => { setSearch(v || ''); setPage(1); }}
+                      apiCall={proveedoresApi.getColumnFilter}
+                    />
+                  </th>
+                  <th style={{ whiteSpace: 'nowrap' }}>
+                    <HeaderFilter
+                      title="Marca"
+                      column="marca"
+                      currentFilter={filterMarca === 'Todos' ? '' : filterMarca}
+                      onFilterChange={(v) => { setFilterMarca(v || 'Todos'); setPage(1); }}
+                      apiCall={proveedoresApi.getColumnFilter}
+                    />
+                  </th>
                   <th>Categoría</th>
                   {showCpuRamStorage && <th>CPU / Gen</th>}
                   {showCpuRamStorage && <th>RAM / Tipo</th>}
@@ -1620,7 +1726,25 @@ const FiltroPiezas = () => {
                   {showPeripherals && <th>Office</th>}
                   {showOs && <th>SO</th>}
                   <th>Proveedor(es)</th>
-                  <th style={{ textAlign: 'right' }}>Precio Min. (S/)</th>
+                  <th
+                    style={{ textAlign: 'right', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                    onClick={() => {
+                      setSortBy(prev => prev === 'precio_asc' ? 'precio_desc' : prev === 'precio_desc' ? '' : 'precio_asc');
+                      setPage(1);
+                    }}
+                    title="Ordenar por precio"
+                  >
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                      Precio Min. (S/)
+                      {sortBy === 'precio_asc' ? (
+                        <ArrowUp size={12} style={{ color: 'var(--c-brand)' }} />
+                      ) : sortBy === 'precio_desc' ? (
+                        <ArrowDown size={12} style={{ color: 'var(--c-brand)' }} />
+                      ) : (
+                        <ChevronsUpDown size={12} style={{ opacity: 0.35 }} />
+                      )}
+                    </span>
+                  </th>
                   <th style={{ textAlign: 'center' }}>PDF</th>
                 </tr>
               </thead>
