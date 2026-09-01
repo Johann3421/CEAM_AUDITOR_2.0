@@ -129,104 +129,9 @@ def list_fichas(
         f'LIMIT :limit OFFSET :skip'
     )
     rows = db.execute(sql, params).fetchall()
-    items = [dict(zip(cols, row)) for row in rows]
-
-    # Auto-resolve missing prices for current page on-the-fly from purchase_orders
-    nro_col = next((c for c in cols if c.startswith("nro_parte")), None)
-    if nro_col and items:
-        missing_items = [
-            it for it in items
-            if it.get("precio_referencia") is None and it.get(nro_col)
-        ]
-        if missing_items:
-            for it in missing_items:
-                raw_part = str(it[nro_col] or "").strip()
-                if not raw_part or raw_part.upper() in ("NAN", "NONE"):
-                    continue
-                clean_p = raw_part.upper().strip('"\'[](){}*# ')
-                if len(clean_p) < 4:
-                    continue
-
-                try:
-                    # Match against JSON nro_parte, simple nro_parte, or detalle_producto
-                    po_rows = db.execute(text("""
-                        SELECT 
-                            COALESCE(
-                                NULLIF((elem->>'precio_unitario')::numeric, 0),
-                                NULLIF((elem->>'total')::numeric / NULLIF((elem->>'cantidad')::numeric, 0), 0),
-                                NULLIF(purchase_orders.precio_unitario, 0),
-                                NULLIF(purchase_orders.sub_total, 0),
-                                NULLIF(purchase_orders.monto_total, 0)
-                            ) AS precio,
-                            COALESCE(purchase_orders.orden_electronica, purchase_orders.nro_orden_fisica, '') AS orden,
-                            COALESCE(purchase_orders.monto_total, 0) AS monto,
-                            COALESCE(purchase_orders.fecha_publicacion, purchase_orders.fecha_aceptacion) AS fecha
-                        FROM purchase_orders
-                        LEFT JOIN LATERAL jsonb_array_elements(
-                            CASE 
-                                WHEN nro_parte IS NOT NULL AND nro_parte LIKE '[%' THEN nro_parte::jsonb 
-                                ELSE '[]'::jsonb 
-                            END
-                        ) AS elem ON TRUE
-                        WHERE (
-                            UPPER(TRIM(elem->>'nro_parte')) = :p
-                            OR UPPER(TRIM(elem->>'nro_parte')) LIKE :p_like
-                            OR UPPER(TRIM(purchase_orders.nro_parte)) = :p
-                            OR UPPER(TRIM(purchase_orders.nro_parte)) LIKE :p_like
-                            OR purchase_orders.detalle_producto ILIKE :p_like
-                        )
-                        AND (
-                            COALESCE((elem->>'precio_unitario')::numeric, 0) > 0
-                            OR COALESCE(purchase_orders.precio_unitario, 0) > 0
-                            OR COALESCE(purchase_orders.sub_total, 0) > 0
-                            OR COALESCE(purchase_orders.monto_total, 0) > 0
-                        )
-                        ORDER BY COALESCE(purchase_orders.fecha_publicacion, purchase_orders.fecha_aceptacion) DESC NULLS LAST
-                        LIMIT 10
-                    """), {"p": clean_p, "p_like": f"%{clean_p}%"}).fetchall()
-
-                    valid_p = [(float(r[0]), str(r[1] or ""), float(r[2] or 0), r[3]) for r in po_rows if r[0] and float(r[0]) > 0]
-                    if valid_p:
-                        p_s = sorted(valid_p, key=lambda x: x[0])
-                        p_med = statistics.median([x[0] for x in p_s])
-                        it["precio_referencia"] = round(p_med, 4)
-                        it["precio_min"] = round(p_s[0][0], 4)
-                        it["orden_min"] = p_s[0][1]
-                        it["monto_orden_min"] = round(p_s[0][2], 4)
-                        it["fecha_orden_min"] = p_s[0][3]
-                        it["precio_max"] = round(p_s[-1][0], 4)
-                        it["orden_max"] = p_s[-1][1]
-                        it["monto_orden_max"] = round(p_s[-1][2], 4)
-                        it["fecha_orden_max"] = p_s[-1][3]
-                        it["n_ordenes_precio"] = len(valid_p)
-                        it["precio_mediana"] = round(p_med, 4)
-                        
-                        # Cache into DB
-                        try:
-                            db.execute(text(f"""
-                                UPDATE {_TABLE} SET
-                                    precio_referencia = :pr, precio_min = :pmin, precio_max = :pmax,
-                                    precio_mediana = :pmed, n_ordenes_precio = :n,
-                                    orden_min = :omin, monto_orden_min = :momin, fecha_orden_min = :fomin,
-                                    orden_max = :omax, monto_orden_max = :momax, fecha_orden_max = :fomax,
-                                    precio_actualizado_at = NOW()
-                                WHERE "{nro_col}" = :orig_key
-                            """), {
-                                "pr": it["precio_referencia"], "pmin": it["precio_min"], "pmax": it["precio_max"],
-                                "pmed": it["precio_mediana"], "n": it["n_ordenes_precio"],
-                                "omin": it["orden_min"], "momin": it["monto_orden_min"], "fomin": it["fecha_orden_min"],
-                                "omax": it["orden_max"], "momax": it["monto_orden_max"], "fomax": it["fecha_orden_max"],
-                                "orig_key": it[nro_col]
-                            })
-                            db.commit()
-                        except Exception:
-                            db.rollback()
-                except Exception:
-                    pass
-
     return {
         "total": total_count,
-        "items": items,
+        "items": [dict(zip(cols, row)) for row in rows],
     }
 
 
@@ -1092,7 +997,7 @@ def enrich_precios(db: Session = Depends(get_db)):
 
         -- 3. Para órdenes donde nro_parte vino vacío pero está en detalle_producto
         SELECT
-            UPPER(TRIM((REGEXP_MATCHES(detalle_producto, '([A-Za-z0-9\\-\\*\\#]{6,25})\\s+SIST(?:\\.|\\s+MANEJO)', 'i'))[1])) AS nro_parte,
+            UPPER(TRIM(SUBSTRING(detalle_producto FROM '([A-Za-z0-9\\-\\*\\#]{6,25})\\s+(?i)sist'))) AS nro_parte,
             COALESCE(
                 NULLIF(precio_unitario, 0),
                 NULLIF(sub_total, 0),
@@ -1104,7 +1009,7 @@ def enrich_precios(db: Session = Depends(get_db)):
             COALESCE(fecha_publicacion, fecha_aceptacion)         AS fecha_orden
         FROM purchase_orders
         WHERE detalle_producto IS NOT NULL
-          AND detalle_producto ~* '([A-Za-z0-9\\-\\*\\#]{6,25})\\s+SIST(?:\\.|\\s+MANEJO)'
+          AND detalle_producto ~* '([A-Za-z0-9\\-\\*\\#]{6,25})\\s+sist'
           AND (
             nro_parte IS NULL 
             OR nro_parte IN ('', 'null', '[]', 'S/N', 'SN', 'NO APLICA', 'NO TIENE')
@@ -1217,29 +1122,6 @@ def enrich_precios(db: Session = Depends(get_db)):
             continue
         clean_k = _clean_nro(norm_key)
         prices = price_map.get(clean_k) or price_map.get(clean_k.rstrip('*#-_ '))
-
-        # Targeted fallback for unmatched keys >= 6 chars
-        if not prices and len(clean_k) >= 6:
-            try:
-                extra_po = db.execute(text("""
-                    SELECT 
-                        COALESCE(
-                            NULLIF(precio_unitario, 0),
-                            NULLIF(sub_total, 0),
-                            NULLIF(monto_total, 0)
-                        ) AS precio,
-                        COALESCE(orden_electronica, nro_orden_fisica, '') AS orden,
-                        COALESCE(monto_total, 0) AS monto,
-                        COALESCE(fecha_publicacion, fecha_aceptacion) AS fecha
-                    FROM purchase_orders
-                    WHERE (detalle_producto ILIKE :k OR nro_parte ILIKE :k)
-                      AND (COALESCE(precio_unitario, 0) > 0 OR COALESCE(sub_total, 0) > 0 OR COALESCE(monto_total, 0) > 0)
-                    LIMIT 5
-                """), {"k": f"%{clean_k}%"}).fetchall()
-                if extra_po:
-                    prices = [(float(r[0]), str(r[1] or ""), float(r[2] or 0), r[3]) for r in extra_po if r[0] and float(r[0]) > 0]
-            except Exception:
-                pass
 
         if not prices:
             not_found += 1
