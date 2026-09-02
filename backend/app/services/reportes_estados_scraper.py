@@ -313,25 +313,10 @@ async def async_sync_estados_fichas(
 
                 try:
                     items = []
-                    is_computadora_escritorio = ("COMPUTADORA DE ESCRITORIO" in categ_nom.upper() and "TODO EN UNO" not in categ_nom.upper())
-
-                    if is_computadora_escritorio:
-                        # Para Computadora de Escritorio, consultar directamente las marcas principales para respuesta instantánea
-                        marcas_principales = ["ADVANCE", "HP", "LENOVO"]
-                        add_status_log(f"   ⚡ Extracción directa por ruta para marcas ({', '.join(marcas_principales)})...")
-                        for m in marcas_principales:
-                            raw_html_m = await _fetch_ruta_reportes(n_cat, n_categ, c_desc=m, timeout_ms=25000)
-                            if raw_html_m:
-                                it_m = parse_tabla_reportes(raw_html_m)
-                                if it_m:
-                                    items.extend(it_m)
-                                    add_status_log(f"      ✓ {len(it_m)} fichas extraídas de la ruta para '{m}'.")
-                            await asyncio.sleep(0.2)
-                    else:
-                        # Para todas las demás categorías: petición directa sin filtro
-                        raw_html = await _fetch_ruta_reportes(n_cat, n_categ, c_desc="", timeout_ms=30000)
-                        if raw_html:
-                            items = parse_tabla_reportes(raw_html)
+                    # Consulta directa a la ruta sin filtros de marca (exactamente igual al primer script)
+                    raw_html = await _fetch_ruta_reportes(n_cat, n_categ, c_desc="", timeout_ms=60000)
+                    if raw_html:
+                        items = parse_tabla_reportes(raw_html)
 
                     # Deduplicar por id_producto_ofertado o nro_parte
                     unique_dict = {}
@@ -343,10 +328,10 @@ async def async_sync_estados_fichas(
 
                     add_status_log(f"   📊 Total consolidado: {len(items)} fichas procesadas en {categ_nom}.")
 
-                    # PASO B: Actualizar en base de datos por nro_parte y nro_parte en descripción
+                    # PASO B: Actualizar en base de datos indexada por nro_parte
                     if items and db is not None:
                         cat_actualizados = 0
-                        sql_up = text("""
+                        sql_up_exact = text("""
                             UPDATE ofertas_proveedor_history
                             SET 
                                 estado_ficha_producto = COALESCE(NULLIF(:estado_f, ''), estado_ficha_producto),
@@ -355,32 +340,49 @@ async def async_sync_estados_fichas(
                                 justificacion_estado = COALESCE(NULLIF(:justif, ''), justificacion_estado),
                                 id_producto_ofertado = COALESCE(NULLIF(:id_of, ''), id_producto_ofertado),
                                 pdf_url = COALESCE(NULLIF(:pdf, ''), pdf_url)
-                            WHERE (
-                                (:np != '' AND :np != 'S/N' AND UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np)))
-                                OR (:np != '' AND :np != 'S/N' AND LENGTH(:np) >= 5 AND UPPER(descripcion_producto) LIKE UPPER(:np_like))
-                            );
+                            WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np));
+                        """)
+
+                        sql_up_desc = text("""
+                            UPDATE ofertas_proveedor_history
+                            SET 
+                                estado_ficha_producto = COALESCE(NULLIF(:estado_f, ''), estado_ficha_producto),
+                                estado_oferta = COALESCE(NULLIF(:estado_o, ''), estado_oferta),
+                                motivo_estado = COALESCE(NULLIF(:motivo, ''), motivo_estado),
+                                justificacion_estado = COALESCE(NULLIF(:justif, ''), justificacion_estado),
+                                id_producto_ofertado = COALESCE(NULLIF(:id_of, ''), id_producto_ofertado),
+                                pdf_url = COALESCE(NULLIF(:pdf, ''), pdf_url)
+                            WHERE UPPER(descripcion_producto) LIKE UPPER(:np_like);
                         """)
 
                         for it in items:
                             np = (it.get("nro_parte") or "").strip()
-                            if not np:
+                            if not np or np in ("S/N", "SN", "-"):
                                 continue
 
+                            params = {
+                                "estado_f": it.get("estado_ficha_producto") or "",
+                                "estado_o": it.get("estado_oferta") or "",
+                                "motivo": it.get("motivo") or "",
+                                "justif": it.get("justificacion") or "",
+                                "id_of": it.get("id_producto_ofertado") or "",
+                                "pdf": it.get("pdf_url") or "",
+                                "np": np
+                            }
+
                             try:
-                                res_up = db.execute(sql_up, {
-                                    "estado_f": it.get("estado_ficha_producto") or "",
-                                    "estado_o": it.get("estado_oferta") or "",
-                                    "motivo": it.get("motivo") or "",
-                                    "justif": it.get("justificacion") or "",
-                                    "id_of": it.get("id_producto_ofertado") or "",
-                                    "pdf": it.get("pdf_url") or "",
-                                    "np": np,
-                                    "np_like": f"%{np}%"
-                                })
-                                cat_actualizados += res_up.rowcount
+                                # 1. Intento rápido por índice exacto de nro_parte (< 0.1 ms)
+                                res_up = db.execute(sql_up_exact, params)
+                                if res_up.rowcount > 0:
+                                    cat_actualizados += res_up.rowcount
+                                elif len(np) >= 6:
+                                    # 2. Fallback solo si no hubo coincidencia exacta y el nro de parte tiene longitud confiable
+                                    params_desc = {**params, "np_like": f"%{np}%"}
+                                    res_desc = db.execute(sql_up_desc, params_desc)
+                                    cat_actualizados += res_desc.rowcount
                             except Exception as row_err:
                                 db.rollback()
-                                logger.warning(f"Error en fila {np}: {row_err}")
+                                logger.warning(f"Error actualizando nro_parte {np}: {row_err}")
 
                         db.commit()
                         total_actualizados += cat_actualizados
