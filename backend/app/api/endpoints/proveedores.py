@@ -248,7 +248,9 @@ def get_proveedor_fichas(
     # ── Filtros de Características Técnicas por Componente ───────────────
     if cpu and cpu != 'Todos':
         cpu_u = cpu.upper().strip()
-        if 'I9' in cpu_u:
+        if 'ULTRA' in cpu_u:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%CORE ULTRA%' OR UPPER(f.descripcion_producto) LIKE '%ULTRA %')")
+        elif 'I9' in cpu_u:
             where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%I9%' OR UPPER(f.descripcion_producto) LIKE '%CORE I9%')")
         elif 'I7' in cpu_u:
             where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%I7%' OR UPPER(f.descripcion_producto) LIKE '%CORE I7%')")
@@ -809,230 +811,71 @@ def get_column_filters(column_name: str, db: Session = Depends(get_db)):
 @router.get("/filter-options")
 def get_filter_options(db: Session = Depends(get_db)):
     """
-    Extrae opciones de filtro dinámicas desde los datos reales en BD.
-    Usa regex SQL para detectar patrones en descripcion_producto y raw_json.
+    Retorna opciones de filtro dinámicas y robustas.
+    Consulta marcas reales desde la base de datos y provee las opciones
+    técnicas estándar catalogadas en Perú Compras para CPU, RAM, Disco, etc.
     """
+    # Catálogo base estándar de componentes de Perú Compras
+    base_options = {
+        "marcas": [
+            "ACER", "ADVANCE", "AOC", "APPLE", "ASUS", "CANON", "DELL", "EPSON",
+            "HP", "HUAWEI", "HYUNDAI", "LENOVO", "LG", "MSI", "SAMSUNG", "TEROW", "VIEWSONIC"
+        ],
+        "cpus": [
+            "Intel Core i3", "Intel Core i5", "Intel Core i7", "Intel Core i9",
+            "Intel Core Ultra", "Intel Celeron", "Intel Pentium", "Intel Xeon",
+            "AMD Ryzen 3", "AMD Ryzen 5", "AMD Ryzen 7", "AMD Ryzen 9"
+        ],
+        "cpu_gens": [
+            "14ª Gen (Intel Core i-14xxx)", "13ª Gen (Intel Core i-13xxx)",
+            "12ª Gen (Intel Core i-12xxx)", "11ª Gen (Intel Core i-11xxx)",
+            "10ª Gen (Intel Core i-10xxx)", "Core Ultra (Series 1)",
+            "AMD Ryzen 7000 / 8000", "AMD Ryzen 5000"
+        ],
+        "rams": [
+            "4 GB", "8 GB", "12 GB", "16 GB", "24 GB", "32 GB", "64 GB", "128 GB"
+        ],
+        "ram_techs": [
+            "DDR4", "DDR5", "LPDDR5 / LPDDR5X"
+        ],
+        "storages": [
+            "128 GB", "256 GB", "512 GB", "1 TB", "2 TB"
+        ],
+        "disco_tipos": [
+            "NVMe M.2 SSD", "M.2 SSD", "Solo SSD", "Híbrido (SSD + HDD)", "Solo HDD"
+        ],
+        "oss": [
+            "Windows 11 Pro", "Windows 11 Home", "Windows 10 Pro",
+            "FreeDOS / Sin SO", "Linux / Ubuntu"
+        ],
+        "displays": [
+            "10.1\"", "10.4\"", "10.5\"", "11\"", "11.6\"", "12.4\"", "13.3\"",
+            "14\"", "15.6\"", "16\"", "17.3\"", "19.5\"", "21.5\"", "23.8\"",
+            "24\"", "27\"", "31.5\"", "32\"", "43\"", "55\"", "65\"", "75\"", "85\""
+        ],
+        "panels": [
+            "IPS", "VA", "TN", "OLED"
+        ],
+        "resolutions": [
+            "HD (1366x768)", "HD+ (1600x900)", "FHD (1920x1080)",
+            "2K QHD (2560x1440)", "4K UHD (3840x2160)"
+        ]
+    }
+
     try:
-        # Marcas
+        # Extraer marcas reales existentes en la base de datos de manera rápida y segura
         marcas_rows = db.execute(text("""
             SELECT DISTINCT marca FROM ofertas_proveedor_history
-            WHERE marca IS NOT NULL AND marca != '' ORDER BY marca
+            WHERE marca IS NOT NULL AND marca != '' ORDER BY marca ASC LIMIT 300
         """)).fetchall()
-        marcas = [r[0] for r in marcas_rows]
-
-        # CPU familias — desde descripcion_producto con patrones conocidos
-        cpu_rows = db.execute(text("""
-            SELECT DISTINCT
-                CASE
-                    WHEN descripcion_producto ILIKE '%Core Ultra%' THEN 'Intel Core Ultra'
-                    WHEN descripcion_producto ILIKE '%Core i9%' THEN 'Intel Core i9'
-                    WHEN descripcion_producto ILIKE '%Core i7%' THEN 'Intel Core i7'
-                    WHEN descripcion_producto ILIKE '%Core i5%' THEN 'Intel Core i5'
-                    WHEN descripcion_producto ILIKE '%Core i3%' THEN 'Intel Core i3'
-                    WHEN descripcion_producto ILIKE '%Celeron%' THEN 'Intel Celeron'
-                    WHEN descripcion_producto ILIKE '%Pentium%' THEN 'Intel Pentium'
-                    WHEN descripcion_producto ILIKE '%Xeon%' THEN 'Intel Xeon'
-                    WHEN descripcion_producto ILIKE '%Ryzen 9%' THEN 'AMD Ryzen 9'
-                    WHEN descripcion_producto ILIKE '%Ryzen 7%' THEN 'AMD Ryzen 7'
-                    WHEN descripcion_producto ILIKE '%Ryzen 5%' THEN 'AMD Ryzen 5'
-                    WHEN descripcion_producto ILIKE '%Ryzen 3%' THEN 'AMD Ryzen 3'
-                    WHEN descripcion_producto ILIKE '%MediaTek%' THEN 'MediaTek'
-                    WHEN descripcion_producto ILIKE '%Qualcomm%' THEN 'Qualcomm'
-                    ELSE NULL
-                END AS cpu_familia
-            FROM ofertas_proveedor_history
-            WHERE descripcion_producto IS NOT NULL
-        """)).fetchall()
-        cpus = sorted({r[0] for r in cpu_rows if r[0]})
-
-        # CPU generaciones Intel
-        gen_rows = db.execute(text("""
-            SELECT DISTINCT
-                CASE
-                    WHEN descripcion_producto ~* 'i[3579]-14[0-9]{3}|Core Ultra' THEN 'Gen 14 / Core Ultra'
-                    WHEN descripcion_producto ~* 'i[3579]-13[0-9]{3}' THEN 'Gen 13 (13xxx)'
-                    WHEN descripcion_producto ~* 'i[3579]-12[0-9]{3}' THEN 'Gen 12 (12xxx)'
-                    WHEN descripcion_producto ~* 'i[3579]-11[0-9]{3}' THEN 'Gen 11 (11xxx)'
-                    WHEN descripcion_producto ~* 'i[3579]-10[0-9]{3}' THEN 'Gen 10 (10xxx)'
-                    WHEN descripcion_producto ~* 'Ryzen.*(7[0-9]{3}|8[0-9]{3})' THEN 'AMD Ryzen 7000/8000'
-                    WHEN descripcion_producto ~* 'Ryzen.*(5[0-9]{3})' THEN 'AMD Ryzen 5000'
-                    ELSE NULL
-                END AS cpu_gen
-            FROM ofertas_proveedor_history
-            WHERE descripcion_producto IS NOT NULL
-        """)).fetchall()
-        cpu_gens = sorted({r[0] for r in gen_rows if r[0]})
-
-        # RAM capacidades
-        ram_rows = db.execute(text("""
-            SELECT DISTINCT
-                CASE
-                    WHEN descripcion_producto ~* '128\\s?GB.{0,10}RAM' THEN '128 GB'
-                    WHEN descripcion_producto ~* '64\\s?GB.{0,10}RAM'  THEN '64 GB'
-                    WHEN descripcion_producto ~* '32\\s?GB.{0,10}RAM'  THEN '32 GB'
-                    WHEN descripcion_producto ~* '24\\s?GB.{0,10}RAM'  THEN '24 GB'
-                    WHEN descripcion_producto ~* '16\\s?GB.{0,10}RAM'  THEN '16 GB'
-                    WHEN descripcion_producto ~* '12\\s?GB.{0,10}RAM'  THEN '12 GB'
-                    WHEN descripcion_producto ~* '8\\s?GB.{0,10}RAM'   THEN '8 GB'
-                    WHEN descripcion_producto ~* '4\\s?GB.{0,10}RAM'   THEN '4 GB'
-                    ELSE NULL
-                END AS ram_cap
-            FROM ofertas_proveedor_history
-            WHERE descripcion_producto IS NOT NULL
-        """)).fetchall()
-        rams = sorted({r[0] for r in ram_rows if r[0]}, key=lambda x: int(x.split()[0]))
-
-        # Tecnología RAM
-        ram_tech_rows = db.execute(text("""
-            SELECT DISTINCT
-                CASE
-                    WHEN descripcion_producto ILIKE '%LPDDR5X%' THEN 'LPDDR5X'
-                    WHEN descripcion_producto ILIKE '%LPDDR5%'  THEN 'LPDDR5'
-                    WHEN descripcion_producto ILIKE '%LPDDR4X%' THEN 'LPDDR4X'
-                    WHEN descripcion_producto ILIKE '%LPDDR4%'  THEN 'LPDDR4'
-                    WHEN descripcion_producto ILIKE '%DDR5%'    THEN 'DDR5'
-                    WHEN descripcion_producto ILIKE '%DDR4%'    THEN 'DDR4'
-                    ELSE NULL
-                END AS ram_tech
-            FROM ofertas_proveedor_history
-            WHERE descripcion_producto IS NOT NULL
-        """)).fetchall()
-        ram_techs = sorted({r[0] for r in ram_tech_rows if r[0]})
-
-        # Almacenamiento capacidades
-        storage_rows = db.execute(text("""
-            SELECT DISTINCT
-                CASE
-                    WHEN descripcion_producto ~* '2\\s?TB.{0,10}(SSD|HDD|NVMe)' THEN '2 TB'
-                    WHEN descripcion_producto ~* '1\\s?TB.{0,10}(SSD|HDD|NVMe)'  THEN '1 TB'
-                    WHEN descripcion_producto ~* '512\\s?GB.{0,10}(SSD|HDD|NVMe)' THEN '512 GB'
-                    WHEN descripcion_producto ~* '256\\s?GB.{0,10}(SSD|HDD|NVMe)' THEN '256 GB'
-                    WHEN descripcion_producto ~* '128\\s?GB.{0,10}(SSD|HDD|NVMe)' THEN '128 GB'
-                    ELSE NULL
-                END AS storage_cap
-            FROM ofertas_proveedor_history
-            WHERE descripcion_producto IS NOT NULL
-        """)).fetchall()
-        storages = sorted({r[0] for r in storage_rows if r[0]}, key=lambda x: (float(x.split()[0]), x.split()[1]))
-
-        # Tipo de disco
-        disco_tipo_rows = db.execute(text("""
-            SELECT DISTINCT
-                CASE
-                    WHEN descripcion_producto ILIKE '%NVMe%'             THEN 'NVMe M.2'
-                    WHEN descripcion_producto ILIKE '%M.2%SSD%'          THEN 'M.2 SSD'
-                    WHEN (descripcion_producto ILIKE '%SSD%' AND descripcion_producto ILIKE '%HDD%') THEN 'Híbrido (SSD+HDD)'
-                    WHEN descripcion_producto ILIKE '%SSD%'              THEN 'Solo SSD'
-                    WHEN descripcion_producto ILIKE '%HDD%'              THEN 'Solo HDD'
-                    ELSE NULL
-                END AS disco_tipo
-            FROM ofertas_proveedor_history
-            WHERE descripcion_producto IS NOT NULL
-        """)).fetchall()
-        disco_tipos = sorted({r[0] for r in disco_tipo_rows if r[0]})
-
-        # Sistema Operativo
-        os_rows = db.execute(text("""
-            SELECT DISTINCT
-                CASE
-                    WHEN descripcion_producto ILIKE '%Windows 11 Pro%'  THEN 'Windows 11 Pro'
-                    WHEN descripcion_producto ILIKE '%Windows 11 Home%' THEN 'Windows 11 Home'
-                    WHEN descripcion_producto ILIKE '%Windows 10 Pro%'  THEN 'Windows 10 Pro'
-                    WHEN descripcion_producto ILIKE '%Windows 10 Home%' THEN 'Windows 10 Home'
-                    WHEN descripcion_producto ILIKE '%FreeDOS%'         THEN 'FreeDOS'
-                    WHEN descripcion_producto ILIKE '%Linux%'           THEN 'Linux / Ubuntu'
-                    WHEN descripcion_producto ILIKE '%Sin SO%' OR descripcion_producto ILIKE '%Sin Sistema%' THEN 'Sin Sistema Operativo'
-                    ELSE NULL
-                END AS so
-            FROM ofertas_proveedor_history
-            WHERE descripcion_producto IS NOT NULL
-        """)).fetchall()
-        oss = sorted({r[0] for r in os_rows if r[0]})
-
-        # Tamaños de pantalla
-        display_rows = db.execute(text(r"""
-            SELECT DISTINCT
-                CASE
-                    WHEN descripcion_producto ~ '85[\"\''']' THEN '85"'
-                    WHEN descripcion_producto ~ '75[\"\''']' THEN '75"'
-                    WHEN descripcion_producto ~ '65[\"\''']' THEN '65"'
-                    WHEN descripcion_producto ~ '55[\"\''']' THEN '55"'
-                    WHEN descripcion_producto ~ '43[\"\''']' THEN '43"'
-                    WHEN descripcion_producto ~ '32[\"\''']' THEN '32"'
-                    WHEN descripcion_producto ~ '31\.5[\"\''']' THEN '31.5"'
-                    WHEN descripcion_producto ~ '27[\"\''']' THEN '27"'
-                    WHEN descripcion_producto ~ '24[\"\''']' THEN '24"'
-                    WHEN descripcion_producto ~ '23\.8[\"\''']' THEN '23.8"'
-                    WHEN descripcion_producto ~ '21\.5[\"\''']' THEN '21.5"'
-                    WHEN descripcion_producto ~ '19\.5[\"\''']' THEN '19.5"'
-                    WHEN descripcion_producto ~ '17\.3[\"\''']' THEN '17.3"'
-                    WHEN descripcion_producto ~ '16[\"\''']' THEN '16"'
-                    WHEN descripcion_producto ~ '15\.6[\"\''']' THEN '15.6"'
-                    WHEN descripcion_producto ~ '14[\"\''']' THEN '14"'
-                    WHEN descripcion_producto ~ '13\.3[\"\''']' THEN '13.3"'
-                    WHEN descripcion_producto ~ '12\.4[\"\''']' THEN '12.4"'
-                    WHEN descripcion_producto ~ '11\.6[\"\''']' THEN '11.6"'
-                    WHEN descripcion_producto ~ '11[\"\''']' THEN '11"'
-                    WHEN descripcion_producto ~ '10\.5[\"\''']' THEN '10.5"'
-                    WHEN descripcion_producto ~ '10\.4[\"\''']' THEN '10.4"'
-                    WHEN descripcion_producto ~ '10\.1[\"\''']' THEN '10.1"'
-                    WHEN descripcion_producto ~ '8\.7[\"\''']' THEN '8.7"'
-                    WHEN descripcion_producto ~ '8[\"\''']' THEN '8"'
-                    ELSE NULL
-                END AS display_size
-            FROM ofertas_proveedor_history
-            WHERE descripcion_producto IS NOT NULL
-        """)).fetchall()
-        displays = sorted({r[0] for r in display_rows if r[0]}, key=lambda x: float(x.replace('"', '')))
-
-        # Tipo de panel
-        panel_rows = db.execute(text("""
-            SELECT DISTINCT
-                CASE
-                    WHEN descripcion_producto ILIKE '%OLED%' THEN 'OLED'
-                    WHEN descripcion_producto ILIKE '% IPS%' OR descripcion_producto ILIKE '%IPS %' THEN 'IPS'
-                    WHEN descripcion_producto ILIKE '% VA%'  OR descripcion_producto ILIKE '%VA %'  THEN 'VA'
-                    WHEN descripcion_producto ILIKE '% TN%'  OR descripcion_producto ILIKE '%TN %'  THEN 'TN'
-                    ELSE NULL
-                END AS panel_type
-            FROM ofertas_proveedor_history
-            WHERE descripcion_producto IS NOT NULL
-        """)).fetchall()
-        panels = sorted({r[0] for r in panel_rows if r[0]})
-
-        # Resolución
-        resolution_rows = db.execute(text("""
-            SELECT DISTINCT
-                CASE
-                    WHEN descripcion_producto ILIKE '%4K%' OR descripcion_producto ILIKE '%3840%' THEN '4K UHD (3840x2160)'
-                    WHEN descripcion_producto ILIKE '%2K%' OR descripcion_producto ILIKE '%QHD%' OR descripcion_producto ILIKE '%2560%' THEN '2K QHD (2560x1440)'
-                    WHEN descripcion_producto ILIKE '%FHD%' OR descripcion_producto ILIKE '%1920%' OR descripcion_producto ILIKE '%Full HD%' THEN 'FHD (1920x1080)'
-                    WHEN descripcion_producto ILIKE '%HD+%' OR descripcion_producto ILIKE '%1600%' THEN 'HD+ (1600x900)'
-                    WHEN descripcion_producto ILIKE '%1366%' OR descripcion_producto ILIKE '%HD%' THEN 'HD (1366x768)'
-                    ELSE NULL
-                END AS resolucion
-            FROM ofertas_proveedor_history
-            WHERE descripcion_producto IS NOT NULL
-        """)).fetchall()
-        resolutions = sorted({r[0] for r in resolution_rows if r[0]})
-
-        return {
-            "marcas": marcas,
-            "cpus": cpus,
-            "cpu_gens": cpu_gens,
-            "rams": rams,
-            "ram_techs": ram_techs,
-            "storages": storages,
-            "disco_tipos": disco_tipos,
-            "oss": oss,
-            "displays": displays,
-            "panels": panels,
-            "resolutions": resolutions,
-        }
+        db_marcas = [r[0] for r in marcas_rows if r[0]]
+        if db_marcas:
+            base_options["marcas"] = db_marcas
     except Exception as e:
         import logging
-        logging.getLogger("ceam.proveedores").error("Error en filter-options: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.getLogger("ceam.proveedores").warning("No se pudieron cargar marcas dinámicas de BD: %s", e)
+
+    return base_options
 
 
 @router.get("/export-json")
