@@ -366,31 +366,6 @@ async def async_sync_estados_fichas(
                                     add_status_log(f"         ⚠️ Servidor estatal tardó más de 60s en responder para '{m_nom}'.")
                                 await asyncio.sleep(0.3)
 
-                        # Consultar además números de parte específicos sin marca fija que sigan pendientes
-                        if db is not None:
-                            try:
-                                res_np = db.execute(text("""
-                                    SELECT DISTINCT UPPER(TRIM(nro_parte))
-                                    FROM ofertas_proveedor_history
-                                    WHERE UPPER(nombre_proveedor) LIKE :p
-                                      AND (UPPER(categoria) LIKE :c OR UPPER(catalogo) LIKE :c)
-                                      AND (marca IS NULL OR TRIM(marca) IN ('', 'VARIOS', 'S/N', 'SN', '-'))
-                                      AND nro_parte NOT IN ('', 'S/N', 'SN', '-')
-                                      AND LENGTH(nro_parte) >= 4
-                                      AND (estado_ficha_producto IS NULL OR estado_ficha_producto = '')
-                                """), {"p": f"%{prov_nombre.upper()}%", "c": f"%{categ_nom.upper()[:15]}%"}).fetchall()
-                                nps_pendientes = [r[0] for r in res_np if r[0]]
-                                if nps_pendientes:
-                                    add_status_log(f"      🔍 Consultando {len(nps_pendientes)} números de parte individuales sin marca fija...")
-                                    for np_item in nps_pendientes[:30]:
-                                        raw_np = await _fetch_ruta_reportes(n_cat, n_categ, c_desc=np_item, timeout_ms=30000)
-                                        if raw_np:
-                                            it_np = parse_tabla_reportes(raw_np)
-                                            if it_np:
-                                                items.extend(it_np)
-                                        await asyncio.sleep(0.2)
-                            except Exception as np_err:
-                                logger.debug(f"Aviso consultando números de parte sin marca: {np_err}")
 
 
                     # Deduplicar por id_producto_ofertado o nro_parte
