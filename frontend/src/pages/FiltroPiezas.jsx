@@ -1055,6 +1055,21 @@ const FiltroPiezas = () => {
                         <span className="badge" style={{ fontSize: 10, background: '#f1f5f9', color: '#475569' }}>
                           {item.categoria || item.catalogo || sp.formFactor}
                         </span>
+                        {item.estado_ficha_producto && (
+                          <span
+                            className="badge"
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 700,
+                              background: item.estado_ficha_producto.includes('VIGENTE') ? '#dcfce7' : item.estado_ficha_producto.includes('EXCLUIDA') ? '#fee2e2' : '#fef3c7',
+                              color: item.estado_ficha_producto.includes('VIGENTE') ? '#15803d' : item.estado_ficha_producto.includes('EXCLUIDA') ? '#b91c1c' : '#b45309',
+                              border: '1px solid rgba(0,0,0,0.05)'
+                            }}
+                            title={item.justificacion_estado || item.motivo_estado || `Estado Ficha: ${item.estado_ficha_producto}`}
+                          >
+                            {item.estado_ficha_producto}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -1424,6 +1439,7 @@ const FiltroPiezas = () => {
                       )}
                     </span>
                   </th>
+                  <th style={{ textAlign: 'center', width: 95 }}>Estado</th>
                   <th style={{ textAlign: 'center' }}>PDF</th>
                 </tr>
               </thead>
@@ -1445,6 +1461,7 @@ const FiltroPiezas = () => {
                       {showOs && <td><div className="skeleton" style={{ height: 16, width: 70 }} /></td>}
                       <td><div className="skeleton" style={{ height: 16, width: 110 }} /></td>
                       <td style={{ textAlign: 'right' }}><div className="skeleton" style={{ height: 16, width: 80, marginLeft: 'auto' }} /></td>
+                      <td style={{ textAlign: 'center' }}><div className="skeleton" style={{ height: 16, width: 50, margin: '0 auto' }} /></td>
                       <td style={{ textAlign: 'center' }}><div className="skeleton" style={{ height: 16, width: 30, margin: '0 auto' }} /></td>
                     </tr>
                   ))
@@ -1580,6 +1597,43 @@ const FiltroPiezas = () => {
                               </div>
                             ) : null
                           )}
+                        </td>
+                        <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          {(() => {
+                            const estF = item.estado_ficha_producto;
+                            const estO = item.estado_oferta;
+                            if (!estF && !estO) return <span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span>;
+                            const estU = String(estF || '').toUpperCase();
+                            const isVig = estU.includes('VIGENTE');
+                            const isExc = estU.includes('EXCLUIDA');
+                            const isSusp = estU.includes('SUSPEND');
+                            const isOfert = estU.includes('OFERTADA');
+
+                            const bg = isVig ? '#dcfce7' : isExc ? '#fee2e2' : isSusp ? '#fef3c7' : isOfert ? '#e0f2fe' : '#f1f5f9';
+                            const col = isVig ? '#15803d' : isExc ? '#b91c1c' : isSusp ? '#b45309' : isOfert ? '#0369a1' : '#64748b';
+                            const bdr = isVig ? '#bbf7d0' : isExc ? '#fecaca' : isSusp ? '#fde68a' : isOfert ? '#bae6fd' : '#e2e8f0';
+
+                            return (
+                              <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+                                {estF && (
+                                  <span style={{
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    padding: '1px 5px',
+                                    borderRadius: 4,
+                                    background: bg,
+                                    color: col,
+                                    border: `1px solid ${bdr}`
+                                  }} title={item.justificacion_estado || item.motivo_estado || `Ficha: ${estF}`}>
+                                    {estF}
+                                  </span>
+                                )}
+                                {estO && estO !== 'VIGENTE' && (
+                                  <span style={{ fontSize: 8, color: '#64748b' }}>{String(estO).replace('_', ' ')}</span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td style={{ textAlign: 'center' }}>
                           {pdfUrl && pdfUrl !== '#' ? (

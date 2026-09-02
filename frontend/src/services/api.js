@@ -73,6 +73,7 @@ export const proveedoresApi = {
   exportExcel: (params) => api.get('/proveedores/export-excel', { params, responseType: 'blob' }),
   clearData: (params) => api.post('/proveedores/clear', null, { params }),
   getFilterOptions: (params) => api.get('/proveedores/filter-options', { params }),
+  syncEstados: (params) => api.post('/proveedores/sync-estados', null, { params }),
 };
 
 export default api;

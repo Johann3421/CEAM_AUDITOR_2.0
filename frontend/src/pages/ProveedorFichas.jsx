@@ -386,6 +386,24 @@ const ProveedorFichas = () => {
     }
   };
 
+  const handleStartSyncEstados = async () => {
+    if (!window.confirm("¿Deseas sincronizar e incluir los estados (Estado Ficha-producto, Estado Oferta) y enlaces a Fichas Técnicas PDF oficiales de Perú Compras para las ofertas registradas?")) {
+      return;
+    }
+    const provToSync = selectedProvider !== 'all' ? selectedProvider : 'thekingcomputer';
+    setScraping(true);
+    wasScrapingRef.current = true;
+    setShowLogModal(true);
+    try {
+      await proveedoresApi.syncEstados({ proveedor: provToSync });
+    } catch (err) {
+      console.error('Error al iniciar sincronización de estados:', err);
+      setScraping(false);
+      wasScrapingRef.current = false;
+      alert('Error al iniciar la sincronización de estados');
+    }
+  };
+
   const handleDownloadFullJson = async () => {
     setExportingJson(true);
     try {
@@ -862,6 +880,17 @@ const ProveedorFichas = () => {
 
           <button
             className="btn btn-secondary"
+            onClick={handleStartSyncEstados}
+            disabled={scraping}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600 }}
+            title="Sincronizar e incluir Estado Ficha-producto, Estado Oferta y PDFs oficiales desde Reportes de Perú Compras"
+          >
+            <CheckCircle2 size={15} className={scraping ? 'spin' : ''} style={{ color: '#0284c7' }} />
+            {scraping ? 'Sincronizando...' : '📋 Incluir estados'}
+          </button>
+
+          <button
+            className="btn btn-secondary"
             onClick={handleDownloadFullJson}
             disabled={exportingJson || totalFichas === 0}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600 }}
@@ -1275,7 +1304,17 @@ const ProveedorFichas = () => {
                   </div>
                 </th>
 
-                {/* 7. PDF Ficha Técnica con Filtro */}
+                {/* 7. Estado Ficha-producto */}
+                <th style={{ width: 125, textAlign: 'center', padding: '10px 8px' }}>
+                  <span style={{ fontWeight: 600 }}>Estado Ficha</span>
+                </th>
+
+                {/* 8. Estado Oferta */}
+                <th style={{ width: 115, textAlign: 'center', padding: '10px 8px' }}>
+                  <span style={{ fontWeight: 600 }}>Estado Oferta</span>
+                </th>
+
+                {/* 9. PDF Ficha Técnica con Filtro */}
                 <th style={{ width: 115, textAlign: 'center', padding: '8px 6px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -1300,7 +1339,7 @@ const ProveedorFichas = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-secondary)' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-secondary)' }}>
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
                       <RefreshCw size={16} className="spin" />
                       <span>Cargando datos de la base de datos...</span>
@@ -1309,7 +1348,7 @@ const ProveedorFichas = () => {
                 </tr>
               ) : fichas.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: 36, color: 'var(--c-text-tertiary)' }}>
                     No hay ofertas con los filtros aplicados. Puedes cambiar los filtros o extraer nuevas categorías.
                   </td>
                 </tr>
@@ -1459,7 +1498,77 @@ const ProveedorFichas = () => {
                         </div>
                       </td>
 
-                      {/* 7. Columna PDF Ficha Técnica */}
+                      {/* 7. Columna Estado Ficha-producto */}
+                      <td style={{ padding: '10px 8px', textAlign: 'center', verticalAlign: 'middle' }}>
+                        {(() => {
+                          const est = f.estado_ficha_producto || (f.raw_json && f.raw_json.estado_ficha_producto);
+                          if (!est) return <span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span>;
+                          const estU = String(est).toUpperCase();
+                          const isVigente = estU.includes('VIGENTE');
+                          const isExcluida = estU.includes('EXCLUIDA');
+                          const isSuspendida = estU.includes('SUSPEND');
+                          const isOfertada = estU.includes('OFERTADA');
+
+                          const bg = isVigente ? '#dcfce7' : isExcluida ? '#fee2e2' : isSuspendida ? '#fef3c7' : isOfertada ? '#e0f2fe' : '#f1f5f9';
+                          const color = isVigente ? '#15803d' : isExcluida ? '#b91c1c' : isSuspendida ? '#b45309' : isOfertada ? '#0369a1' : '#475569';
+                          const border = isVigente ? '#bbf7d0' : isExcluida ? '#fecaca' : isSuspendida ? '#fde68a' : isOfertada ? '#bae6fd' : '#e2e8f0';
+
+                          return (
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '3px 8px',
+                                borderRadius: 6,
+                                fontSize: 10,
+                                fontWeight: 700,
+                                background: bg,
+                                color: color,
+                                border: `1px solid ${border}`,
+                                whiteSpace: 'nowrap'
+                              }}
+                              title={f.justificacion_estado || f.motivo_estado || `Estado Ficha: ${est}`}
+                            >
+                              {est}
+                            </span>
+                          );
+                        })()}
+                      </td>
+
+                      {/* 8. Columna Estado Oferta */}
+                      <td style={{ padding: '10px 8px', textAlign: 'center', verticalAlign: 'middle' }}>
+                        {(() => {
+                          const est = f.estado_oferta || (f.raw_json && f.raw_json.estado_oferta);
+                          if (!est) return <span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span>;
+                          const estU = String(est).toUpperCase();
+                          const isVigente = estU.includes('VIGENTE');
+                          const isNoPresentada = estU.includes('NO_PRESENTADA') || estU.includes('NO PRESENTADA');
+
+                          const bg = isVigente ? '#dcfce7' : isNoPresentada ? '#f1f5f9' : '#fef3c7';
+                          const color = isVigente ? '#15803d' : isNoPresentada ? '#64748b' : '#b45309';
+                          const border = isVigente ? '#bbf7d0' : isNoPresentada ? '#e2e8f0' : '#fde68a';
+
+                          return (
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '3px 8px',
+                                borderRadius: 6,
+                                fontSize: 10,
+                                fontWeight: 700,
+                                background: bg,
+                                color: color,
+                                border: `1px solid ${border}`,
+                                whiteSpace: 'nowrap'
+                              }}
+                              title={`Estado Oferta: ${est}`}
+                            >
+                              {String(est).replace('_', ' ')}
+                            </span>
+                          );
+                        })()}
+                      </td>
+
+                      {/* 9. Columna PDF Ficha Técnica */}
                       <td style={{ padding: '10px 8px', textAlign: 'center', verticalAlign: 'middle' }}>
                         {f.pdf_url && f.pdf_url.trim() !== '' && f.pdf_url !== '#' ? (
                           <a

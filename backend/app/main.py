@@ -20,6 +20,11 @@ _NEW_COLS = [
     ("purchase_orders", "marca",               "TEXT"),
     ("fichas_producto", "fecha_orden_min",     "DATE"),
     ("fichas_producto", "fecha_orden_max",     "DATE"),
+    ("ofertas_proveedor_history", "estado_ficha_producto", "VARCHAR(100)"),
+    ("ofertas_proveedor_history", "estado_oferta",         "VARCHAR(100)"),
+    ("ofertas_proveedor_history", "motivo_estado",         "TEXT"),
+    ("ofertas_proveedor_history", "justificacion_estado",  "TEXT"),
+    ("ofertas_proveedor_history", "id_producto_ofertado",  "VARCHAR(50)"),
 ]
 try:
     with engine.begin() as _c:

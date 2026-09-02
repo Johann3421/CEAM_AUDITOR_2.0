@@ -524,6 +524,11 @@ def get_proveedor_fichas(
                     f.region,
                     f.provincia,
                     {pdf_select} AS pdf_url,
+                    f.estado_ficha_producto,
+                    f.estado_oferta,
+                    f.motivo_estado,
+                    f.justificacion_estado,
+                    f.id_producto_ofertado,
                     f.fecha_extraccion,
                     {ord_min_expr} AS orden_min,
                     {fec_min_expr} AS fecha_orden_min,
@@ -558,6 +563,11 @@ def get_proveedor_fichas(
                     r.region,
                     r.provincia,
                     r.pdf_url,
+                    r.estado_ficha_producto,
+                    r.estado_oferta,
+                    r.motivo_estado,
+                    r.justificacion_estado,
+                    r.id_producto_ofertado,
                     r.fecha_extraccion,
                     r.orden_min,
                     r.fecha_orden_min,
@@ -584,6 +594,11 @@ def get_proveedor_fichas(
                     MAX(r.region) AS region,
                     MAX(r.provincia) AS provincia,
                     MAX(r.pdf_url) AS pdf_url,
+                    MAX(r.estado_ficha_producto) AS estado_ficha_producto,
+                    MAX(r.estado_oferta) AS estado_oferta,
+                    MAX(r.motivo_estado) AS motivo_estado,
+                    MAX(r.justificacion_estado) AS justificacion_estado,
+                    MAX(r.id_producto_ofertado) AS id_producto_ofertado,
                     MAX(r.orden_min) AS orden_min,
                     MAX(r.fecha_orden_min) AS fecha_orden_min,
                     MAX(r.precio_referencia) AS precio_referencia,
@@ -603,7 +618,12 @@ def get_proveedor_fichas(
                             'region', r.region,
                             'provincia', r.provincia,
                             'pdf_url', r.pdf_url,
-                            'estado', 'VIGENTE',
+                            'estado_ficha_producto', r.estado_ficha_producto,
+                            'estado_oferta', r.estado_oferta,
+                            'motivo_estado', r.motivo_estado,
+                            'justificacion_estado', r.justificacion_estado,
+                            'id_producto_ofertado', r.id_producto_ofertado,
+                            'estado', COALESCE(r.estado_oferta, 'VIGENTE'),
                             'fecha_extraccion', r.fecha_extraccion::text
                         ) ORDER BY r.precio_ofertado ASC NULLS LAST
                     ) AS ofertas
@@ -626,6 +646,11 @@ def get_proveedor_fichas(
                 g.region,
                 g.provincia,
                 g.pdf_url,
+                g.estado_ficha_producto,
+                g.estado_oferta,
+                g.motivo_estado,
+                g.justificacion_estado,
+                g.id_producto_ofertado,
                 g.orden_min,
                 g.fecha_orden_min,
                 g.precio_referencia,
@@ -673,6 +698,11 @@ def get_proveedor_fichas(
                 f.region,
                 f.provincia,
                 {pdf_select} AS pdf_url,
+                f.estado_ficha_producto,
+                f.estado_oferta,
+                f.motivo_estado,
+                f.justificacion_estado,
+                f.id_producto_ofertado,
                 {ord_min_expr} AS orden_min,
                 {fec_min_expr} AS fecha_orden_min,
                 {pref_expr} AS precio_referencia,
@@ -692,7 +722,12 @@ def get_proveedor_fichas(
                     'region', f.region,
                     'provincia', f.provincia,
                     'pdf_url', {pdf_select},
-                    'estado', 'VIGENTE',
+                    'estado_ficha_producto', f.estado_ficha_producto,
+                    'estado_oferta', f.estado_oferta,
+                    'motivo_estado', f.motivo_estado,
+                    'justificacion_estado', f.justificacion_estado,
+                    'id_producto_ofertado', f.id_producto_ofertado,
+                    'estado', COALESCE(f.estado_oferta, 'VIGENTE'),
                     'fecha_extraccion', f.fecha_extraccion::text
                 )) AS ofertas,
                 COUNT(*) OVER() AS total_count,
@@ -1955,7 +1990,35 @@ async def trigger_scrape_plazos(
         "regiones": target_regs or "TODAS (25 Regiones)"
     }
 
+@router.post("/sync-estados")
+async def trigger_sync_estados(
+    background_tasks: BackgroundTasks,
+    proveedor: str = Query("thekingcomputer", description="ID del proveedor: thekingcomputer, jorge_rojas, all")
+):
+    """
+    Inicia la sincronización e inclusión de estados (Estado Ficha-producto, Estado Oferta)
+    y enlaces oficiales a Fichas Técnicas PDF desde Reportes/ProductoOfertadoIndex en segundo plano.
+    """
+    from app.services.reportes_estados_scraper import async_sync_estados_fichas
+    from app.services.proveedores_scraper import PROVEEDORES_CONFIG
+    from app.db.database import SessionLocal
+
+    prov_key = "thekingcomputer" if proveedor in ("all", "ambos", "todos") else proveedor
+
+    async def _async_estados_task():
+        with SessionLocal() as db_session:
+            await async_sync_estados_fichas(provider_key=prov_key, db=db_session)
+
+    background_tasks.add_task(_async_estados_task)
+    prov_desc = PROVEEDORES_CONFIG.get(prov_key, {}).get("nombre", prov_key)
+    return {
+        "success": True,
+        "message": f"Sincronización de estados y PDFs iniciada para '{prov_desc}'",
+        "proveedor": prov_key
+    }
+
 @router.get("/scrape-status")
 def get_scrape_status():
     from app.services.proveedores_scraper import EXTRACTION_STATUS
     return EXTRACTION_STATUS
+
