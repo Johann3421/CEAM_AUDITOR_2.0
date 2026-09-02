@@ -313,10 +313,22 @@ async def async_sync_estados_fichas(
 
                 try:
                     items = []
-                    # Consulta directa a la ruta sin filtros de marca (exactamente igual al primer script)
-                    raw_html = await _fetch_ruta_reportes(n_cat, n_categ, c_desc="", timeout_ms=60000)
+                    # 1. Consulta directa a la ruta sin filtros
+                    raw_html = await _fetch_ruta_reportes(n_cat, n_categ, c_desc="", timeout_ms=20000)
                     if raw_html:
                         items = parse_tabla_reportes(raw_html)
+
+                    # 2. Fallback automático solo para categorías masivas (>20k fichas) si el servidor estatal no responde a la petición vacía
+                    if not items and ("ESCRITORIO" in categ_nom.upper() and "TODO EN UNO" not in categ_nom.upper()):
+                        add_status_log(f"   ⚡ Categoría masiva ({categ_nom}): extrayendo por bloques de marcas activas...")
+                        for m in ["ADVANCE", "HP", "LENOVO"]:
+                            raw_m = await _fetch_ruta_reportes(n_cat, n_categ, c_desc=m, timeout_ms=25000)
+                            if raw_m:
+                                it_m = parse_tabla_reportes(raw_m)
+                                if it_m:
+                                    items.extend(it_m)
+                                    add_status_log(f"      ✓ {len(it_m)} fichas extraídas para marca '{m}'.")
+                            await asyncio.sleep(0.2)
 
                     # Deduplicar por id_producto_ofertado o nro_parte
                     unique_dict = {}
