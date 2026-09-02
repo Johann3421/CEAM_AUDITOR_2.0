@@ -468,8 +468,8 @@ const FiltroPiezas = () => {
               style={{ fontSize: 12, padding: '5px 10px', borderRadius: 8, minWidth: 175 }}
             >
               <option value="">Por defecto (Relevancia)</option>
-              <option value="precio_asc">Precio: Menor a Mayor (S/ ↑)</option>
-              <option value="precio_desc">Precio: Mayor a Menor (S/ ↓)</option>
+              <option value="precio_asc">Precio: Menor a Mayor (USD ↑)</option>
+              <option value="precio_desc">Precio: Mayor a Menor (USD ↓)</option>
               <option value="stock_desc">Stock: Mayor a Menor (↓)</option>
               <option value="marca_asc">Marca: A - Z</option>
             </select>
@@ -1202,7 +1202,7 @@ const FiltroPiezas = () => {
                                 </span>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                   <span style={{ color: 'var(--c-text-tertiary)', fontSize: 10 }}>{plazo}d</span>
-                                  <strong style={{ color: 'var(--c-text)', fontSize: 12 }}>S/ {fmt(of.precio_ofertado)}</strong>
+                                  <strong style={{ color: 'var(--c-text)', fontSize: 12 }}>USD {fmt(of.precio_ofertado)}</strong>
                                 </div>
                               </div>
                             );
@@ -1229,7 +1229,7 @@ const FiltroPiezas = () => {
                         <div style={{ textAlign: 'right' }}>
                           <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', display: 'block' }}>Precio Ofertado</span>
                           <strong style={{ fontSize: 15, color: 'var(--c-text)', fontWeight: 800 }}>
-                            S/ {fmt(item.min_precio || item.precio_ofertado)}
+                            USD {fmt(item.min_precio || item.precio_ofertado)}
                           </strong>
                           {item.orden_min ? (
                             <div style={{ marginTop: 2 }}>
@@ -1287,7 +1287,7 @@ const FiltroPiezas = () => {
                         <div>
                           <span style={{ fontSize: 10, color: 'var(--c-text-tertiary)', display: 'block' }}>Mejor Precio</span>
                           <strong style={{ fontSize: 15, color: 'var(--c-text)', fontWeight: 800 }}>
-                            S/ {fmt(item.min_precio)}
+                            USD {fmt(item.min_precio)}
                           </strong>
                           {item.orden_min ? (
                             <div style={{ marginTop: 2 }}>
@@ -1414,7 +1414,7 @@ const FiltroPiezas = () => {
                     title="Ordenar por precio"
                   >
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
-                      Precio Min. (S/)
+                      Precio Min. (USD)
                       {sortBy === 'precio_asc' ? (
                         <ArrowUp size={12} style={{ color: 'var(--c-brand)' }} />
                       ) : sortBy === 'precio_desc' ? (
@@ -1522,7 +1522,7 @@ const FiltroPiezas = () => {
                         </td>
                         <td style={{ textAlign: 'right', whiteSpace: 'nowrap', verticalAlign: 'top', minWidth: 140 }}>
                           <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--c-text)' }}>
-                            S/ {fmt(item.min_precio || item.precio_ofertado)}
+                            USD {fmt(item.min_precio || item.precio_ofertado)}
                           </div>
                           {item.orden_min ? (
                             <div style={{ marginTop: 3 }}>
