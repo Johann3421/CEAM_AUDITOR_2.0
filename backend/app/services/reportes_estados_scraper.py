@@ -318,17 +318,33 @@ async def async_sync_estados_fichas(
                     if raw_html:
                         items = parse_tabla_reportes(raw_html)
 
-                    # 2. Fallback automático solo para categorías masivas (>20k fichas) si el servidor estatal no responde a la petición vacía
+                    # 2. Fallback automático solo para categorías masivas si el servidor no responde a la petición vacía
                     if not items and ("ESCRITORIO" in categ_nom.upper() and "TODO EN UNO" not in categ_nom.upper()):
-                        add_status_log(f"   ⚡ Categoría masiva ({categ_nom}): extrayendo por bloques de marcas activas...")
-                        for m in ["ADVANCE", "HP", "LENOVO"]:
-                            raw_m = await _fetch_ruta_reportes(n_cat, n_categ, c_desc=m, timeout_ms=25000)
-                            if raw_m:
-                                it_m = parse_tabla_reportes(raw_m)
-                                if it_m:
-                                    items.extend(it_m)
-                                    add_status_log(f"      ✓ {len(it_m)} fichas extraídas para marca '{m}'.")
-                            await asyncio.sleep(0.2)
+                        add_status_log(f"   ⚡ Categoría masiva ({categ_nom}): extrayendo marcas en paralelo...")
+
+                        # Orden por tamaño de respuesta: LENOVO (~1.8MB), ADVANCE (~5MB), HP (~16MB)
+                        marcas = ["LENOVO", "ADVANCE", "HP"]
+
+                        async def _fetch_marca(m: str):
+                            raw = await _fetch_ruta_reportes(n_cat, n_categ, c_desc=m, timeout_ms=45000)
+                            if raw:
+                                parsed = parse_tabla_reportes(raw)
+                                return m, parsed
+                            return m, []
+
+                        resultados = await asyncio.gather(*[_fetch_marca(m) for m in marcas], return_exceptions=True)
+
+                        for r in resultados:
+                            if isinstance(r, Exception):
+                                add_status_log(f"   ⚠️ Error en petición paralela: {r}")
+                                continue
+                            m_nombre, it_m = r
+                            if it_m:
+                                items.extend(it_m)
+                                add_status_log(f"      ✓ {len(it_m)} fichas para marca '{m_nombre}'.")
+                            else:
+                                add_status_log(f"      ⚠️ Sin fichas (timeout o vacío) para marca '{m_nombre}'.")
+
 
                     # Deduplicar por id_producto_ofertado o nro_parte
                     unique_dict = {}
