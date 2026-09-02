@@ -284,11 +284,76 @@ async def async_sync_estados_fichas(
                 EXTRACTION_STATUS["progress_message"] = f"Extrayendo estados: {categ_nom} ({idx+1}/{len(combos_a_procesar)})"
 
                 try:
-                    items = []
+                    html_table = ""
 
-                    # Función helper para consultar _detProductoOfertadoIndex con timeout configurable
-                    async def _fetch_reporte(desc_filtro: str = "", t_out: int = 45000):
-                        return await page.evaluate("""(args) => {
+                    # PASO A: Establecer selección en los desplegables dinámicos del DOM (igual al primer script)
+                    await page.evaluate("""(args) => {
+                        const selCat = document.querySelector('#ajaxCatalogo');
+                        if (selCat) {
+                            selCat.value = args.n_catalogo;
+                            selCat.dispatchEvent(new Event('change', { bubbles: true }));
+                            if (window.jQuery) { window.jQuery(selCat).val(args.n_catalogo).trigger('change'); }
+                        }
+                    }""", {"n_catalogo": n_cat})
+                    await page.wait_for_timeout(800)
+
+                    await page.evaluate("""(args) => {
+                        const selCateg = document.querySelector('#ajaxCategoria');
+                        if (selCateg) {
+                            selCateg.value = args.n_categoria;
+                            selCateg.dispatchEvent(new Event('change', { bubbles: true }));
+                            if (window.jQuery) { window.jQuery(selCateg).val(args.n_categoria).trigger('change'); }
+                        }
+                        const inpDesc = document.querySelector('#C_Descripcion');
+                        if (inpDesc) inpDesc.value = '';
+                    }""", {"n_categoria": n_categ})
+                    await page.wait_for_timeout(500)
+
+                    # PASO B: Disparar la búsqueda (#btnBuscar / ListarProductosOfertados)
+                    await page.evaluate("""(args) => {
+                        if (typeof ListarProductosOfertados === 'function') {
+                            $("#OfertasPanelDiv").empty();
+                            $("#divBuscar_ajax").show();
+                            ListarProductosOfertados(args.n_acuerdo, args.n_catalogo, args.n_categoria, '');
+                        } else {
+                            const btn = document.querySelector('#btnBuscar');
+                            if (btn) btn.click();
+                        }
+                    }""", {"n_acuerdo": ID_ACUERDO_2022_5, "n_catalogo": n_cat, "n_categoria": n_categ})
+
+                    # PASO C: Espera activa inteligente en el DOM (idéntica a completar_menu_dinamico del primer script)
+                    start_wait = time.time()
+                    max_wait = 180  # Hasta 3 minutos para categorías masivas
+                    found_table = False
+
+                    while time.time() - start_wait < max_wait:
+                        await page.wait_for_timeout(2500)
+                        await _capture_live_preview(page, update_live_screenshot)
+
+                        check_dom = await page.evaluate("""() => {
+                            const loader = document.querySelector('#divBuscar_ajax');
+                            const isLoaderVisible = loader && (loader.style.display !== 'none' && window.getComputedStyle(loader).display !== 'none');
+                            const panel = document.querySelector('#OfertasPanelDiv');
+                            const table = panel ? panel.querySelector('#TablaOfertas') || panel.querySelector('table') : null;
+                            const rows = table ? table.querySelectorAll('tbody tr') : [];
+                            const hasDataRows = Array.from(rows).some(r => r.querySelectorAll('td').length >= 5);
+                            const html = panel ? panel.innerHTML : '';
+                            return { isLoaderVisible, hasDataRows, rowCount: rows.length, html };
+                        }""")
+
+                        if check_dom and check_dom.get("hasDataRows") and not check_dom.get("isLoaderVisible"):
+                            html_table = check_dom.get("html")
+                            found_table = True
+                            break
+
+                        # Si el loader se ocultó y no hay filas (categoría vacía oficial)
+                        if check_dom and not check_dom.get("isLoaderVisible") and (time.time() - start_wait > 5):
+                            html_table = check_dom.get("html", "")
+                            break
+
+                    # Fallback de seguridad: si el DOM tardó demasiado, pedir por $.ajax directo
+                    if not html_table or len(html_table) < 200:
+                        html_table = await page.evaluate("""(args) => {
                             return new Promise((resolve) => {
                                 $.ajax({
                                     url: '/Reportes/_detProductoOfertadoIndex',
@@ -298,122 +363,48 @@ async def async_sync_estados_fichas(
                                         N_Acuerdo: args.n_acuerdo,
                                         N_Catalogo: args.n_catalogo,
                                         N_Categoria: args.n_categoria,
-                                        C_Descripcion: args.c_descripcion
+                                        C_Descripcion: ''
                                     },
-                                    timeout: args.timeout,
+                                    timeout: 90000,
                                     success: function(data) { resolve(data || ''); },
                                     error: function() { resolve(''); }
                                 });
                             });
-                        }""", {
-                            "n_acuerdo": ID_ACUERDO_2022_5,
-                            "n_catalogo": n_cat,
-                            "n_categoria": n_categ,
-                            "c_descripcion": desc_filtro,
-                            "timeout": t_out
-                        })
+                        }""", {"n_acuerdo": ID_ACUERDO_2022_5, "n_catalogo": n_cat, "n_categoria": n_categ})
 
-                    # 1. Intento global sin filtro (funciona de inmediato para categorías medianas/pequeñas)
-                    html_table = await _fetch_reporte(desc_filtro="", t_out=45000)
-                    if html_table and len(html_table) > 300:
-                        items = parse_tabla_reportes(html_table)
-
-                    # 2. Si devolvió 0 o falló (categorías masivas como Computadora de Escritorio con ~28k registros que saturan el backend)
-                    if not items:
-                        add_status_log(f"   ⚡ Categoría masiva o sin respuesta global. Extrayendo por lotes de marcas para evitar saturación del servidor...")
-                        
-                        # Buscar qué marcas tenemos en nuestra base de datos para esta categoría/catálogo
-                        marcas_a_buscar = set()
-                        if db is not None:
-                            try:
-                                sql_m = text("""
-                                    SELECT DISTINCT UPPER(TRIM(marca)) 
-                                    FROM ofertas_proveedor_history 
-                                    WHERE (UPPER(categoria) = UPPER(:cat) OR UPPER(catalogo) = UPPER(:catalogo))
-                                      AND marca IS NOT NULL AND TRIM(marca) != ''
-                                """)
-                                rows_m = db.execute(sql_m, {"cat": categ_nom, "catalogo": cat_nom}).fetchall()
-                                for r in rows_m:
-                                    if r[0] and len(r[0]) >= 2:
-                                        marcas_a_buscar.add(r[0])
-                            except Exception as e:
-                                logger.warning(f"Error consultando marcas de BD: {e}")
-
-                        # Marcas líderes para garantizar cobertura total de computadoras
-                        marcas_top = ["HP", "LENOVO", "DELL", "ADVANCE", "ACER", "ASUS", "TEROS", "APPLE", "SAMSUNG"]
-                        for m_top in marcas_top:
-                            marcas_a_buscar.add(m_top)
-
-                        # Consultar por cada marca específica (cada consulta toma solo 1-2s y nunca cae en timeout)
-                        for m_marca in sorted(marcas_a_buscar):
-                            add_status_log(f"   🔎 Consultando lote marca '{m_marca}' en {categ_nom}...")
-                            html_marca = await _fetch_reporte(desc_filtro=m_marca, t_out=30000)
-                            items_marca = parse_tabla_reportes(html_marca)
-                            if items_marca:
-                                add_status_log(f"      ✓ {len(items_marca)} fichas encontradas para marca '{m_marca}'.")
-                                items.extend(items_marca)
-                            await asyncio.sleep(0.4)
-
-                        # 3. Si aún faltan productos específicos de nuestra BD sin estado, buscar directamente por sus nro_parte
-                        if db is not None:
-                            try:
-                                sql_np = text("""
-                                    SELECT DISTINCT UPPER(TRIM(nro_parte))
-                                    FROM ofertas_proveedor_history
-                                    WHERE (UPPER(categoria) = UPPER(:cat) OR UPPER(catalogo) = UPPER(:catalogo))
-                                      AND (estado_ficha_producto IS NULL OR estado_ficha_producto = '')
-                                      AND nro_parte IS NOT NULL AND LENGTH(TRIM(nro_parte)) >= 4
-                                    LIMIT 50
-                                """)
-                                rows_np = db.execute(sql_np, {"cat": categ_nom, "catalogo": cat_nom}).fetchall()
-                                for r_np in rows_np:
-                                    np_target = r_np[0]
-                                    html_np = await _fetch_reporte(desc_filtro=np_target, t_out=15000)
-                                    items_np = parse_tabla_reportes(html_np)
-                                    if items_np:
-                                        items.extend(items_np)
-                                    await asyncio.sleep(0.3)
-                            except Exception as e:
-                                logger.warning(f"Error buscando por nro_parte: {e}")
-
-                    # Deduplicar items por id_producto_ofertado o nro_parte
-                    unique_items = {}
-                    for it in items:
-                        key = it.get("id_producto_ofertado") or (it.get("nro_parte") or "") + (it.get("descripcion") or "")[:20]
-                        if key and key not in unique_items:
-                            unique_items[key] = it
-                    
-                    items = list(unique_items.values())
-                    add_status_log(f"   📊 Total consolidado: {len(items)} fichas procesadas en {categ_nom}.")
                     await _capture_live_preview(page, update_live_screenshot)
+
+                    # Parsear ofertas obtenidas de la tabla
+                    items = parse_tabla_reportes(html_table)
+                    add_status_log(f"   📊 Total consolidado: {len(items)} fichas procesadas en {categ_nom}.")
 
                     if items and db is not None:
                         cat_actualizados = 0
                         for it in items:
-                            np = it.get("nro_parte")
+                            np = (it.get("nro_parte") or "").strip()
                             estado_f = it.get("estado_ficha_producto")
                             estado_o = it.get("estado_oferta")
                             pdf = it.get("pdf_url")
                             motivo = it.get("motivo")
                             justif = it.get("justificacion")
                             id_of = it.get("id_producto_ofertado")
+                            desc = (it.get("descripcion") or "").strip()
 
-                            if not np and not it.get("descripcion"):
+                            if not np and not desc:
                                 continue
 
-                            # Actualizar registros coincidentes en la base de datos
-                            # 1. Por nro_parte exacto
-                            # 2. O por coincidencia en descripcion_producto si nro_parte es genérico
+                            desc_prefix = desc[:45] if len(desc) >= 20 else ""
+
                             try:
                                 sql = text("""
                                     UPDATE ofertas_proveedor_history
                                     SET 
-                                        estado_ficha_producto = COALESCE(:estado_f, estado_ficha_producto),
-                                        estado_oferta = COALESCE(:estado_o, estado_oferta),
-                                        motivo_estado = COALESCE(:motivo, motivo_estado),
-                                        justificacion_estado = COALESCE(:justif, justificacion_estado),
-                                        id_producto_ofertado = COALESCE(:id_of, id_producto_ofertado),
-                                        pdf_url = COALESCE(:pdf, pdf_url),
+                                        estado_ficha_producto = COALESCE(NULLIF(:estado_f, ''), estado_ficha_producto),
+                                        estado_oferta = COALESCE(NULLIF(:estado_o, ''), estado_oferta),
+                                        motivo_estado = COALESCE(NULLIF(:motivo, ''), motivo_estado),
+                                        justificacion_estado = COALESCE(NULLIF(:justif, ''), justificacion_estado),
+                                        id_producto_ofertado = COALESCE(NULLIF(:id_of, ''), id_producto_ofertado),
+                                        pdf_url = COALESCE(NULLIF(:pdf, ''), pdf_url),
                                         raw_json = jsonb_set(
                                             jsonb_set(
                                                 jsonb_set(
@@ -424,12 +415,11 @@ async def async_sync_estados_fichas(
                                             ),
                                             '{ficha_tecnica_pdf}', to_jsonb(:pdf::text)
                                         )::json
-                                    WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
-                                       OR (
-                                           :np IS NOT NULL 
-                                           AND :np != '' 
-                                           AND UPPER(descripcion_producto) LIKE UPPER(:np_like)
-                                       );
+                                    WHERE (
+                                        (:np != '' AND :np != 'S/N' AND UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np)))
+                                        OR (:np != '' AND :np != 'S/N' AND LENGTH(:np) >= 4 AND UPPER(descripcion_producto) LIKE UPPER(:np_like))
+                                        OR (:desc_prefix != '' AND UPPER(descripcion_producto) LIKE UPPER(:desc_prefix_like))
+                                    );
                                 """)
                                 res_up = db.execute(sql, {
                                     "estado_f": estado_f or "",
@@ -438,8 +428,10 @@ async def async_sync_estados_fichas(
                                     "justif": justif or "",
                                     "id_of": id_of or "",
                                     "pdf": pdf or "",
-                                    "np": np or "___NONE___",
-                                    "np_like": f"%{np}%" if np and len(np) >= 5 else "___NONE___"
+                                    "np": np,
+                                    "np_like": f"%{np}%" if np and len(np) >= 4 else "___NONE___",
+                                    "desc_prefix": desc_prefix,
+                                    "desc_prefix_like": f"%{desc_prefix}%" if desc_prefix else "___NONE___"
                                 })
                                 cat_actualizados += res_up.rowcount
                             except Exception as db_err:
