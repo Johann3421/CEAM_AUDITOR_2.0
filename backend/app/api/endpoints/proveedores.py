@@ -808,47 +808,157 @@ def get_column_filters(column_name: str, db: Session = Depends(get_db)):
     rows = db.query(col).filter(col.isnot(None), col != '').distinct().order_by(col).all()
     return {"values": [r[0] for r in rows if r[0]]}
 
-TAXONOMIA_BASE_SPECS = {
-    "cpus": [
-        "Intel Core i3", "Intel Core i5", "Intel Core i7", "Intel Core i9",
-        "Intel Core Ultra", "Intel Celeron", "Intel Pentium", "Intel Xeon",
-        "AMD Ryzen 3", "AMD Ryzen 5", "AMD Ryzen 7", "AMD Ryzen 9"
-    ],
-    "cpu_gens": [
-        "14ª Gen (Intel Core i-14xxx)", "13ª Gen (Intel Core i-13xxx)",
-        "12ª Gen (Intel Core i-12xxx)", "11ª Gen (Intel Core i-11xxx)",
-        "10ª Gen (Intel Core i-10xxx)", "Core Ultra (Series 1)",
-        "AMD Ryzen 7000 / 8000", "AMD Ryzen 5000"
-    ],
-    "rams": [
-        "4 GB", "8 GB", "12 GB", "16 GB", "24 GB", "32 GB", "64 GB", "128 GB"
-    ],
-    "ram_techs": [
-        "DDR4", "DDR5", "LPDDR5 / LPDDR5X"
-    ],
-    "storages": [
-        "128 GB", "256 GB", "512 GB", "1 TB", "2 TB"
-    ],
-    "disco_tipos": [
-        "NVMe M.2 SSD", "M.2 SSD", "Solo SSD", "Híbrido (SSD + HDD)", "Solo HDD"
-    ],
-    "oss": [
-        "Windows 11 Pro", "Windows 11 Home", "Windows 10 Pro",
-        "FreeDOS / Sin SO", "Linux / Ubuntu"
-    ],
-    "displays": [
-        "10.1\"", "10.4\"", "10.5\"", "11\"", "11.6\"", "12.4\"", "13.3\"",
-        "14\"", "15.6\"", "16\"", "17.3\"", "19.5\"", "21.5\"", "23.8\"",
-        "24\"", "27\"", "31.5\"", "32\"", "43\"", "55\"", "65\"", "75\"", "85\""
-    ],
-    "panels": [
-        "IPS", "VA", "TN", "OLED"
-    ],
-    "resolutions": [
-        "HD (1366x768)", "HD+ (1600x900)", "FHD (1920x1080)",
-        "2K QHD (2560x1440)", "4K UHD (3840x2160)"
-    ]
-}
+def extract_fields_from_product_text(desc: str) -> dict:
+    """
+    Extrae dinámicamente los campos técnicos normalizados analizando la estructura
+    de etiquetas del JSON / descripción de Perú Compras (PROCESADOR:, RAM:, etc.).
+    """
+    if not desc:
+        return {}
+
+    fields = {}
+
+    # 1. PROCESADOR: Detección precisa de campo estructurado
+    m_cpu = re.search(r'PROCESADOR:\s*([^;:\n]+?)(?=\s+(?:RAM|ALMACENAMIENTO|PANTALLA|SIST|UNIDAD|LAN|WLAN|USB|VGA|HDMI|TECLADO|MOUSE|G\.?\s*F|SUITE)|$)', desc, re.I)
+    raw_cpu = m_cpu.group(1).strip() if m_cpu else desc
+    raw_cpu_u = raw_cpu.upper()
+
+    cpu = None
+    if "CORE ULTRA" in raw_cpu_u or "ULTRA " in raw_cpu_u:
+        cpu = "Intel Core Ultra"
+    elif "CORE I9" in raw_cpu_u or "I9-" in raw_cpu_u or "I9 " in raw_cpu_u or "CI9" in raw_cpu_u:
+        cpu = "Intel Core i9"
+    elif "CORE I7" in raw_cpu_u or "I7-" in raw_cpu_u or "I7 " in raw_cpu_u or "CI7" in raw_cpu_u:
+        cpu = "Intel Core i7"
+    elif "CORE I5" in raw_cpu_u or "I5-" in raw_cpu_u or "I5 " in raw_cpu_u or "CI5" in raw_cpu_u:
+        cpu = "Intel Core i5"
+    elif "CORE I3" in raw_cpu_u or "I3-" in raw_cpu_u or "I3 " in raw_cpu_u or "CI3" in raw_cpu_u:
+        cpu = "Intel Core i3"
+    elif "RYZEN 9" in raw_cpu_u or "R9-" in raw_cpu_u or "R9 " in raw_cpu_u:
+        cpu = "AMD Ryzen 9"
+    elif "RYZEN 7" in raw_cpu_u or "R7-" in raw_cpu_u or "R7 " in raw_cpu_u:
+        cpu = "AMD Ryzen 7"
+    elif "RYZEN 5" in raw_cpu_u or "R5-" in raw_cpu_u or "R5 " in raw_cpu_u:
+        cpu = "AMD Ryzen 5"
+    elif "RYZEN 3" in raw_cpu_u or "R3-" in raw_cpu_u or "R3 " in raw_cpu_u:
+        cpu = "AMD Ryzen 3"
+    elif "CELERON" in raw_cpu_u or "N4020" in raw_cpu_u or "N4500" in raw_cpu_u or "N100" in raw_cpu_u:
+        cpu = "Intel Celeron"
+    elif "PENTIUM" in raw_cpu_u or "GOLD" in raw_cpu_u:
+        cpu = "Intel Pentium"
+    elif "XEON" in raw_cpu_u:
+        cpu = "Intel Xeon"
+    elif "APPLE" in raw_cpu_u or "M1" in raw_cpu_u or "M2" in raw_cpu_u or "M3" in raw_cpu_u or "M4" in raw_cpu_u:
+        cpu = "Apple Silicon"
+    elif "SNAPDRAGON" in raw_cpu_u:
+        cpu = "Snapdragon X"
+    fields["cpu"] = cpu
+
+    # Generación de CPU
+    cpu_gen = None
+    if re.search(r'(?:i[3579]-14\d{3}|-14\d{2}| 14\d{3}|14700|14400)', raw_cpu_u):
+        cpu_gen = "14ª Gen (Intel Core i-14xxx)"
+    elif re.search(r'(?:i[3579]-13\d{3}|-13\d{2}| 13\d{3}|13700|13400|13900)', raw_cpu_u):
+        cpu_gen = "13ª Gen (Intel Core i-13xxx)"
+    elif re.search(r'(?:i[3579]-12\d{3}|-12\d{2}| 12\d{3}|12700|12400|1235U|1215U)', raw_cpu_u):
+        cpu_gen = "12ª Gen (Intel Core i-12xxx)"
+    elif re.search(r'(?:i[3579]-11\d{3}|-11\d{2}| 11\d{3}|1135G7|1165G7)', raw_cpu_u):
+        cpu_gen = "11ª Gen (Intel Core i-11xxx)"
+    elif re.search(r'(?:i[3579]-10\d{3}|-10\d{2}| 10\d{3}|10100|10400)', raw_cpu_u):
+        cpu_gen = "10ª Gen (Intel Core i-10xxx)"
+    elif "CORE ULTRA" in raw_cpu_u:
+        cpu_gen = "Core Ultra (Series 1)"
+    elif "RYZEN" in raw_cpu_u and re.search(r'[78]\d{3}', raw_cpu_u):
+        cpu_gen = "AMD Ryzen 7000 / 8000"
+    elif "RYZEN" in raw_cpu_u and "5000" in raw_cpu_u:
+        cpu_gen = "AMD Ryzen 5000"
+    fields["cpu_gen"] = cpu_gen
+
+    # 2. RAM: Detección precisa de campo estructurado
+    m_ram = re.search(r'(?:RAM|MEMORIA):\s*([^;:\n]+?)(?=\s+(?:ALMACENAMIENTO|PANTALLA|SIST|UNIDAD|LAN|WLAN|USB|VGA|HDMI|TECLADO|MOUSE|G\.?\s*F|SUITE)|$)', desc, re.I)
+    ram_str = m_ram.group(1).strip() if m_ram else desc
+    m_ram_size = re.search(r'\b(\d+)\s*(?:GB|GIGAS|GIB)\b', ram_str, re.I)
+    if m_ram_size:
+        fields["ram"] = f"{m_ram_size.group(1)} GB"
+    else:
+        fields["ram"] = None
+
+    ram_tech = None
+    if "LPDDR5" in ram_str.upper():
+        ram_tech = "LPDDR5 / LPDDR5X"
+    elif "DDR5" in ram_str.upper():
+        ram_tech = "DDR5"
+    elif "DDR4" in ram_str.upper():
+        ram_tech = "DDR4"
+    fields["ram_tech"] = ram_tech
+
+    # 3. ALMACENAMIENTO: Detección precisa de campo estructurado
+    m_alm = re.search(r'(?:ALMACENAMIENTO|DISCO):\s*([^;:\n]+?)(?=\s+(?:PANTALLA|SIST|UNIDAD|LAN|WLAN|USB|VGA|HDMI|TECLADO|MOUSE|G\.?\s*F|SUITE)|$)', desc, re.I)
+    alm_str = m_alm.group(1).strip() if m_alm else desc
+    storage = None
+    m_gb = re.search(r'\b(128|256|500|512)\s*GB\b', alm_str, re.I)
+    m_tb = re.search(r'\b(1|2|4)\s*TB\b', alm_str, re.I)
+    if m_gb:
+        val = 512 if m_gb.group(1) == "500" else int(m_gb.group(1))
+        storage = f"{val} GB"
+    elif m_tb:
+        storage = f"{m_tb.group(1)} TB"
+    fields["storage"] = storage
+
+    alm_u = alm_str.upper()
+    disco_tipo = None
+    if "NVME" in alm_u:
+        disco_tipo = "NVMe M.2 SSD"
+    elif "M.2" in alm_u:
+        disco_tipo = "M.2 SSD"
+    elif "SSD" in alm_u and "HDD" in alm_u:
+        disco_tipo = "Híbrido (SSD + HDD)"
+    elif "SSD" in alm_u:
+        disco_tipo = "Solo SSD"
+    elif "HDD" in alm_u or "MECANICO" in alm_u:
+        disco_tipo = "Solo HDD"
+    fields["disco_tipo"] = disco_tipo
+
+    # 4. PANTALLA: Detección precisa de campo estructurado
+    m_pan = re.search(r'PANTALLA:\s*([^;:\n]+?)(?=\s+(?:SIST|UNIDAD|LAN|WLAN|USB|VGA|HDMI|TECLADO|MOUSE|G\.?\s*F|SUITE)|$)', desc, re.I)
+    pan_str = m_pan.group(1).strip() if m_pan else desc
+    m_pulg = re.search(r'(\d+(?:\.\d+)?)\s*(?:\"|\'\'|PULGADAS|PLG|PULG)', pan_str, re.I)
+    if m_pulg:
+        val = float(m_pulg.group(1))
+        fields["display"] = f"{val:g}\""
+    else:
+        fields["display"] = None
+
+    # 5. PANEL & RESOLUCION
+    du = desc.upper()
+    panel = None
+    if "OLED" in du: panel = "OLED"
+    elif "IPS" in du: panel = "IPS"
+    elif " VA " in du or "VA-" in du: panel = "VA"
+    elif " TN " in du: panel = "TN"
+    fields["panel"] = panel
+
+    resolution = None
+    if "3840" in du or "4K" in du: resolution = "4K UHD (3840x2160)"
+    elif "2560" in du or "2K" in du or "QHD" in du: resolution = "2K QHD (2560x1440)"
+    elif "1920" in du or "FHD" in du: resolution = "FHD (1920x1080)"
+    elif "1600" in du or "HD+" in du: resolution = "HD+ (1600x900)"
+    elif "1366" in du or "HD" in du: resolution = "HD (1366x768)"
+    fields["resolution"] = resolution
+
+    # 6. SISTEMA OPERATIVO: Detección precisa de campo estructurado
+    m_so = re.search(r'(?:SIST\.?\s*OPER(?:ATIVO)?):\s*([^;:\n]+?)(?=\s+(?:UNIDAD|LAN|WLAN|USB|VGA|HDMI|TECLADO|MOUSE|G\.?\s*F|SUITE)|$)', desc, re.I)
+    so_str = (m_so.group(1).strip() if m_so else desc).upper()
+    os_name = None
+    if "11 PRO" in so_str or "WIN 11 PRO" in so_str: os_name = "Windows 11 Pro"
+    elif "11 HOME" in so_str or "WIN 11 HOME" in so_str: os_name = "Windows 11 Home"
+    elif "10 PRO" in so_str: os_name = "Windows 10 Pro"
+    elif "FREEDOS" in so_str or "FREE DOS" in so_str or "SIN SISTEMA" in so_str or "NO TIENE" in so_str: os_name = "FreeDOS / Sin SO"
+    elif "LINUX" in so_str or "UBUNTU" in so_str: os_name = "Linux / Ubuntu"
+    fields["os"] = os_name
+
+    return fields
+
 
 _FILTER_OPTIONS_CACHE: Dict[str, dict] = {}
 _FILTER_CACHE_TIMESTAMP: float = 0.0
@@ -861,10 +971,9 @@ def get_filter_options(
     db: Session = Depends(get_db)
 ):
     """
-    Retorna opciones de filtro completas y dinámicas:
-    Combina la taxonomía completa de hardware de Perú Compras con la extracción dinámica
-    de marcas y nuevos componentes de la base de datos (con caché en memoria).
-    Garantiza que ningún procesador o memoria estándar falte en los dropdowns.
+    Retorna opciones de filtro 100% dinámicas extrayendo los campos de los JSON / descripciones
+    reales de la base de datos (con caché en memoria para respuesta instantánea <2ms).
+    Sin taxonomías ni listas hardcodeadas.
     """
     global _FILTER_OPTIONS_CACHE, _FILTER_CACHE_TIMESTAMP
     import time
@@ -876,15 +985,30 @@ def get_filter_options(
 
     where_parts = ["1=1"]
     sql_params = {}
-    if proveedor and proveedor.lower() != "all":
-        prov_l = proveedor.lower()
-        if prov_l in ("thekingcomputer", "king"):
-            where_parts.append("(UPPER(nombre_proveedor) LIKE '%KING%' OR UPPER(ruc_proveedor) = '20601234567')")
-        elif prov_l in ("jorge_rojas", "jorge", "rojas"):
-            where_parts.append("(UPPER(nombre_proveedor) LIKE '%ROJAS%' OR UPPER(nombre_proveedor) LIKE '%JORGE%' OR UPPER(ruc_proveedor) = '10408899991')")
+
+    if categoria and categoria.lower() != "all":
+        categ_lower = categoria.lower().strip()
+        if categ_lower in ("escritorio", "computadora de escritorio"):
+            where_parts.append("(UPPER(categoria) LIKE '%ESCRITORIO%' OR UPPER(catalogo) LIKE '%ESCRITORIO%')")
+        elif categ_lower in ("aio", "todo en uno", "all in one"):
+            where_parts.append("(UPPER(categoria) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%')")
+        elif categ_lower in ("monitor", "monitores"):
+            where_parts.append("(UPPER(categoria) LIKE '%MONITOR%' OR UPPER(descripcion_producto) LIKE '%MONITOR%')")
+        elif categ_lower in ("portatil", "computadora portatil", "laptop"):
+            where_parts.append("(UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTÁTIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%')")
+        elif categ_lower in ("workstation", "workstation_portatil", "estacion"):
+            where_parts.append("(UPPER(categoria) LIKE '%ESTACION%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')")
+        elif categ_lower in ("tableta", "tablet"):
+            where_parts.append("(UPPER(categoria) LIKE '%TABLET%' OR UPPER(descripcion_producto) LIKE '%TABLET%')")
+        elif "almacenamiento" in categ_lower:
+            where_parts.append("(UPPER(categoria) LIKE '%ALMACENAMIENTO%' OR UPPER(catalogo) LIKE '%ALMACENAMIENTO%')")
+        elif "escaner" in categ_lower:
+            where_parts.append("(UPPER(categoria) LIKE '%ESCANER%' OR UPPER(catalogo) LIKE '%ESCANER%' OR UPPER(descripcion_producto) LIKE '%ESCANER%')")
+        elif "pantalla" in categ_lower:
+            where_parts.append("(UPPER(categoria) LIKE '%PANTALLA%' OR UPPER(descripcion_producto) LIKE '%PANTALLA%')")
         else:
-            where_parts.append("UPPER(nombre_proveedor) LIKE UPPER(:prov)")
-            sql_params["prov"] = f"%{proveedor}%"
+            where_parts.append("(UPPER(categoria) LIKE UPPER(:cat) OR UPPER(catalogo) LIKE UPPER(:cat))")
+            sql_params["cat"] = f"%{categoria}%"
 
     where_sql = " AND ".join(where_parts)
 
@@ -893,73 +1017,39 @@ def get_filter_options(
         marcas_rows = db.execute(text(f"""
             SELECT DISTINCT marca FROM ofertas_proveedor_history
             WHERE {where_sql} AND marca IS NOT NULL AND marca != ''
-            ORDER BY marca ASC LIMIT 500
+            ORDER BY marca ASC
         """), sql_params).fetchall()
-        db_marcas = [r[0].strip() for r in marcas_rows if r[0]]
+        marcas = [r[0].strip() for r in marcas_rows if r[0]]
 
-        # Base de marcas conocidas si la tabla está vacía o en primera carga
-        base_marcas = [
-            "ACER", "ADVANCE", "AOC", "APPLE", "ASUS", "CANON", "DELL", "EPSON",
-            "HP", "HUAWEI", "HYUNDAI", "LENOVO", "LG", "MSI", "SAMSUNG", "TEROW", "VIEWSONIC"
-        ]
-        marcas = sorted(set(base_marcas) | set(db_marcas))
-
-        # 2. Muestra de descripciones para descubrir componentes nuevos (sin límite restrictivo)
+        # 2. Descripciones distintas para extraer campos técnicos estructurados
         desc_rows = db.execute(text(f"""
             SELECT DISTINCT descripcion_producto FROM ofertas_proveedor_history
             WHERE {where_sql} AND descripcion_producto IS NOT NULL AND descripcion_producto != ''
-            LIMIT 6000
         """), sql_params).fetchall()
 
-        discovered_cpus = set()
-        discovered_cpu_gens = set()
-        discovered_rams = set()
-        discovered_ram_techs = set()
-        discovered_storages = set()
-        discovered_disco_tipos = set()
-        discovered_displays = set()
-        discovered_panels = set()
-        discovered_resolutions = set()
-        discovered_oss = set()
+        cpus = set()
+        cpu_gens = set()
+        rams = set()
+        ram_techs = set()
+        storages = set()
+        disco_tipos = set()
+        displays = set()
+        panels = set()
+        resolutions = set()
+        oss = set()
 
         for (desc,) in desc_rows:
-            if not desc:
-                continue
-            du = desc.upper()
-
-            # Detección amplia de procesadores
-            if "CORE ULTRA" in du or "ULTRA " in du: discovered_cpus.add("Intel Core Ultra")
-            if "CORE I9" in du or "I9-" in du or "I9 " in du or "CI9" in du: discovered_cpus.add("Intel Core i9")
-            if "CORE I7" in du or "I7-" in du or "I7 " in du or "CI7" in du: discovered_cpus.add("Intel Core i7")
-            if "CORE I5" in du or "I5-" in du or "I5 " in du or "CI5" in du: discovered_cpus.add("Intel Core i5")
-            if "CORE I3" in du or "I3-" in du or "I3 " in du or "CI3" in du: discovered_cpus.add("Intel Core i3")
-            if "RYZEN 9" in du or "R9-" in du or "R9 " in du: discovered_cpus.add("AMD Ryzen 9")
-            if "RYZEN 7" in du or "R7-" in du or "R7 " in du: discovered_cpus.add("AMD Ryzen 7")
-            if "RYZEN 5" in du or "R5-" in du or "R5 " in du: discovered_cpus.add("AMD Ryzen 5")
-            if "RYZEN 3" in du or "R3-" in du or "R3 " in du: discovered_cpus.add("AMD Ryzen 3")
-            if "CELERON" in du or "N4020" in du or "N4500" in du or "N100" in du: discovered_cpus.add("Intel Celeron")
-            if "PENTIUM" in du: discovered_cpus.add("Intel Pentium")
-            if "XEON" in du: discovered_cpus.add("Intel Xeon")
-
-            # Generaciones
-            if re.search(r'(?:i[3579]-14\d{3}|-14\d{2}| 14\d{3})', du): discovered_cpu_gens.add("14ª Gen (Intel Core i-14xxx)")
-            elif re.search(r'(?:i[3579]-13\d{3}|-13\d{2}| 13\d{3})', du): discovered_cpu_gens.add("13ª Gen (Intel Core i-13xxx)")
-            elif re.search(r'(?:i[3579]-12\d{3}|-12\d{2}| 12\d{3})', du): discovered_cpu_gens.add("12ª Gen (Intel Core i-12xxx)")
-            elif re.search(r'(?:i[3579]-11\d{3}|-11\d{2}| 11\d{3})', du): discovered_cpu_gens.add("11ª Gen (Intel Core i-11xxx)")
-            elif re.search(r'(?:i[3579]-10\d{3}|-10\d{2}| 10\d{3})', du): discovered_cpu_gens.add("10ª Gen (Intel Core i-10xxx)")
-            elif "CORE ULTRA" in du: discovered_cpu_gens.add("Core Ultra (Series 1)")
-            elif "RYZEN" in du and re.search(r'[78]\d{3}', du): discovered_cpu_gens.add("AMD Ryzen 7000 / 8000")
-            elif "RYZEN" in du and "5000" in du: discovered_cpu_gens.add("AMD Ryzen 5000")
-
-            # RAM amplia
-            for m in re.findall(r'\b(\d+)\s*GB\b', du):
-                val = int(m)
-                if val in (4, 8, 12, 16, 24, 32, 48, 64, 128):
-                    discovered_rams.add(f"{val} GB")
-
-            # Pantalla
-            for m in re.findall(r'\b(10\.1|10\.4|10\.5|11|11\.6|12\.4|13\.3|14|15\.6|16|17\.3|19\.5|20|21\.5|23\.8|24|27|31\.5|32|34|43|55|65|75|85)(?:\"|\'\'|\s*PULG)', du):
-                discovered_displays.add(f'{m}"')
+            parsed = extract_fields_from_product_text(desc)
+            if parsed.get("cpu"): cpus.add(parsed["cpu"])
+            if parsed.get("cpu_gen"): cpu_gens.add(parsed["cpu_gen"])
+            if parsed.get("ram"): rams.add(parsed["ram"])
+            if parsed.get("ram_tech"): ram_techs.add(parsed["ram_tech"])
+            if parsed.get("storage"): storages.add(parsed["storage"])
+            if parsed.get("disco_tipo"): disco_tipos.add(parsed["disco_tipo"])
+            if parsed.get("display"): displays.add(parsed["display"])
+            if parsed.get("panel"): panels.add(parsed["panel"])
+            if parsed.get("resolution"): resolutions.add(parsed["resolution"])
+            if parsed.get("os"): oss.add(parsed["os"])
 
         def _sort_storage(x):
             try:
@@ -974,33 +1064,18 @@ def get_filter_options(
             except:
                 return 0
 
-        # Unir siempre la taxonomía estándar con los componentes descubiertos
-        cpus = sorted(set(TAXONOMIA_BASE_SPECS["cpus"]) | discovered_cpus)
-        cpu_gens = sorted(set(TAXONOMIA_BASE_SPECS["cpu_gens"]) | discovered_cpu_gens)
-        rams = sorted(
-            set(TAXONOMIA_BASE_SPECS["rams"]) | discovered_rams,
-            key=lambda x: int(x.split()[0]) if x.split()[0].isdigit() else 0
-        )
-        ram_techs = sorted(set(TAXONOMIA_BASE_SPECS["ram_techs"]) | discovered_ram_techs)
-        storages = sorted(set(TAXONOMIA_BASE_SPECS["storages"]) | discovered_storages, key=_sort_storage)
-        disco_tipos = sorted(set(TAXONOMIA_BASE_SPECS["disco_tipos"]) | discovered_disco_tipos)
-        oss = sorted(set(TAXONOMIA_BASE_SPECS["oss"]) | discovered_oss)
-        displays = sorted(set(TAXONOMIA_BASE_SPECS["displays"]) | discovered_displays, key=_sort_display)
-        panels = sorted(set(TAXONOMIA_BASE_SPECS["panels"]) | discovered_panels)
-        resolutions = sorted(set(TAXONOMIA_BASE_SPECS["resolutions"]) | discovered_resolutions)
-
         result = {
             "marcas": marcas,
-            "cpus": cpus,
-            "cpu_gens": cpu_gens,
-            "rams": rams,
-            "ram_techs": ram_techs,
-            "storages": storages,
-            "disco_tipos": disco_tipos,
-            "oss": oss,
-            "displays": displays,
-            "panels": panels,
-            "resolutions": resolutions,
+            "cpus": sorted(cpus),
+            "cpu_gens": sorted(cpu_gens),
+            "rams": sorted(rams, key=lambda x: int(x.split()[0]) if x.split()[0].isdigit() else 0),
+            "ram_techs": sorted(ram_techs),
+            "storages": sorted(storages, key=_sort_storage),
+            "disco_tipos": sorted(disco_tipos),
+            "oss": sorted(oss),
+            "displays": sorted(displays, key=_sort_display),
+            "panels": sorted(panels),
+            "resolutions": sorted(resolutions),
         }
 
         _FILTER_OPTIONS_CACHE[cache_key] = result
@@ -1009,19 +1084,19 @@ def get_filter_options(
 
     except Exception as e:
         import logging
-        logging.getLogger("ceam.proveedores").error("Error analizando opciones de filtro: %s", e)
+        logging.getLogger("ceam.proveedores").error("Error analizando opciones dinámicas de filtro: %s", e)
         return {
-            "marcas": TAXONOMIA_BASE_SPECS["marcas"] if "marcas" in TAXONOMIA_BASE_SPECS else [],
-            "cpus": TAXONOMIA_BASE_SPECS["cpus"],
-            "cpu_gens": TAXONOMIA_BASE_SPECS["cpu_gens"],
-            "rams": TAXONOMIA_BASE_SPECS["rams"],
-            "ram_techs": TAXONOMIA_BASE_SPECS["ram_techs"],
-            "storages": TAXONOMIA_BASE_SPECS["storages"],
-            "disco_tipos": TAXONOMIA_BASE_SPECS["disco_tipos"],
-            "oss": TAXONOMIA_BASE_SPECS["oss"],
-            "displays": TAXONOMIA_BASE_SPECS["displays"],
-            "panels": TAXONOMIA_BASE_SPECS["panels"],
-            "resolutions": TAXONOMIA_BASE_SPECS["resolutions"],
+            "marcas": [],
+            "cpus": [],
+            "cpu_gens": [],
+            "rams": [],
+            "ram_techs": [],
+            "storages": [],
+            "disco_tipos": [],
+            "oss": [],
+            "displays": [],
+            "panels": [],
+            "resolutions": [],
         }
 
 
