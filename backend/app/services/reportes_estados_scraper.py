@@ -220,16 +220,68 @@ async def async_sync_estados_fichas(
             await page.wait_for_timeout(2000)
             await _capture_live_preview(page, update_live_screenshot)
 
-            # 4. Iterar sobre las categorías oficiales
-            for idx, cat_item in enumerate(CATEGORIAS_OFICIALES_ESTADOS):
+            # 4. Descubrir dinámicamente todas las categorías disponibles o usar la lista oficial completa
+            add_status_log("🔍 Descubriendo todos los catálogos y categorías del Acuerdo Marco EXT-CE-2022-5...")
+            combos_a_procesar = []
+            try:
+                catalogos_opts = await page.evaluate("""() => {
+                    const sel = document.querySelector('#ajaxCatalogo');
+                    if (!sel) return [];
+                    return Array.from(sel.options)
+                        .filter(o => o.value && o.value !== '0' && o.value !== '')
+                        .map(o => ({ id: o.value, nombre: o.text.trim() }));
+                }""")
+                if catalogos_opts:
+                    for c_opt in catalogos_opts:
+                        await page.evaluate("""(catId) => {
+                            const sel = document.querySelector('#ajaxCatalogo');
+                            if (sel && window.jQuery) {
+                                window.jQuery(sel).val(catId).trigger('change');
+                            }
+                        }""", c_opt["id"])
+                        await page.wait_for_timeout(1200)
+                        categs_opts = await page.evaluate("""() => {
+                            const sel = document.querySelector('#ajaxCategoria');
+                            if (!sel) return [];
+                            return Array.from(sel.options)
+                                .filter(o => o.value && o.value !== '0' && o.value !== '')
+                                .map(o => ({ id: o.value, nombre: o.text.trim() }));
+                        }""")
+                        for cg_opt in categs_opts:
+                            combos_a_procesar.append({
+                                "catalogo_id": str(c_opt["id"]),
+                                "catalogo_nombre": c_opt["nombre"],
+                                "categoria_id": str(cg_opt["id"]),
+                                "categoria_nombre": cg_opt["nombre"]
+                            })
+            except Exception as disc_err:
+                logger.warning(f"Error en descubrimiento dinámico de categorías: {disc_err}")
+
+            if not combos_a_procesar:
+                from app.services.proveedores_scraper import OFFICIAL_PERUCOMPRAS_COMBOS
+                combos_a_procesar = [
+                    {
+                        "catalogo_id": c["n_catalogo"],
+                        "catalogo_nombre": c["catalogo_nombre"],
+                        "categoria_id": c["n_categoria"],
+                        "categoria_nombre": c["categoria_nombre"]
+                    }
+                    for c in OFFICIAL_PERUCOMPRAS_COMBOS
+                ]
+
+            EXTRACTION_STATUS["combos_total"] = len(combos_a_procesar)
+            add_status_log(f"📋 Total de categorías a procesar: {len(combos_a_procesar)} categorías oficiales.")
+
+            # 5. Iterar sobre todas las categorías descubiertas
+            for idx, cat_item in enumerate(combos_a_procesar):
                 n_cat = cat_item["catalogo_id"]
                 n_categ = cat_item["categoria_id"]
                 cat_nom = cat_item["catalogo_nombre"]
                 categ_nom = cat_item["categoria_nombre"]
 
-                add_status_log(f"📂 [{idx+1}/{len(CATEGORIAS_OFICIALES_ESTADOS)}] Consultando: {cat_nom} -> {categ_nom}...")
+                add_status_log(f"📂 [{idx+1}/{len(combos_a_procesar)}] Consultando: {cat_nom} -> {categ_nom}...")
                 EXTRACTION_STATUS["combos_completed"] = idx + 1
-                EXTRACTION_STATUS["progress_message"] = f"Extrayendo estados: {categ_nom} ({idx+1}/{len(CATEGORIAS_OFICIALES_ESTADOS)})"
+                EXTRACTION_STATUS["progress_message"] = f"Extrayendo estados: {categ_nom} ({idx+1}/{len(combos_a_procesar)})"
 
                 try:
                     # Ejecutar petición GET directamente en el contexto autenticado del navegador
