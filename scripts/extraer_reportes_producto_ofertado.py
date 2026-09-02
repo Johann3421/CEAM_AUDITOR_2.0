@@ -152,6 +152,7 @@ def parse_tabla_productos_ofertados(html_content: str) -> List[Dict[str, Any]]:
 async def extraer_fichas_reporte(
     catalogo_texto: str = "COMPUTADORAS DE ESCRITORIO",
     categoria_texto: str = "MONITOR",
+    palabra_clave: str = "",
     user: Optional[str] = None,
     password: Optional[str] = None,
     output_json_path: Optional[str] = None,
@@ -162,6 +163,7 @@ async def extraer_fichas_reporte(
       1. Acuerdo Marco: 249 (EXT-CE-2022-5)
       2. Catálogo: según `catalogo_texto`
       3. Categoría: según `categoria_texto`
+      4. Palabra Clave: según `palabra_clave` (opcional, para filtrar o evitar timeout en categorías masivas)
     Dispara la búsqueda y devuelve la lista completa de objetos JSON extraídos.
     """
     user = user or os.getenv("PERUCOMPRAS_USER_KING", "estalin.huamali01")
@@ -259,12 +261,18 @@ async def extraer_fichas_reporte(
             await browser.close()
             return []
 
+        # 5.5 Escribir palabra clave si está presente
+        if palabra_clave:
+            logger.info(f"Aplicando filtro por palabra clave: '{palabra_clave}'")
+            await page.fill("#C_Descripcion", palabra_clave)
+            await page.wait_for_timeout(500)
+
         # 6. Interceptar la respuesta de _detProductoOfertadoIndex al dar click en Iniciar Búsqueda
         logger.info("Disparando búsqueda...")
         html_response = None
 
         # Esperar por la respuesta de red específica
-        async with page.expect_response(lambda r: "_detProductoOfertadoIndex" in r.url and r.status == 200, timeout=45000) as response_info:
+        async with page.expect_response(lambda r: "_detProductoOfertadoIndex" in r.url and r.status == 200, timeout=60000) as response_info:
             await page.evaluate("""() => {
                 const btn = document.querySelector('#btnBuscar');
                 if (btn) btn.click();

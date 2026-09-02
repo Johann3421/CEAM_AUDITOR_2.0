@@ -1203,7 +1203,7 @@ const ProveedorFichas = () => {
       </div>
 
       {/* Main Table */}
-      <div className="card fade-up" style={{ padding: 0, overflow: 'visible', border: '1px solid var(--c-border)' }}>
+      <div className="card fade-up" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--c-border)', borderRadius: 8, background: '#fff' }}>
         <div className="card-header" style={{ padding: '12px 18px', borderBottom: '1px solid var(--c-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
           <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}>
             <FileText size={16} style={{ color: 'var(--c-brand)' }} />
@@ -1214,12 +1214,12 @@ const ProveedorFichas = () => {
           </span>
         </div>
 
-        <div className="table-wrap" style={{ overflow: 'visible' }}>
-          <table className="data-table" style={{ fontSize: '0.84rem', width: '100%', borderCollapse: 'collapse' }}>
+        <div className="table-wrap" style={{ overflowX: 'auto', width: '100%', WebkitOverflowScrolling: 'touch' }}>
+          <table className="data-table" style={{ fontSize: '0.83rem', width: '100%', minWidth: 1260, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '2px solid var(--c-border)' }}>
                 {/* 1. Marca & Código */}
-                <th style={{ width: 170, padding: '10px 14px' }}>
+                <th style={{ width: 150, minWidth: 150, padding: '10px 12px' }}>
                   <HeaderFilter
                     title="Marca & Código"
                     column="marca"
@@ -1230,12 +1230,12 @@ const ProveedorFichas = () => {
                 </th>
 
                 {/* 2. Ficha Técnica / Especificaciones */}
-                <th style={{ padding: '10px 14px', minWidth: 260 }}>
+                <th style={{ padding: '10px 12px', minWidth: 260 }}>
                   <span>Ficha Técnica / Especificaciones</span>
                 </th>
 
                 {/* 3. Columna de Proveedores Oferentes con Filtro */}
-                <th style={{ width: 230, padding: '10px 14px' }}>
+                <th style={{ width: 210, minWidth: 210, padding: '10px 10px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1262,7 +1262,7 @@ const ProveedorFichas = () => {
                 {/* 4. Columna de Comparativa de Precios */}
                 <th 
                   onClick={() => toggleSort('precio')}
-                  style={{ width: 290, padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}
+                  style={{ width: 250, minWidth: 250, padding: '10px 10px', cursor: 'pointer', userSelect: 'none' }}
                   title="Ordenar por Precio"
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
@@ -1281,7 +1281,7 @@ const ProveedorFichas = () => {
                 </th>
 
                 {/* 5. Plazo de Entrega */}
-                <th style={{ width: 140, textAlign: 'center', padding: '10px 14px' }}>
+                <th style={{ width: 120, minWidth: 120, textAlign: 'center', padding: '10px 8px' }}>
                   <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                     <Clock size={13} style={{ color: 'var(--c-brand)' }} />
                     <span>Plazo de Entrega</span>
@@ -1291,7 +1291,7 @@ const ProveedorFichas = () => {
                 {/* 6. Stock Total */}
                 <th 
                   onClick={() => toggleSort('stock')}
-                  style={{ width: 95, textAlign: 'center', padding: '10px 10px', cursor: 'pointer', userSelect: 'none' }}
+                  style={{ width: 80, minWidth: 80, textAlign: 'center', padding: '10px 6px', cursor: 'pointer', userSelect: 'none' }}
                   title="Ordenar por Existencias"
                 >
                   <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
@@ -1305,17 +1305,17 @@ const ProveedorFichas = () => {
                 </th>
 
                 {/* 7. Estado Ficha-producto */}
-                <th style={{ width: 125, textAlign: 'center', padding: '10px 8px' }}>
+                <th style={{ width: 95, minWidth: 95, textAlign: 'center', padding: '10px 6px' }}>
                   <span style={{ fontWeight: 600 }}>Estado Ficha</span>
                 </th>
 
                 {/* 8. Estado Oferta */}
-                <th style={{ width: 115, textAlign: 'center', padding: '10px 8px' }}>
+                <th style={{ width: 95, minWidth: 95, textAlign: 'center', padding: '10px 6px' }}>
                   <span style={{ fontWeight: 600 }}>Estado Oferta</span>
                 </th>
 
                 {/* 9. PDF Ficha Técnica con Filtro */}
-                <th style={{ width: 115, textAlign: 'center', padding: '8px 6px' }}>
+                <th style={{ width: 85, minWidth: 85, textAlign: 'center', padding: '8px 4px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                       <FileText size={13} style={{ color: '#dc2626' }} />
@@ -1499,7 +1499,7 @@ const ProveedorFichas = () => {
                       </td>
 
                       {/* 7. Columna Estado Ficha-producto */}
-                      <td style={{ padding: '10px 8px', textAlign: 'center', verticalAlign: 'middle' }}>
+                      <td style={{ padding: '8px 4px', textAlign: 'center', verticalAlign: 'middle' }}>
                         {(() => {
                           const est = f.estado_ficha_producto || (f.raw_json && f.raw_json.estado_ficha_producto);
                           if (!est) return <span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span>;
@@ -1517,9 +1517,9 @@ const ProveedorFichas = () => {
                             <span
                               style={{
                                 display: 'inline-block',
-                                padding: '3px 8px',
-                                borderRadius: 6,
-                                fontSize: 10,
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                fontSize: 9.5,
                                 fontWeight: 700,
                                 background: bg,
                                 color: color,
@@ -1535,7 +1535,7 @@ const ProveedorFichas = () => {
                       </td>
 
                       {/* 8. Columna Estado Oferta */}
-                      <td style={{ padding: '10px 8px', textAlign: 'center', verticalAlign: 'middle' }}>
+                      <td style={{ padding: '8px 4px', textAlign: 'center', verticalAlign: 'middle' }}>
                         {(() => {
                           const est = f.estado_oferta || (f.raw_json && f.raw_json.estado_oferta);
                           if (!est) return <span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span>;
@@ -1551,9 +1551,9 @@ const ProveedorFichas = () => {
                             <span
                               style={{
                                 display: 'inline-block',
-                                padding: '3px 8px',
-                                borderRadius: 6,
-                                fontSize: 10,
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                fontSize: 9.5,
                                 fontWeight: 700,
                                 background: bg,
                                 color: color,
@@ -1569,7 +1569,7 @@ const ProveedorFichas = () => {
                       </td>
 
                       {/* 9. Columna PDF Ficha Técnica */}
-                      <td style={{ padding: '10px 8px', textAlign: 'center', verticalAlign: 'middle' }}>
+                      <td style={{ padding: '8px 4px', textAlign: 'center', verticalAlign: 'middle' }}>
                         {f.pdf_url && f.pdf_url.trim() !== '' && f.pdf_url !== '#' ? (
                           <a
                             href={f.pdf_url}
@@ -1579,10 +1579,10 @@ const ProveedorFichas = () => {
                               display: 'inline-flex',
                               alignItems: 'center',
                               justifyContent: 'center',
-                              gap: 4,
-                              padding: '5px 8px',
-                              borderRadius: 6,
-                              fontSize: 11,
+                              gap: 3,
+                              padding: '4px 6px',
+                              borderRadius: 4,
+                              fontSize: 10.5,
                               fontWeight: 700,
                               background: '#fef2f2',
                               color: '#dc2626',

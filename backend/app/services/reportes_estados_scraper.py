@@ -284,56 +284,108 @@ async def async_sync_estados_fichas(
                 EXTRACTION_STATUS["progress_message"] = f"Extrayendo estados: {categ_nom} ({idx+1}/{len(combos_a_procesar)})"
 
                 try:
-                    # Ejecutar petición GET directamente en el contexto autenticado del navegador
-                    html_table = await page.evaluate("""(args) => {
-                        return new Promise((resolve) => {
-                            $.ajax({
-                                url: '/Reportes/_detProductoOfertadoIndex',
-                                type: 'GET',
-                                cache: false,
-                                data: {
-                                    N_Acuerdo: args.n_acuerdo,
-                                    N_Catalogo: args.n_catalogo,
-                                    N_Categoria: args.n_categoria,
-                                    C_Descripcion: ''
-                                },
-                                timeout: 60000,
-                                success: function(data) { resolve(data); },
-                                error: function() { resolve(''); }
+                    items = []
+
+                    # Función helper para consultar _detProductoOfertadoIndex con timeout configurable
+                    async def _fetch_reporte(desc_filtro: str = "", t_out: int = 45000):
+                        return await page.evaluate("""(args) => {
+                            return new Promise((resolve) => {
+                                $.ajax({
+                                    url: '/Reportes/_detProductoOfertadoIndex',
+                                    type: 'GET',
+                                    cache: false,
+                                    data: {
+                                        N_Acuerdo: args.n_acuerdo,
+                                        N_Catalogo: args.n_catalogo,
+                                        N_Categoria: args.n_categoria,
+                                        C_Descripcion: args.c_descripcion
+                                    },
+                                    timeout: args.timeout,
+                                    success: function(data) { resolve(data || ''); },
+                                    error: function() { resolve(''); }
+                                });
                             });
-                        });
-                    }""", {
-                        "n_acuerdo": ID_ACUERDO_2022_5,
-                        "n_catalogo": n_cat,
-                        "n_categoria": n_categ
-                    })
+                        }""", {
+                            "n_acuerdo": ID_ACUERDO_2022_5,
+                            "n_catalogo": n_cat,
+                            "n_categoria": n_categ,
+                            "c_descripcion": desc_filtro,
+                            "timeout": t_out
+                        })
 
-                    if not html_table or len(html_table) < 200:
-                        # Fallback a interacción por interfaz si ajax directo no responde
-                        await page.evaluate("""(args) => {
-                            const selCat = document.querySelector('#ajaxCatalogo');
-                            if (selCat) { selCat.value = args.n_catalogo; $(selCat).trigger('change'); }
-                            setTimeout(() => {
-                                const selCateg = document.querySelector('#ajaxCategoria');
-                                if (selCateg) { selCateg.value = args.n_categoria; $(selCateg).trigger('change'); }
-                                setTimeout(() => {
-                                    const btn = document.querySelector('#btnBuscar');
-                                    if (btn) btn.click();
-                                }, 1500);
-                            }, 1500);
-                        }""", {"n_catalogo": n_cat, "n_categoria": n_categ})
+                    # 1. Intento global sin filtro (funciona de inmediato para categorías medianas/pequeñas)
+                    html_table = await _fetch_reporte(desc_filtro="", t_out=45000)
+                    if html_table and len(html_table) > 300:
+                        items = parse_tabla_reportes(html_table)
 
-                        await page.wait_for_timeout(6000)
-                        html_table = await page.evaluate("""() => {
-                            const panel = document.querySelector('#OfertasPanelDiv');
-                            return panel ? panel.innerHTML : '';
-                        }""")
+                    # 2. Si devolvió 0 o falló (categorías masivas como Computadora de Escritorio con ~28k registros que saturan el backend)
+                    if not items:
+                        add_status_log(f"   ⚡ Categoría masiva o sin respuesta global. Extrayendo por lotes de marcas para evitar saturación del servidor...")
+                        
+                        # Buscar qué marcas tenemos en nuestra base de datos para esta categoría/catálogo
+                        marcas_a_buscar = set()
+                        if db is not None:
+                            try:
+                                sql_m = text("""
+                                    SELECT DISTINCT UPPER(TRIM(marca)) 
+                                    FROM ofertas_proveedor_history 
+                                    WHERE (UPPER(categoria) = UPPER(:cat) OR UPPER(catalogo) = UPPER(:catalogo))
+                                      AND marca IS NOT NULL AND TRIM(marca) != ''
+                                """)
+                                rows_m = db.execute(sql_m, {"cat": categ_nom, "catalogo": cat_nom}).fetchall()
+                                for r in rows_m:
+                                    if r[0] and len(r[0]) >= 2:
+                                        marcas_a_buscar.add(r[0])
+                            except Exception as e:
+                                logger.warning(f"Error consultando marcas de BD: {e}")
 
+                        # Marcas líderes para garantizar cobertura total de computadoras
+                        marcas_top = ["HP", "LENOVO", "DELL", "ADVANCE", "ACER", "ASUS", "TEROS", "APPLE", "SAMSUNG"]
+                        for m_top in marcas_top:
+                            marcas_a_buscar.add(m_top)
+
+                        # Consultar por cada marca específica (cada consulta toma solo 1-2s y nunca cae en timeout)
+                        for m_marca in sorted(marcas_a_buscar):
+                            add_status_log(f"   🔎 Consultando lote marca '{m_marca}' en {categ_nom}...")
+                            html_marca = await _fetch_reporte(desc_filtro=m_marca, t_out=30000)
+                            items_marca = parse_tabla_reportes(html_marca)
+                            if items_marca:
+                                add_status_log(f"      ✓ {len(items_marca)} fichas encontradas para marca '{m_marca}'.")
+                                items.extend(items_marca)
+                            await asyncio.sleep(0.4)
+
+                        # 3. Si aún faltan productos específicos de nuestra BD sin estado, buscar directamente por sus nro_parte
+                        if db is not None:
+                            try:
+                                sql_np = text("""
+                                    SELECT DISTINCT UPPER(TRIM(nro_parte))
+                                    FROM ofertas_proveedor_history
+                                    WHERE (UPPER(categoria) = UPPER(:cat) OR UPPER(catalogo) = UPPER(:catalogo))
+                                      AND (estado_ficha_producto IS NULL OR estado_ficha_producto = '')
+                                      AND nro_parte IS NOT NULL AND LENGTH(TRIM(nro_parte)) >= 4
+                                    LIMIT 50
+                                """)
+                                rows_np = db.execute(sql_np, {"cat": categ_nom, "catalogo": cat_nom}).fetchall()
+                                for r_np in rows_np:
+                                    np_target = r_np[0]
+                                    html_np = await _fetch_reporte(desc_filtro=np_target, t_out=15000)
+                                    items_np = parse_tabla_reportes(html_np)
+                                    if items_np:
+                                        items.extend(items_np)
+                                    await asyncio.sleep(0.3)
+                            except Exception as e:
+                                logger.warning(f"Error buscando por nro_parte: {e}")
+
+                    # Deduplicar items por id_producto_ofertado o nro_parte
+                    unique_items = {}
+                    for it in items:
+                        key = it.get("id_producto_ofertado") or (it.get("nro_parte") or "") + (it.get("descripcion") or "")[:20]
+                        if key and key not in unique_items:
+                            unique_items[key] = it
+                    
+                    items = list(unique_items.values())
+                    add_status_log(f"   📊 Total consolidado: {len(items)} fichas procesadas en {categ_nom}.")
                     await _capture_live_preview(page, update_live_screenshot)
-
-                    # Parsear ofertas obtenidas
-                    items = parse_tabla_reportes(html_table)
-                    add_status_log(f"   📊 Encontradas {len(items)} fichas en {categ_nom}.")
 
                     if items and db is not None:
                         cat_actualizados = 0
