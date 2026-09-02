@@ -309,52 +309,11 @@ async def async_sync_estados_fichas(
                     }""", {"n_categoria": n_categ})
                     await page.wait_for_timeout(500)
 
-                    # PASO B: Disparar la búsqueda (#btnBuscar / ListarProductosOfertados)
-                    await page.evaluate("""(args) => {
-                        if (typeof ListarProductosOfertados === 'function') {
-                            $("#OfertasPanelDiv").empty();
-                            $("#divBuscar_ajax").show();
-                            ListarProductosOfertados(args.n_acuerdo, args.n_catalogo, args.n_categoria, '');
-                        } else {
-                            const btn = document.querySelector('#btnBuscar');
-                            if (btn) btn.click();
-                        }
-                    }""", {"n_acuerdo": ID_ACUERDO_2022_5, "n_catalogo": n_cat, "n_categoria": n_categ})
-
-                    # PASO C: Espera activa inteligente en el DOM (idéntica a completar_menu_dinamico del primer script)
-                    start_wait = time.time()
-                    max_wait = 180  # Hasta 3 minutos para categorías masivas
-                    found_table = False
-
-                    while time.time() - start_wait < max_wait:
-                        await page.wait_for_timeout(2500)
-                        await _capture_live_preview(page, update_live_screenshot)
-
-                        check_dom = await page.evaluate("""() => {
-                            const loader = document.querySelector('#divBuscar_ajax');
-                            const isLoaderVisible = loader && (loader.style.display !== 'none' && window.getComputedStyle(loader).display !== 'none');
-                            const panel = document.querySelector('#OfertasPanelDiv');
-                            const table = panel ? panel.querySelector('#TablaOfertas') || panel.querySelector('table') : null;
-                            const rows = table ? table.querySelectorAll('tbody tr') : [];
-                            const hasDataRows = Array.from(rows).some(r => r.querySelectorAll('td').length >= 5);
-                            const html = panel ? panel.innerHTML : '';
-                            return { isLoaderVisible, hasDataRows, rowCount: rows.length, html };
-                        }""")
-
-                        if check_dom and check_dom.get("hasDataRows") and not check_dom.get("isLoaderVisible"):
-                            html_table = check_dom.get("html")
-                            found_table = True
-                            break
-
-                        # Si el loader se ocultó y no hay filas (categoría vacía oficial)
-                        if check_dom and not check_dom.get("isLoaderVisible") and (time.time() - start_wait > 5):
-                            html_table = check_dom.get("html", "")
-                            break
-
-                    # Fallback de seguridad: si el DOM tardó demasiado, pedir por $.ajax directo
-                    if not html_table or len(html_table) < 200:
-                        html_table = await page.evaluate("""(args) => {
-                            return new Promise((resolve) => {
+                    # PASO B: Solicitar la tabla completa de ofertas directamente al endpoint
+                    html_table = await page.evaluate("""(args) => {
+                        return new Promise((resolve) => {
+                            if (typeof $ !== 'undefined') {
+                                $("#divBuscar_ajax").show();
                                 $.ajax({
                                     url: '/Reportes/_detProductoOfertadoIndex',
                                     type: 'GET',
@@ -365,12 +324,53 @@ async def async_sync_estados_fichas(
                                         N_Categoria: args.n_categoria,
                                         C_Descripcion: ''
                                     },
-                                    timeout: 90000,
-                                    success: function(data) { resolve(data || ''); },
-                                    error: function() { resolve(''); }
+                                    timeout: 120000,
+                                    success: function(data) {
+                                        $("#OfertasPanelDiv").html(data);
+                                        $("#divBuscar_ajax").hide();
+                                        resolve(data || '');
+                                    },
+                                    error: function() {
+                                        $("#divBuscar_ajax").hide();
+                                        resolve('');
+                                    }
                                 });
-                            });
-                        }""", {"n_acuerdo": ID_ACUERDO_2022_5, "n_catalogo": n_cat, "n_categoria": n_categ})
+                            } else {
+                                resolve('');
+                            }
+                        });
+                    }""", {"n_acuerdo": ID_ACUERDO_2022_5, "n_catalogo": n_cat, "n_categoria": n_categ})
+
+                    # Fallback interactivo si la petición directa no trajo datos: clic en #btnBuscar y espera activa en DOM
+                    if not html_table or len(html_table) < 200:
+                        await page.evaluate("""() => {
+                            const btn = document.querySelector('#btnBuscar');
+                            if (btn) btn.click();
+                        }""")
+                        start_wait = time.time()
+                        max_wait = 120
+                        while time.time() - start_wait < max_wait:
+                            await page.wait_for_timeout(2500)
+                            await _capture_live_preview(page, update_live_screenshot)
+
+                            check_dom = await page.evaluate("""() => {
+                                const loader = document.querySelector('#divBuscar_ajax');
+                                const isLoaderVisible = loader && (loader.style.display !== 'none' && window.getComputedStyle(loader).display !== 'none');
+                                const panel = document.querySelector('#OfertasPanelDiv');
+                                const table = panel ? panel.querySelector('#TablaOfertas') || panel.querySelector('table') : null;
+                                const rows = table ? table.querySelectorAll('tbody tr') : [];
+                                const hasDataRows = Array.from(rows).some(r => r.querySelectorAll('td').length >= 5);
+                                const html = panel ? panel.innerHTML : '';
+                                return { isLoaderVisible, hasDataRows, rowCount: rows.length, html };
+                            }""")
+
+                            if check_dom and check_dom.get("hasDataRows") and not check_dom.get("isLoaderVisible"):
+                                html_table = check_dom.get("html")
+                                break
+
+                            if check_dom and not check_dom.get("isLoaderVisible") and (time.time() - start_wait > 8):
+                                html_table = check_dom.get("html", "")
+                                break
 
                     await _capture_live_preview(page, update_live_screenshot)
 
@@ -404,17 +404,7 @@ async def async_sync_estados_fichas(
                                         motivo_estado = COALESCE(NULLIF(:motivo, ''), motivo_estado),
                                         justificacion_estado = COALESCE(NULLIF(:justif, ''), justificacion_estado),
                                         id_producto_ofertado = COALESCE(NULLIF(:id_of, ''), id_producto_ofertado),
-                                        pdf_url = COALESCE(NULLIF(:pdf, ''), pdf_url),
-                                        raw_json = jsonb_set(
-                                            jsonb_set(
-                                                jsonb_set(
-                                                    COALESCE(raw_json, '{}'::json)::jsonb,
-                                                    '{estado_ficha_producto}', to_jsonb(:estado_f::text)
-                                                ),
-                                                '{estado_oferta}', to_jsonb(:estado_o::text)
-                                            ),
-                                            '{ficha_tecnica_pdf}', to_jsonb(:pdf::text)
-                                        )::json
+                                        pdf_url = COALESCE(NULLIF(:pdf, ''), pdf_url)
                                     WHERE (
                                         (:np != '' AND :np != 'S/N' AND UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np)))
                                         OR (:np != '' AND :np != 'S/N' AND LENGTH(:np) >= 4 AND UPPER(descripcion_producto) LIKE UPPER(:np_like))
