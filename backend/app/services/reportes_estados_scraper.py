@@ -271,61 +271,34 @@ async def async_sync_estados_fichas(
                     for c in OFFICIAL_PERUCOMPRAS_COMBOS
                 ]
 
-            # 4. PASO PREVIO: Sincronización ultrarrápida desde la tabla principal 'fichas_producto'
-            prov_short = "KING" if "KING" in nombre_proveedor.upper() else "ROJAS"
-            target_products = []
-            if db is not None:
-                add_status_log("⚡ Vinculando estados y PDFs disponibles desde la tabla principal 'fichas_producto'...")
-                try:
-                    sync_fp_sql = text("""
-                        UPDATE ofertas_proveedor_history o
-                        SET 
-                            estado_ficha_producto = COALESCE(NULLIF(o.estado_ficha_producto, ''), fp.estado_ficha_producto, fp.estado),
-                            pdf_url = COALESCE(NULLIF(o.pdf_url, ''), fp.ficha_tecnica, fp.ficha_tcnica)
-                        FROM (
-                            SELECT 
-                                UPPER(TRIM(COALESCE(NULLIF(nro_parte, ''), nro_parte_o_código_único_de_identificación))) AS nro_key,
-                                estado_ficha_producto,
-                                estado,
-                                ficha_tecnica,
-                                ficha_tcnica
-                            FROM fichas_producto
-                            WHERE (nro_parte IS NOT NULL AND nro_parte != '')
-                               OR (nro_parte_o_código_único_de_identificación IS NOT NULL AND nro_parte_o_código_único_de_identificación != '')
-                        ) fp
-                        WHERE (UPPER(o.nombre_proveedor) LIKE :prov_like OR o.ruc_proveedor = :ruc)
-                          AND UPPER(TRIM(o.nro_parte)) = fp.nro_key
-                          AND (o.estado_ficha_producto IS NULL OR o.estado_ficha_producto = '' OR o.pdf_url IS NULL OR o.pdf_url = '');
-                    """)
-                    res_fp = db.execute(sync_fp_sql, {"prov_like": f"%{prov_short}%", "ruc": ruc_proveedor})
-                    db.commit()
-                    add_status_log(f"✅ {res_fp.rowcount} fichas vinculadas de inmediato con 'fichas_producto'.")
-                except Exception as fp_err:
-                    logger.warning(f"Aviso en sincronización directa de fichas_producto: {fp_err}")
-
-                # Cargar en memoria las ofertas de este proveedor para matching instantáneo por clave
-                try:
-                    sql_target = text("""
-                        SELECT id, nro_parte, descripcion_producto, marca, categoria, catalogo
-                        FROM ofertas_proveedor_history
-                        WHERE UPPER(nombre_proveedor) LIKE :prov_like OR ruc_proveedor = :ruc
-                    """)
-                    rows_p = db.execute(sql_target, {"prov_like": f"%{prov_short}%", "ruc": ruc_proveedor}).fetchall()
-                    for r in rows_p:
-                        target_products.append({
-                            "id": r[0],
-                            "nro_parte": (r[1] or "").strip().upper(),
-                            "desc": (r[2] or "").strip().upper(),
-                            "marca": (r[3] or "").strip().upper(),
-                            "categoria": (r[4] or "").strip().upper(),
-                            "catalogo": (r[5] or "").strip().upper()
-                        })
-                    add_status_log(f"📦 {len(target_products)} fichas del proveedor preparadas en memoria para matching.")
-                except Exception as p_err:
-                    logger.warning(f"Error cargando target_products: {p_err}")
-
             EXTRACTION_STATUS["combos_total"] = len(combos_a_procesar)
             add_status_log(f"📋 Total de categorías a procesar: {len(combos_a_procesar)} categorías oficiales.")
+
+            # Función para consultar directamente la ruta /Reportes/_detProductoOfertadoIndex vía fetch (idéntico a consultar_json_productos)
+            async def _fetch_ruta_reportes(cat_id: str, categ_id: str, c_desc: str = "", timeout_ms: int = 25000) -> str:
+                target_url = (
+                    f"/Reportes/_detProductoOfertadoIndex"
+                    f"?N_Acuerdo={ID_ACUERDO_2022_5}&N_Catalogo={cat_id}&N_Categoria={categ_id}"
+                    f"&C_Descripcion={c_desc}&_={int(time.time() * 1000)}"
+                )
+                js_fetch = """
+                async (args) => {
+                    try {
+                        const controller = new AbortController();
+                        const timer = setTimeout(() => controller.abort(), args.timeout);
+                        const res = await fetch(args.url, {
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                            signal: controller.signal
+                        });
+                        clearTimeout(timer);
+                        if (!res.ok) return '';
+                        return await res.text();
+                    } catch(e) {
+                        return '';
+                    }
+                }
+                """
+                return await page.evaluate(js_fetch, {"url": target_url, "timeout": timeout_ms})
 
             # 5. Iterar sobre todas las categorías descubiertas
             for idx, cat_item in enumerate(combos_a_procesar):
@@ -334,142 +307,43 @@ async def async_sync_estados_fichas(
                 cat_nom = cat_item["catalogo_nombre"]
                 categ_nom = cat_item["categoria_nombre"]
 
-                add_status_log(f"📂 [{idx+1}/{len(combos_a_procesar)}] Consultando: {cat_nom} -> {categ_nom}...")
+                add_status_log(f"📂 [{idx+1}/{len(combos_a_procesar)}] Consultando ruta: {cat_nom} -> {categ_nom}...")
                 EXTRACTION_STATUS["combos_completed"] = idx + 1
                 EXTRACTION_STATUS["progress_message"] = f"Extrayendo estados: {categ_nom} ({idx+1}/{len(combos_a_procesar)})"
 
                 try:
-                    # PASO A: Establecer selección en los desplegables dinámicos del DOM
-                    await page.evaluate("""(args) => {
-                        const selCat = document.querySelector('#ajaxCatalogo');
-                        if (selCat) {
-                            selCat.value = args.n_catalogo;
-                            selCat.dispatchEvent(new Event('change', { bubbles: true }));
-                            if (window.jQuery) { window.jQuery(selCat).val(args.n_catalogo).trigger('change'); }
-                        }
-                    }""", {"n_catalogo": n_cat})
-                    await page.wait_for_timeout(600)
-
-                    await page.evaluate("""(args) => {
-                        const selCateg = document.querySelector('#ajaxCategoria');
-                        if (selCateg) {
-                            selCateg.value = args.n_categoria;
-                            selCateg.dispatchEvent(new Event('change', { bubbles: true }));
-                            if (window.jQuery) { window.jQuery(selCateg).val(args.n_categoria).trigger('change'); }
-                        }
-                        const inpDesc = document.querySelector('#C_Descripcion');
-                        if (inpDesc) inpDesc.value = '';
-                    }""", {"n_categoria": n_categ})
-                    await page.wait_for_timeout(400)
-
-                    # Función interna para consultar la tabla de Reportes con timeout controlado
-                    async def _fetch_cat_html(keyword: str = "", timeout_ms: int = 40000) -> str:
-                        return await page.evaluate("""(args) => {
-                            return new Promise((resolve) => {
-                                if (typeof $ !== 'undefined') {
-                                    $("#divBuscar_ajax").show();
-                                    $.ajax({
-                                        url: '/Reportes/_detProductoOfertadoIndex',
-                                        type: 'GET',
-                                        cache: false,
-                                        data: {
-                                            N_Acuerdo: args.n_acuerdo,
-                                            N_Catalogo: args.n_catalogo,
-                                            N_Categoria: args.n_categoria,
-                                            C_Descripcion: args.c_descripcion
-                                        },
-                                        timeout: args.timeout,
-                                        success: function(data) {
-                                            $("#OfertasPanelDiv").html(data);
-                                            $("#divBuscar_ajax").hide();
-                                            resolve(data || '');
-                                        },
-                                        error: function() {
-                                            $("#divBuscar_ajax").hide();
-                                            resolve('');
-                                        }
-                                    });
-                                } else {
-                                    resolve('');
-                                }
-                            });
-                        }""", {
-                            "n_acuerdo": ID_ACUERDO_2022_5,
-                            "n_catalogo": n_cat,
-                            "n_categoria": n_categ,
-                            "c_descripcion": keyword,
-                            "timeout": timeout_ms
-                        })
-
                     items = []
-                    # Para categorías masivas (ej. Computadora de Escritorio con ~28k registros que cuelga la petición vacía):
-                    # Consultamos directamente por las marcas específicas que este proveedor tiene registradas
-                    is_massive_cat = ("COMPUTADORA DE ESCRITORIO" in categ_nom.upper() and "TODO EN UNO" not in categ_nom.upper())
-                    
-                    if is_massive_cat and target_products:
-                        # Identificar únicamente las marcas que tiene el proveedor en esta categoría
-                        marcas_proveedor = sorted({
-                            p["marca"] for p in target_products 
-                            if p["marca"] and p["marca"] not in ("VARIOS", "S/M", "S/N", "")
-                            and ("ESCRITORIO" in p["categoria"] or "ESCRITORIO" in p["catalogo"])
-                        })
-                        if not marcas_proveedor:
-                            marcas_proveedor = ["HP", "ADVANCE", "LENOVO"]
+                    is_computadora_escritorio = ("COMPUTADORA DE ESCRITORIO" in categ_nom.upper() and "TODO EN UNO" not in categ_nom.upper())
 
-                        add_status_log(f"   ⚡ Categoría de alto volumen: consultando marcas de '{nombre_proveedor}' ({', '.join(marcas_proveedor)})...")
-                        for m_prov in marcas_proveedor:
-                            html_m = await _fetch_cat_html(keyword=m_prov, timeout_ms=30000)
-                            if html_m:
-                                it_m = parse_tabla_reportes(html_m)
+                    if is_computadora_escritorio:
+                        # Para Computadora de Escritorio, consultar directamente las marcas principales para respuesta instantánea
+                        marcas_principales = ["ADVANCE", "HP", "LENOVO"]
+                        add_status_log(f"   ⚡ Extracción directa por ruta para marcas ({', '.join(marcas_principales)})...")
+                        for m in marcas_principales:
+                            raw_html_m = await _fetch_ruta_reportes(n_cat, n_categ, c_desc=m, timeout_ms=25000)
+                            if raw_html_m:
+                                it_m = parse_tabla_reportes(raw_html_m)
                                 if it_m:
                                     items.extend(it_m)
-                                    add_status_log(f"      ✓ {len(it_m)} fichas encontradas para marca '{m_prov}'.")
-                            await asyncio.sleep(0.3)
+                                    add_status_log(f"      ✓ {len(it_m)} fichas extraídas de la ruta para '{m}'.")
+                            await asyncio.sleep(0.2)
                     else:
-                        # Categoría estándar: consulta global de una sola vez
-                        html_table = await _fetch_cat_html(keyword="", timeout_ms=45000)
-                        if html_table:
-                            items = parse_tabla_reportes(html_table)
+                        # Para todas las demás categorías: petición directa sin filtro
+                        raw_html = await _fetch_ruta_reportes(n_cat, n_categ, c_desc="", timeout_ms=30000)
+                        if raw_html:
+                            items = parse_tabla_reportes(raw_html)
 
-                        # Fallback interactivo si la petición directa no trajo datos
-                        if not items:
-                            await page.evaluate("""() => {
-                                const btn = document.querySelector('#btnBuscar');
-                                if (btn) btn.click();
-                            }""")
-                            start_wait = time.time()
-                            while time.time() - start_wait < 35:
-                                await page.wait_for_timeout(2000)
-                                await _capture_live_preview(page, update_live_screenshot)
-                                check_dom = await page.evaluate("""() => {
-                                    const loader = document.querySelector('#divBuscar_ajax');
-                                    const isLoaderVisible = loader && (loader.style.display !== 'none' && window.getComputedStyle(loader).display !== 'none');
-                                    const panel = document.querySelector('#OfertasPanelDiv');
-                                    const table = panel ? panel.querySelector('#TablaOfertas') || panel.querySelector('table') : null;
-                                    const rows = table ? table.querySelectorAll('tbody tr') : [];
-                                    const hasDataRows = Array.from(rows).some(r => r.querySelectorAll('td').length >= 5);
-                                    const html = panel ? panel.innerHTML : '';
-                                    return { isLoaderVisible, hasDataRows, rowCount: rows.length, html };
-                                }""")
-                                if check_dom and check_dom.get("hasDataRows") and not check_dom.get("isLoaderVisible"):
-                                    items = parse_tabla_reportes(check_dom.get("html", ""))
-                                    break
-                                if check_dom and not check_dom.get("isLoaderVisible") and (time.time() - start_wait > 6):
-                                    break
-
-                    await _capture_live_preview(page, update_live_screenshot)
-
-                    # Deduplicar items por id_producto_ofertado o nro_parte
-                    unique_items = {}
+                    # Deduplicar por id_producto_ofertado o nro_parte
+                    unique_dict = {}
                     for it in items:
-                        k_it = it.get("id_producto_ofertado") or it.get("nro_parte") or (it.get("descripcion") or "")[:25]
-                        if k_it and k_it not in unique_items:
-                            unique_items[k_it] = it
-                    items = list(unique_items.values())
+                        k = it.get("id_producto_ofertado") or it.get("nro_parte") or (it.get("descripcion") or "")[:30]
+                        if k and k not in unique_dict:
+                            unique_dict[k] = it
+                    items = list(unique_dict.values())
 
                     add_status_log(f"   📊 Total consolidado: {len(items)} fichas procesadas en {categ_nom}.")
 
-                    # PASO C: Matching ultrarrápido en memoria y actualización directa por Primary Key (id)
+                    # PASO B: Actualizar en base de datos por nro_parte y nro_parte en descripción
                     if items and db is not None:
                         cat_actualizados = 0
                         sql_up = text("""
@@ -481,42 +355,32 @@ async def async_sync_estados_fichas(
                                 justificacion_estado = COALESCE(NULLIF(:justif, ''), justificacion_estado),
                                 id_producto_ofertado = COALESCE(NULLIF(:id_of, ''), id_producto_ofertado),
                                 pdf_url = COALESCE(NULLIF(:pdf, ''), pdf_url)
-                            WHERE id = :target_id;
+                            WHERE (
+                                (:np != '' AND :np != 'S/N' AND UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np)))
+                                OR (:np != '' AND :np != 'S/N' AND LENGTH(:np) >= 5 AND UPPER(descripcion_producto) LIKE UPPER(:np_like))
+                            );
                         """)
 
                         for it in items:
-                            it_np = (it.get("nro_parte") or "").strip().upper()
-                            it_desc = (it.get("descripcion") or "").strip().upper()
-                            if not it_np and not it_desc:
+                            np = (it.get("nro_parte") or "").strip()
+                            if not np:
                                 continue
 
-                            # Localizar IDs coincidentes en target_products
-                            matching_ids = []
-                            if it_np and it_np not in ("S/N", "SN", "-") and len(it_np) >= 3:
-                                for p in target_products:
-                                    if p["nro_parte"] == it_np or (len(it_np) >= 5 and it_np in p["desc"]):
-                                        matching_ids.append(p["id"])
-
-                            if not matching_ids and len(it_desc) >= 30:
-                                for p in target_products:
-                                    if it_desc[:45] in p["desc"]:
-                                        matching_ids.append(p["id"])
-
-                            # Ejecutar actualización precisa por Primary Key (toma < 1 ms por fila)
-                            for tid in matching_ids:
-                                try:
-                                    res_up = db.execute(sql_up, {
-                                        "target_id": tid,
-                                        "estado_f": it.get("estado_ficha_producto") or "",
-                                        "estado_o": it.get("estado_oferta") or "",
-                                        "motivo": it.get("motivo") or "",
-                                        "justif": it.get("justificacion") or "",
-                                        "id_of": it.get("id_producto_ofertado") or "",
-                                        "pdf": it.get("pdf_url") or "",
-                                    })
-                                    cat_actualizados += res_up.rowcount
-                                except Exception as row_err:
-                                    logger.warning(f"Aviso actualizando fila {tid}: {row_err}")
+                            try:
+                                res_up = db.execute(sql_up, {
+                                    "estado_f": it.get("estado_ficha_producto") or "",
+                                    "estado_o": it.get("estado_oferta") or "",
+                                    "motivo": it.get("motivo") or "",
+                                    "justif": it.get("justificacion") or "",
+                                    "id_of": it.get("id_producto_ofertado") or "",
+                                    "pdf": it.get("pdf_url") or "",
+                                    "np": np,
+                                    "np_like": f"%{np}%"
+                                })
+                                cat_actualizados += res_up.rowcount
+                            except Exception as row_err:
+                                db.rollback()
+                                logger.warning(f"Error en fila {np}: {row_err}")
 
                         db.commit()
                         total_actualizados += cat_actualizados
@@ -524,6 +388,8 @@ async def async_sync_estados_fichas(
                         add_status_log(f"   💾 {cat_actualizados} registros actualizados en BD para {categ_nom}.")
 
                 except Exception as cat_err:
+                    if db is not None:
+                        db.rollback()
                     add_status_log(f"⚠️ Error procesando {categ_nom}: {cat_err}")
 
                 # Pausa mínima de cortesía entre categorías
