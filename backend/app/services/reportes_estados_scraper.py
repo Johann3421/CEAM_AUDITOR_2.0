@@ -158,10 +158,11 @@ async def async_sync_estados_fichas(
     3. Itera las categorías oficiales obteniendo `_detProductoOfertadoIndex`.
     4. Cruza e inserta los estados y PDFs en `ofertas_proveedor_history`.
     """
+    is_all_providers = provider_key in ("all", "todos", "ambos")
     prov_cfg = PROVEEDORES_CONFIG.get(provider_key, PROVEEDORES_CONFIG["thekingcomputer"])
     user = prov_cfg["user"]
     password = prov_cfg["pass"]
-    prov_nombre = prov_cfg["nombre"]
+    prov_nombre = "TODOS LOS PROVEEDORES" if is_all_providers else prov_cfg["nombre"]
     nombre_proveedor = prov_nombre
     ruc_proveedor = prov_cfg.get("ruc", "")
 
@@ -175,18 +176,29 @@ async def async_sync_estados_fichas(
     EXTRACTION_STATUS["items_inserted"] = 0
     EXTRACTION_STATUS["logs"] = []
 
-    # 0. Obtener dinámicamente de la BD todas las marcas y categorías que este proveedor tiene registradas
+    # 0. Obtener dinámicamente de la BD todas las marcas y categorías registradas
     marcas_por_cat = {}
     marcas_totales_prov = []
     if db is not None:
         try:
-            res_m = db.execute(text("""
-                SELECT DISTINCT UPPER(TRIM(categoria)), UPPER(TRIM(marca))
-                FROM ofertas_proveedor_history
-                WHERE UPPER(nombre_proveedor) LIKE :p
-                  AND marca IS NOT NULL
-                  AND TRIM(marca) NOT IN ('', 'VARIOS', 'S/N', 'SN', '-')
-            """), {"p": f"%{prov_nombre.upper()}%"}).fetchall()
+            if is_all_providers:
+                sql_marcas = text("""
+                    SELECT DISTINCT UPPER(TRIM(categoria)), UPPER(TRIM(marca))
+                    FROM ofertas_proveedor_history
+                    WHERE marca IS NOT NULL
+                      AND TRIM(marca) NOT IN ('', 'VARIOS', 'S/N', 'SN', '-')
+                """)
+                res_m = db.execute(sql_marcas).fetchall()
+            else:
+                sql_marcas = text("""
+                    SELECT DISTINCT UPPER(TRIM(categoria)), UPPER(TRIM(marca))
+                    FROM ofertas_proveedor_history
+                    WHERE UPPER(nombre_proveedor) LIKE :p
+                      AND marca IS NOT NULL
+                      AND TRIM(marca) NOT IN ('', 'VARIOS', 'S/N', 'SN', '-')
+                """)
+                res_m = db.execute(sql_marcas, {"p": f"%{prov_nombre.upper()}%"}).fetchall()
+
             for r_cat, r_marca in res_m:
                 if r_cat:
                     marcas_por_cat.setdefault(r_cat, set()).add(r_marca)
@@ -381,14 +393,24 @@ async def async_sync_estados_fichas(
                     # PASO B: Actualizar en base de datos ultrarrápido (matching instantáneo O(1) y update por Primary Key)
                     if items and db is not None:
                         cat_actualizados = 0
-                        # 1. Cargar las ofertas registradas de este proveedor en memoria
-                        db_targets = db.execute(text("""
-                            SELECT id, UPPER(TRIM(nro_parte)) AS np
-                            FROM ofertas_proveedor_history
-                            WHERE UPPER(nombre_proveedor) LIKE :p
-                              AND nro_parte IS NOT NULL
-                              AND TRIM(nro_parte) NOT IN ('', 'S/N', 'SN', '-')
-                        """), {"p": f"%{prov_nombre.upper()}%"}).fetchall()
+                        # 1. Cargar las ofertas registradas en memoria (de todos o del proveedor específico)
+                        if is_all_providers:
+                            sql_targets = text("""
+                                SELECT id, UPPER(TRIM(nro_parte)) AS np
+                                FROM ofertas_proveedor_history
+                                WHERE nro_parte IS NOT NULL
+                                  AND TRIM(nro_parte) NOT IN ('', 'S/N', 'SN', '-')
+                            """)
+                            db_targets = db.execute(sql_targets).fetchall()
+                        else:
+                            sql_targets = text("""
+                                SELECT id, UPPER(TRIM(nro_parte)) AS np
+                                FROM ofertas_proveedor_history
+                                WHERE UPPER(nombre_proveedor) LIKE :p
+                                  AND nro_parte IS NOT NULL
+                                  AND TRIM(nro_parte) NOT IN ('', 'S/N', 'SN', '-')
+                            """)
+                            db_targets = db.execute(sql_targets, {"p": f"%{prov_nombre.upper()}%"}).fetchall()
 
                         # Índice rápido en memoria nro_parte -> lista de IDs en la BD (incluyendo versión alfanumérica limpia)
                         np_map = {}

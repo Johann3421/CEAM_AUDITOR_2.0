@@ -390,7 +390,7 @@ const ProveedorFichas = () => {
     if (!window.confirm("¿Deseas sincronizar e incluir los estados (Estado Ficha-producto, Estado Oferta) y enlaces a Fichas Técnicas PDF oficiales de Perú Compras para las ofertas registradas?")) {
       return;
     }
-    const provToSync = selectedProvider !== 'all' ? selectedProvider : 'thekingcomputer';
+    const provToSync = selectedProvider;
     setScraping(true);
     wasScrapingRef.current = true;
     setShowLogModal(true);

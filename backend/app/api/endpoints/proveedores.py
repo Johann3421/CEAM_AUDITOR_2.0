@@ -2003,14 +2003,14 @@ async def trigger_sync_estados(
     from app.services.proveedores_scraper import PROVEEDORES_CONFIG
     from app.db.database import SessionLocal
 
-    prov_key = "thekingcomputer" if proveedor in ("all", "ambos", "todos") else proveedor
+    prov_key = "all" if proveedor in ("all", "ambos", "todos") else proveedor
+    prov_desc = "TODOS LOS PROVEEDORES" if prov_key == "all" else PROVEEDORES_CONFIG.get(prov_key, {}).get("nombre", prov_key)
 
     async def _async_estados_task():
         with SessionLocal() as db_session:
             await async_sync_estados_fichas(provider_key=prov_key, db=db_session)
 
     background_tasks.add_task(_async_estados_task)
-    prov_desc = PROVEEDORES_CONFIG.get(prov_key, {}).get("nombre", prov_key)
     return {
         "success": True,
         "message": f"Sincronización de estados y PDFs iniciada para '{prov_desc}'",
