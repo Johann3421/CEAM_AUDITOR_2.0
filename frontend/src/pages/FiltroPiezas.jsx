@@ -96,53 +96,6 @@ const CATEGORIAS_CONFIG = [
   { id: 'escaner_libros', label: '📖 Escáner de Libros', icon: Printer, type: 'scanner' },
 ];
 
-// Opciones base completas y catalogadas para que los filtros nunca queden vacíos
-const DEFAULT_FILTER_OPTIONS = {
-  marcas: [
-    'ACER', 'ADVANCE', 'AOC', 'APPLE', 'ASUS', 'CANON', 'DELL', 'EPSON',
-    'HP', 'HUAWEI', 'HYUNDAI', 'LENOVO', 'LG', 'MSI', 'SAMSUNG', 'TEROW', 'VIEWSONIC'
-  ],
-  cpus: [
-    'Intel Core i3', 'Intel Core i5', 'Intel Core i7', 'Intel Core i9',
-    'Intel Core Ultra', 'Intel Celeron', 'Intel Pentium', 'Intel Xeon',
-    'AMD Ryzen 3', 'AMD Ryzen 5', 'AMD Ryzen 7', 'AMD Ryzen 9'
-  ],
-  cpu_gens: [
-    '14ª Gen (Intel Core i-14xxx)', '13ª Gen (Intel Core i-13xxx)',
-    '12ª Gen (Intel Core i-12xxx)', '11ª Gen (Intel Core i-11xxx)',
-    '10ª Gen (Intel Core i-10xxx)', 'Core Ultra (Series 1)',
-    'AMD Ryzen 7000 / 8000', 'AMD Ryzen 5000'
-  ],
-  rams: [
-    '4 GB', '8 GB', '12 GB', '16 GB', '24 GB', '32 GB', '64 GB', '128 GB'
-  ],
-  ram_techs: [
-    'DDR4', 'DDR5', 'LPDDR5 / LPDDR5X'
-  ],
-  storages: [
-    '128 GB', '256 GB', '512 GB', '1 TB', '2 TB'
-  ],
-  disco_tipos: [
-    'NVMe M.2 SSD', 'M.2 SSD', 'Solo SSD', 'Híbrido (SSD + HDD)', 'Solo HDD'
-  ],
-  oss: [
-    'Windows 11 Pro', 'Windows 11 Home', 'Windows 10 Pro',
-    'FreeDOS / Sin SO', 'Linux / Ubuntu'
-  ],
-  displays: [
-    '10.1"', '10.4"', '10.5"', '11"', '11.6"', '12.4"', '13.3"',
-    '14"', '15.6"', '16"', '17.3"', '19.5"', '21.5"', '23.8"',
-    '24"', '27"', '31.5"', '32"', '43"', '55"', '65"', '75"', '85"'
-  ],
-  panels: [
-    'IPS', 'VA', 'TN', 'OLED'
-  ],
-  resolutions: [
-    'HD (1366x768)', 'HD+ (1600x900)', 'FHD (1920x1080)',
-    '2K QHD (2560x1440)', '4K UHD (3840x2160)'
-  ]
-};
-
 // ── Opciones de filtros booleanos (siempre estáticos, no dependen de BD) ───
 const BOOL_OPTIONS = { si: 'Con', no: 'Sin' };
 const BOOL_FILTER_PAIRS = [
@@ -210,37 +163,37 @@ const FiltroPiezas = () => {
   // UI accordion for secondary filters
   const [showMoreFilters, setShowMoreFilters] = useState(true);
 
-  // Opciones de filtro: inicializadas con el catálogo base completo para respuesta inmediata
-  const [filterOptions, setFilterOptions] = useState(DEFAULT_FILTER_OPTIONS);
+  // Opciones de filtro 100% dinámicas desde la BD (sin hardcodeo)
+  const [filterOptions, setFilterOptions] = useState({
+    marcas: [], cpus: [], cpu_gens: [], rams: [], ram_techs: [],
+    storages: [], disco_tipos: [], oss: [], displays: [], panels: [], resolutions: [],
+  });
+  const [filterOptionsLoading, setFilterOptionsLoading] = useState(false);
 
   const [copiedPart, setCopiedPart] = useState(null);
 
-  // ── Carga y enriquecimiento de opciones de filtro desde BD real ─────────
+  // ── Carga reactiva de opciones de filtro desde BD al cambiar categoría/proveedor ─
   useEffect(() => {
-    proveedoresApi.getFilterOptions()
+    let isMounted = true;
+    setFilterOptionsLoading(true);
+    proveedoresApi.getFilterOptions({
+      categoria: selectedCategory !== 'all' ? selectedCategory : undefined,
+      proveedor: selectedProveedor !== 'all' ? selectedProveedor : undefined,
+    })
       .then(res => {
-        if (res.data) {
-          setFilterOptions(prev => ({
-            ...prev,
-            ...res.data,
-            marcas: res.data.marcas?.length ? res.data.marcas : prev.marcas,
-          }));
+        if (isMounted && res.data) {
+          setFilterOptions(res.data);
         }
       })
-      .catch(() => {});
+      .catch(err => {
+        console.warn('Error cargando opciones dinámicas:', err);
+      })
+      .finally(() => {
+        if (isMounted) setFilterOptionsLoading(false);
+      });
 
-    // Carga complementaria de marcas reales
-    proveedoresApi.getColumnFilter('marca')
-      .then(res => {
-        if (res.data?.values?.length) {
-          setFilterOptions(prev => ({
-            ...prev,
-            marcas: [...new Set([...res.data.values.filter(Boolean), ...prev.marcas])].sort()
-          }));
-        }
-      })
-      .catch(() => {});
-  }, []);
+    return () => { isMounted = false; };
+  }, [selectedCategory, selectedProveedor]);
 
   // ── Fetch category counts ───────────────────────────────────────────────
   const fetchCounts = useCallback(async (prov) => {
@@ -366,15 +319,6 @@ const FiltroPiezas = () => {
   const showOs = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'all';
   const showPorts = catType === 'desktop' || catType === 'laptop' || catType === 'aio' || catType === 'monitor' || catType === 'all';
   const showPeripherals = catType === 'desktop' || catType === 'aio' || catType === 'laptop' || catType === 'all';
-
-  // Adaptar tamaños de pantalla a la categoría seleccionada
-  const displayedSizes = useMemo(() => {
-    const list = filterOptions.displays || [];
-    if (catType === 'laptop') return list.filter(d => parseFloat(d) <= 17.3);
-    if (catType === 'tablet') return list.filter(d => parseFloat(d) <= 13);
-    if (catType === 'monitor' || catType === 'display') return list.filter(d => parseFloat(d) >= 18);
-    return list;
-  }, [catType, filterOptions.displays]);
 
   const hasActiveFilters = (
     Object.values(filters).some(v => v !== 'Todos') ||
@@ -875,7 +819,7 @@ const FiltroPiezas = () => {
                     onChange={(e) => { setFilter('display', e.target.value); setPage(1); }}
                   >
                     <option value="Todos">Todos</option>
-                    {displayedSizes.map(d => <option key={d} value={d}>{d}</option>)}
+                    {filterOptions.displays.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                 </div>
               )}

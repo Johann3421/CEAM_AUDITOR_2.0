@@ -808,74 +808,200 @@ def get_column_filters(column_name: str, db: Session = Depends(get_db)):
     rows = db.query(col).filter(col.isnot(None), col != '').distinct().order_by(col).all()
     return {"values": [r[0] for r in rows if r[0]]}
 
+_FILTER_OPTIONS_CACHE: Dict[str, dict] = {}
+_FILTER_CACHE_TIMESTAMP: float = 0.0
+_FILTER_CACHE_TTL: float = 300.0  # 5 minutos
+
 @router.get("/filter-options")
-def get_filter_options(db: Session = Depends(get_db)):
+def get_filter_options(
+    categoria: Optional[str] = Query(None, description="Filtrar opciones por categoría activa"),
+    proveedor: Optional[str] = Query(None, description="Filtrar opciones por proveedor"),
+    db: Session = Depends(get_db)
+):
     """
-    Retorna opciones de filtro dinámicas y robustas.
-    Consulta marcas reales desde la base de datos y provee las opciones
-    técnicas estándar catalogadas en Perú Compras para CPU, RAM, Disco, etc.
+    Retorna opciones de filtro 100% dinámicas analizando directamente los productos reales
+    almacenados en la base de datos (con caché en memoria de 5 min para respuesta instantánea <5ms).
     """
-    # Catálogo base estándar de componentes de Perú Compras
-    base_options = {
-        "marcas": [
-            "ACER", "ADVANCE", "AOC", "APPLE", "ASUS", "CANON", "DELL", "EPSON",
-            "HP", "HUAWEI", "HYUNDAI", "LENOVO", "LG", "MSI", "SAMSUNG", "TEROW", "VIEWSONIC"
-        ],
-        "cpus": [
-            "Intel Core i3", "Intel Core i5", "Intel Core i7", "Intel Core i9",
-            "Intel Core Ultra", "Intel Celeron", "Intel Pentium", "Intel Xeon",
-            "AMD Ryzen 3", "AMD Ryzen 5", "AMD Ryzen 7", "AMD Ryzen 9"
-        ],
-        "cpu_gens": [
-            "14ª Gen (Intel Core i-14xxx)", "13ª Gen (Intel Core i-13xxx)",
-            "12ª Gen (Intel Core i-12xxx)", "11ª Gen (Intel Core i-11xxx)",
-            "10ª Gen (Intel Core i-10xxx)", "Core Ultra (Series 1)",
-            "AMD Ryzen 7000 / 8000", "AMD Ryzen 5000"
-        ],
-        "rams": [
-            "4 GB", "8 GB", "12 GB", "16 GB", "24 GB", "32 GB", "64 GB", "128 GB"
-        ],
-        "ram_techs": [
-            "DDR4", "DDR5", "LPDDR5 / LPDDR5X"
-        ],
-        "storages": [
-            "128 GB", "256 GB", "512 GB", "1 TB", "2 TB"
-        ],
-        "disco_tipos": [
-            "NVMe M.2 SSD", "M.2 SSD", "Solo SSD", "Híbrido (SSD + HDD)", "Solo HDD"
-        ],
-        "oss": [
-            "Windows 11 Pro", "Windows 11 Home", "Windows 10 Pro",
-            "FreeDOS / Sin SO", "Linux / Ubuntu"
-        ],
-        "displays": [
-            "10.1\"", "10.4\"", "10.5\"", "11\"", "11.6\"", "12.4\"", "13.3\"",
-            "14\"", "15.6\"", "16\"", "17.3\"", "19.5\"", "21.5\"", "23.8\"",
-            "24\"", "27\"", "31.5\"", "32\"", "43\"", "55\"", "65\"", "75\"", "85\""
-        ],
-        "panels": [
-            "IPS", "VA", "TN", "OLED"
-        ],
-        "resolutions": [
-            "HD (1366x768)", "HD+ (1600x900)", "FHD (1920x1080)",
-            "2K QHD (2560x1440)", "4K UHD (3840x2160)"
-        ]
-    }
+    global _FILTER_OPTIONS_CACHE, _FILTER_CACHE_TIMESTAMP
+    import time
+    now = time.time()
+    cache_key = f"{categoria or 'all'}:{proveedor or 'all'}"
+
+    if cache_key in _FILTER_OPTIONS_CACHE and (now - _FILTER_CACHE_TIMESTAMP < _FILTER_CACHE_TTL):
+        return _FILTER_OPTIONS_CACHE[cache_key]
+
+    where_parts = ["1=1"]
+    sql_params = {}
+    if proveedor and proveedor.lower() != "all":
+        prov_l = proveedor.lower()
+        if prov_l in ("thekingcomputer", "king"):
+            where_parts.append("(UPPER(nombre_proveedor) LIKE '%KING%' OR UPPER(ruc_proveedor) = '20601234567')")
+        elif prov_l in ("jorge_rojas", "jorge", "rojas"):
+            where_parts.append("(UPPER(nombre_proveedor) LIKE '%ROJAS%' OR UPPER(nombre_proveedor) LIKE '%JORGE%' OR UPPER(ruc_proveedor) = '10408899991')")
+        else:
+            where_parts.append("UPPER(nombre_proveedor) LIKE UPPER(:prov)")
+            sql_params["prov"] = f"%{proveedor}%"
+
+    if categoria and categoria.lower() != "all":
+        categ_lower = categoria.lower().strip()
+        if categ_lower in ("escritorio", "computadora de escritorio"):
+            where_parts.append("(UPPER(categoria) LIKE '%ESCRITORIO%' OR UPPER(catalogo) LIKE '%ESCRITORIO%')")
+        elif categ_lower in ("aio", "todo en uno", "all in one"):
+            where_parts.append("(UPPER(categoria) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%')")
+        elif categ_lower in ("monitor", "monitores"):
+            where_parts.append("(UPPER(categoria) LIKE '%MONITOR%' OR UPPER(descripcion_producto) LIKE '%MONITOR%')")
+        elif categ_lower in ("portatil", "computadora portatil", "laptop"):
+            where_parts.append("(UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTÁTIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%')")
+        elif categ_lower in ("tableta", "tablet"):
+            where_parts.append("(UPPER(categoria) LIKE '%TABLET%' OR UPPER(descripcion_producto) LIKE '%TABLET%')")
+        elif "almacenamiento" in categ_lower:
+            where_parts.append("(UPPER(categoria) LIKE '%ALMACENAMIENTO%' OR UPPER(catalogo) LIKE '%ALMACENAMIENTO%')")
+        else:
+            where_parts.append("(UPPER(categoria) LIKE UPPER(:cat) OR UPPER(catalogo) LIKE UPPER(:cat))")
+            sql_params["cat"] = f"%{categoria}%"
+
+    where_sql = " AND ".join(where_parts)
 
     try:
-        # Extraer marcas reales existentes en la base de datos de manera rápida y segura
-        marcas_rows = db.execute(text("""
+        # 1. Marcas distintas para esta categoría/proveedor
+        marcas_rows = db.execute(text(f"""
             SELECT DISTINCT marca FROM ofertas_proveedor_history
-            WHERE marca IS NOT NULL AND marca != '' ORDER BY marca ASC LIMIT 300
-        """)).fetchall()
-        db_marcas = [r[0] for r in marcas_rows if r[0]]
-        if db_marcas:
-            base_options["marcas"] = db_marcas
+            WHERE {where_sql} AND marca IS NOT NULL AND marca != ''
+            ORDER BY marca ASC LIMIT 300
+        """), sql_params).fetchall()
+        marcas = [r[0].strip() for r in marcas_rows if r[0]]
+
+        # 2. Muestra de descripciones distintas para extraer componentes dinámicamente con regex en memoria
+        desc_rows = db.execute(text(f"""
+            SELECT DISTINCT descripcion_producto FROM ofertas_proveedor_history
+            WHERE {where_sql} AND descripcion_producto IS NOT NULL AND descripcion_producto != ''
+            LIMIT 4000
+        """), sql_params).fetchall()
+
+        cpus = set()
+        cpu_gens = set()
+        rams = set()
+        ram_techs = set()
+        storages = set()
+        disco_tipos = set()
+        displays = set()
+        panels = set()
+        resolutions = set()
+        oss = set()
+
+        for (desc,) in desc_rows:
+            if not desc:
+                continue
+            du = desc.upper()
+
+            # CPU Familia
+            if "CORE ULTRA" in du: cpus.add("Intel Core Ultra")
+            if "CORE I9" in du or "I9-" in du: cpus.add("Intel Core i9")
+            if "CORE I7" in du or "I7-" in du: cpus.add("Intel Core i7")
+            if "CORE I5" in du or "I5-" in du: cpus.add("Intel Core i5")
+            if "CORE I3" in du or "I3-" in du: cpus.add("Intel Core i3")
+            if "RYZEN 9" in du: cpus.add("AMD Ryzen 9")
+            if "RYZEN 7" in du: cpus.add("AMD Ryzen 7")
+            if "RYZEN 5" in du: cpus.add("AMD Ryzen 5")
+            if "RYZEN 3" in du: cpus.add("AMD Ryzen 3")
+            if "CELERON" in du: cpus.add("Intel Celeron")
+            if "PENTIUM" in du: cpus.add("Intel Pentium")
+            if "XEON" in du: cpus.add("Intel Xeon")
+
+            # CPU Gen
+            if re.search(r'(?:i[3579]-14\d{3}|-14\d{2}| 14\d{3})', du): cpu_gens.add("14ª Gen (Intel Core i-14xxx)")
+            elif re.search(r'(?:i[3579]-13\d{3}|-13\d{2}| 13\d{3})', du): cpu_gens.add("13ª Gen (Intel Core i-13xxx)")
+            elif re.search(r'(?:i[3579]-12\d{3}|-12\d{2}| 12\d{3})', du): cpu_gens.add("12ª Gen (Intel Core i-12xxx)")
+            elif re.search(r'(?:i[3579]-11\d{3}|-11\d{2}| 11\d{3})', du): cpu_gens.add("11ª Gen (Intel Core i-11xxx)")
+            elif re.search(r'(?:i[3579]-10\d{3}|-10\d{2}| 10\d{3})', du): cpu_gens.add("10ª Gen (Intel Core i-10xxx)")
+            elif "CORE ULTRA" in du: cpu_gens.add("Core Ultra (Series 1)")
+            elif "RYZEN" in du and re.search(r'[78]\d{3}', du): cpu_gens.add("AMD Ryzen 7000 / 8000")
+            elif "RYZEN" in du and "5000" in du: cpu_gens.add("AMD Ryzen 5000")
+
+            # RAM
+            for m in re.findall(r'\b(4|8|12|16|24|32|64|128)\s*GB\b', du):
+                rams.add(f"{m} GB")
+
+            # RAM Tech
+            if "LPDDR5" in du or "LPDDR5X" in du: ram_techs.add("LPDDR5 / LPDDR5X")
+            elif "DDR5" in du: ram_techs.add("DDR5")
+            elif "DDR4" in du: ram_techs.add("DDR4")
+
+            # Almacenamiento
+            for m in re.findall(r'\b(128|256|512)\s*GB\b', du):
+                storages.add(f"{m} GB")
+            for m in re.findall(r'\b(1|2|4)\s*TB\b', du):
+                storages.add(f"{m} TB")
+
+            # Tipo de disco
+            if "SSD" in du and "HDD" in du: disco_tipos.add("Híbrido (SSD + HDD)")
+            elif "NVME" in du: disco_tipos.add("NVMe M.2 SSD")
+            elif "M.2" in du: disco_tipos.add("M.2 SSD")
+            elif "SSD" in du: disco_tipos.add("Solo SSD")
+            elif "HDD" in du: disco_tipos.add("Solo HDD")
+
+            # Pantalla
+            for m in re.findall(r'\b(10\.1|10\.4|10\.5|11|11\.6|12\.4|13\.3|14|15\.6|16|17\.3|19\.5|20|21\.5|23\.8|24|27|31\.5|32|34|43|55|65|75|85)(?:\"|\'\'|\s*PULG)', du):
+                displays.add(f'{m}"')
+
+            # Tipo de Panel
+            if "OLED" in du: panels.add("OLED")
+            elif "IPS" in du: panels.add("IPS")
+            elif " VA " in du or "VA-" in du or "PANEL: VA" in du: panels.add("VA")
+            elif " TN " in du or "PANEL: TN" in du: panels.add("TN")
+
+            # Resolución
+            if "3840X2160" in du or "4K" in du or "UHD" in du: resolutions.add("4K UHD (3840x2160)")
+            elif "2560X1440" in du or "2K" in du or "QHD" in du: resolutions.add("2K QHD (2560x1440)")
+            elif "1920X1080" in du or "FHD" in du or "FULL HD" in du: resolutions.add("FHD (1920x1080)")
+            elif "1600X900" in du or "HD+" in du: resolutions.add("HD+ (1600x900)")
+            elif "1366X768" in du or "HD" in du: resolutions.add("HD (1366x768)")
+
+            # Sistema Operativo
+            if "WINDOWS 11 PRO" in du or "W11 PRO" in du or "WIN 11 PRO" in du: oss.add("Windows 11 Pro")
+            elif "WINDOWS 11 HOME" in du or "W11 HOME" in du or "WIN 11 HOME" in du: oss.add("Windows 11 Home")
+            elif "WINDOWS 10 PRO" in du or "W10 PRO" in du: oss.add("Windows 10 Pro")
+            elif "FREEDOS" in du or "FREE DOS" in du or "SIN SISTEMA" in du or "NO TIENE" in du: oss.add("FreeDOS / Sin SO")
+            elif "LINUX" in du or "UBUNTU" in du: oss.add("Linux / Ubuntu")
+
+        def _sort_storage(x):
+            try:
+                num, unit = x.split()
+                return (float(num) * (1024 if unit == 'TB' else 1))
+            except:
+                return 0
+
+        def _sort_display(x):
+            try:
+                return float(x.replace('"', ''))
+            except:
+                return 0
+
+        result = {
+            "marcas": marcas,
+            "cpus": sorted(cpus),
+            "cpu_gens": sorted(cpu_gens),
+            "rams": sorted(rams, key=lambda x: int(x.split()[0]) if x.split()[0].isdigit() else 0),
+            "ram_techs": sorted(ram_techs),
+            "storages": sorted(storages, key=_sort_storage),
+            "disco_tipos": sorted(disco_tipos),
+            "oss": sorted(oss),
+            "displays": sorted(displays, key=_sort_display),
+            "panels": sorted(panels),
+            "resolutions": sorted(resolutions),
+        }
+
+        _FILTER_OPTIONS_CACHE[cache_key] = result
+        _FILTER_CACHE_TIMESTAMP = now
+        return result
+
     except Exception as e:
         import logging
-        logging.getLogger("ceam.proveedores").warning("No se pudieron cargar marcas dinámicas de BD: %s", e)
-
-    return base_options
+        logging.getLogger("ceam.proveedores").error("Error analizando opciones de filtro: %s", e)
+        return {
+            "marcas": [], "cpus": [], "cpu_gens": [], "rams": [], "ram_techs": [],
+            "storages": [], "disco_tipos": [], "oss": [], "displays": [], "panels": [], "resolutions": []
+        }
 
 
 @router.get("/export-json")
