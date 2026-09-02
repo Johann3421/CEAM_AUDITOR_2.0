@@ -162,6 +162,8 @@ async def async_sync_estados_fichas(
     user = prov_cfg["user"]
     password = prov_cfg["pass"]
     prov_nombre = prov_cfg["nombre"]
+    nombre_proveedor = prov_nombre
+    ruc_proveedor = prov_cfg.get("ruc", "")
 
     EXTRACTION_STATUS["is_running"] = True
     EXTRACTION_STATUS["status"] = "running"
