@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useReducer } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Cpu, HardDrive, Monitor, Layers, Search, Filter,
@@ -96,190 +96,36 @@ const CATEGORIAS_CONFIG = [
   { id: 'escaner_libros', label: '📖 Escáner de Libros', icon: Printer, type: 'scanner' },
 ];
 
-const CPU_OPTIONS = [
-  'Todos',
-  'Intel Core i3',
-  'Intel Core i5',
-  'Intel Core i7',
-  'Intel Core i9',
-  'Intel Celeron',
-  'Intel Pentium',
-  'Intel Xeon',
-  'AMD Ryzen 3',
-  'AMD Ryzen 5',
-  'AMD Ryzen 7',
-  'AMD Ryzen 9',
+// ── Opciones de filtros booleanos (siempre estáticos, no dependen de BD) ───
+const BOOL_OPTIONS = { si: 'Con', no: 'Sin' };
+const BOOL_FILTER_PAIRS = [
+  { key: 'vga',          label: 'Puerto VGA' },
+  { key: 'hdmi',         label: 'Puerto HDMI' },
+  { key: 'wifi',         label: 'Wi-Fi / WLAN' },
+  { key: 'lan',          label: 'Puerto LAN (Red)' },
+  { key: 'bluetooth',    label: 'Bluetooth' },
+  { key: 'unidad_optica', label: 'Unidad Óptica (DVD)' },
+  { key: 'camara',       label: 'Cámara Web' },
+  { key: 'tactil',       label: 'Pantalla Táctil' },
 ];
 
-const CPU_GEN_OPTIONS = [
-  'Todos',
-  '14ª Gen (Intel Core i-14xxx)',
-  '13ª Gen (Intel Core i-13xxx)',
-  '12ª Gen (Intel Core i-12xxx)',
-  '11ª Gen (Intel Core i-11xxx)',
-  '10ª Gen (Intel Core i-10xxx)',
-  'Core Ultra (Series 1)',
-  'AMD Ryzen 7000 / 8000',
-  'AMD Ryzen 5000',
-];
+// Estado inicial de todos los filtros técnicos
+const FILTERS_INIT = {
+  marca: 'Todos', cpu: 'Todos', cpu_gen: 'Todos',
+  ram: 'Todos', ram_tech: 'Todos',
+  storage: 'Todos', disco_tipo: 'Todos',
+  vga: 'Todos', hdmi: 'Todos', wifi: 'Todos',
+  lan: 'Todos', bluetooth: 'Todos',
+  office: 'Todos', garantia: 'Todos',
+  unidad_optica: 'Todos', camara: 'Todos', tactil: 'Todos',
+  display: 'Todos', panel: 'Todos', resolution: 'Todos', os: 'Todos',
+};
 
-const RAM_OPTIONS = [
-  'Todos',
-  '4 GB',
-  '8 GB',
-  '12 GB',
-  '16 GB',
-  '24 GB',
-  '32 GB',
-  '64 GB',
-  '128 GB',
-];
-
-const RAM_TECH_OPTIONS = [
-  'Todos',
-  'DDR4',
-  'DDR5',
-  'LPDDR5 / LPDDR5X',
-];
-
-const STORAGE_OPTIONS = [
-  'Todos',
-  '128 GB SSD',
-  '256 GB SSD',
-  '512 GB SSD',
-  '1 TB SSD',
-  '2 TB SSD',
-  '1 TB HDD',
-  '2 TB HDD',
-];
-
-const DISCO_TIPO_OPTIONS = [
-  'Todos',
-  'NVMe M.2 SSD (Alta velocidad)',
-  'M.2 SSD',
-  'Solo SSD (SATA / M.2)',
-  'Híbrido (SSD + HDD)',
-  'Solo HDD (Mecánico)',
-];
-
-const VGA_OPTIONS = [
-  'Todos',
-  'Con VGA (SI)',
-  'Sin VGA (NO)',
-];
-
-const HDMI_OPTIONS = [
-  'Todos',
-  'Con HDMI (SI)',
-  'Sin HDMI (NO)',
-];
-
-const WIFI_OPTIONS = [
-  'Todos',
-  'Con Wi-Fi / WLAN (SI)',
-  'Sin Wi-Fi (NO)',
-];
-
-const LAN_OPTIONS = [
-  'Todos',
-  'Con Puerto LAN (RJ45)',
-  'Sin LAN',
-];
-
-const OFFICE_OPTIONS = [
-  'Todos',
-  'Con Office Home & Business (2021/2024)',
-  'Con Office preinstalado',
-  'Sin Office / Licencia Libre',
-];
-
-const GARANTIA_OPTIONS = [
-  'Todos',
-  '36 Meses (3 Años On-Site)',
-  '24 Meses (2 Años)',
-  '12 Meses (1 Año)',
-];
-
-const UNIDAD_OPTICA_OPTIONS = [
-  'Todos',
-  'Con Lector DVD / Unidad Óptica',
-  'Sin Unidad Óptica',
-];
-
-const CAMARA_OPTIONS = [
-  'Todos',
-  'Con Cámara Web (SI)',
-  'Sin Cámara Web (NO)',
-];
-
-const TACTIL_OPTIONS = [
-  'Todos',
-  'Pantalla Táctil (Touch)',
-  'No Táctil',
-];
-
-const LAPTOP_DISPLAY_OPTIONS = [
-  'Todos',
-  '11.6"',
-  '13.3"',
-  '14"',
-  '15.6"',
-  '16"',
-  '17.3"',
-];
-
-const MONITOR_DISPLAY_OPTIONS = [
-  'Todos',
-  '19.5"',
-  '21.5"',
-  '23.8"',
-  '24"',
-  '27"',
-  '31.5"',
-  '32"',
-  '43"',
-  '55"',
-  '65"',
-  '75"',
-  '85"',
-];
-
-const TABLET_DISPLAY_OPTIONS = [
-  'Todos',
-  '8"',
-  '8.7"',
-  '10.1"',
-  '10.4"',
-  '10.5"',
-  '11"',
-  '12.4"',
-];
-
-const PANEL_OPTIONS = [
-  'Todos',
-  'IPS',
-  'VA',
-  'TN',
-  'OLED',
-];
-
-const RESOLUTION_OPTIONS = [
-  'Todos',
-  'HD (1366x768)',
-  'HD+ (1600x900)',
-  'FHD (1920x1080)',
-  '2K QHD (2560x1440)',
-  '4K UHD (3840x2160)',
-];
-
-const OS_OPTIONS = [
-  'Todos',
-  'Windows 11 Pro',
-  'Windows 11 Home',
-  'Windows 10 Pro',
-  'FreeDOS / Sin SO',
-  'Linux / Ubuntu',
-];
+function filtersReducer(state, action) {
+  if (action.type === 'SET') return { ...state, [action.key]: action.value };
+  if (action.type === 'RESET') return { ...FILTERS_INIT };
+  return state;
+}
 
 const fmt = (n) =>
   n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -310,51 +156,25 @@ const FiltroPiezas = () => {
   // Category counts from API
   const [categoriesCount, setCategoriesCount] = useState({});
 
-  // ── Technical Spec Filters ──────────────────────────────────────────────
-  const [filterMarca, setFilterMarca] = useState('Todos');
-  const [filterCpu, setFilterCpu] = useState('Todos');
-  const [filterCpuGen, setFilterCpuGen] = useState('Todos');
-  const [filterRam, setFilterRam] = useState('Todos');
-  const [filterRamTech, setFilterRamTech] = useState('Todos');
-  const [filterStorage, setFilterStorage] = useState('Todos');
-  const [filterDiscoTipo, setFilterDiscoTipo] = useState('Todos');
-
-  // Video & Connectivity Ports
-  const [filterVga, setFilterVga] = useState('Todos');
-  const [filterHdmi, setFilterHdmi] = useState('Todos');
-  const [filterWifi, setFilterWifi] = useState('Todos');
-  const [filterLan, setFilterLan] = useState('Todos');
-  const [filterBluetooth, setFilterBluetooth] = useState('Todos');
-
-  // Software, Warranty & Peripherals
-  const [filterOffice, setFilterOffice] = useState('Todos');
-  const [filterGarantia, setFilterGarantia] = useState('Todos');
-  const [filterUnidadOptica, setFilterUnidadOptica] = useState('Todos');
-  const [filterCamara, setFilterCamara] = useState('Todos');
-  const [filterTactil, setFilterTactil] = useState('Todos');
-
-  // Display & OS
-  const [filterDisplay, setFilterDisplay] = useState('Todos');
-  const [filterPanel, setFilterPanel] = useState('Todos');
-  const [filterResolution, setFilterResolution] = useState('Todos');
-  const [filterOs, setFilterOs] = useState('Todos');
+  // ── Filtros técnicos: un único objeto en vez de 20 estados ───────────────
+  const [filters, dispatchFilters] = useReducer(filtersReducer, FILTERS_INIT);
+  const setFilter = useCallback((key, value) => dispatchFilters({ type: 'SET', key, value }), []);
 
   // UI accordion for secondary filters
   const [showMoreFilters, setShowMoreFilters] = useState(true);
 
-  // Dynamic Marcas from Backend
-  const [availableMarcas, setAvailableMarcas] = useState(['Todos']);
+  // Opciones dinámicas desde el backend (todas las categorías)
+  const [filterOptions, setFilterOptions] = useState({
+    marcas: [], cpus: [], cpu_gens: [], rams: [], ram_techs: [],
+    storages: [], disco_tipos: [], oss: [], displays: [], panels: [], resolutions: [],
+  });
 
   const [copiedPart, setCopiedPart] = useState(null);
 
-  // ── Fetch available brands from database ────────────────────────────────
+  // ── Carga única de opciones de filtro desde BD real ─────────────────────
   useEffect(() => {
-    proveedoresApi.getColumnFilter('marca')
-      .then(res => {
-        if (res.data?.values) {
-          setAvailableMarcas(['Todos', ...res.data.values.filter(Boolean).sort()]);
-        }
-      })
+    proveedoresApi.getFilterOptions()
+      .then(res => { if (res.data) setFilterOptions(res.data); })
       .catch(() => {});
   }, []);
 
@@ -382,86 +202,55 @@ const FiltroPiezas = () => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const params = {
-        page,
-        limit,
-        region: selectedRegion,
-      };
+      const params = { page, limit, region: selectedRegion };
       if (selectedProveedor !== 'all') params.proveedor = selectedProveedor;
       if (selectedCategory !== 'all') params.categoria = selectedCategory;
       if (soloConStock) params.stock_filter = 'with_stock';
       if (soloConOrden) params.con_orden = true;
       if (sortBy) params.sort_by = sortBy;
       if (search.trim()) params.search = search.trim();
-      if (filterMarca !== 'Todos') params.marca = filterMarca;
-      if (filterCpu !== 'Todos') params.cpu = filterCpu;
-      
-      if (filterCpuGen !== 'Todos') {
-        if (filterCpuGen.includes('14')) params.cpu_gen = 'gen14';
-        else if (filterCpuGen.includes('13')) params.cpu_gen = 'gen13';
-        else if (filterCpuGen.includes('12')) params.cpu_gen = 'gen12';
-        else if (filterCpuGen.includes('11')) params.cpu_gen = 'gen11';
-        else if (filterCpuGen.includes('10')) params.cpu_gen = 'gen10';
-        else if (filterCpuGen.includes('Ultra')) params.cpu_gen = 'ultra';
-        else if (filterCpuGen.includes('7000')) params.cpu_gen = 'ryzen7000';
-        else if (filterCpuGen.includes('5000')) params.cpu_gen = 'ryzen5000';
+
+      // Mapeo directo desde filters object — si la opción no es 'Todos', se envía
+      const f = filters;
+      if (f.marca !== 'Todos') params.marca = f.marca;
+      if (f.cpu !== 'Todos') params.cpu = f.cpu;
+      if (f.cpu_gen !== 'Todos') {
+        const g = f.cpu_gen;
+        if (g.includes('14') || g.includes('Ultra')) params.cpu_gen = g.includes('Ultra') ? 'ultra' : 'gen14';
+        else if (g.includes('13')) params.cpu_gen = 'gen13';
+        else if (g.includes('12')) params.cpu_gen = 'gen12';
+        else if (g.includes('11')) params.cpu_gen = 'gen11';
+        else if (g.includes('10')) params.cpu_gen = 'gen10';
+        else if (g.includes('7000') || g.includes('8000')) params.cpu_gen = 'ryzen7000';
+        else if (g.includes('5000')) params.cpu_gen = 'ryzen5000';
       }
-
-      if (filterRam !== 'Todos') params.ram = filterRam;
-      if (filterRamTech !== 'Todos') {
-        if (filterRamTech.includes('DDR5')) params.ram_tech = 'DDR5';
-        else if (filterRamTech.includes('DDR4')) params.ram_tech = 'DDR4';
-        else if (filterRamTech.includes('LPDDR')) params.ram_tech = 'LPDDR5';
+      if (f.ram !== 'Todos') params.ram = f.ram;
+      if (f.ram_tech !== 'Todos') {
+        const rt = f.ram_tech;
+        params.ram_tech = rt.includes('DDR5') ? 'DDR5' : rt.includes('DDR4') ? 'DDR4' : 'LPDDR5';
       }
-
-      if (filterStorage !== 'Todos') params.disco = filterStorage;
-      if (filterDiscoTipo !== 'Todos') {
-        if (filterDiscoTipo.includes('NVMe')) params.disco_tipo = 'NVMe';
-        else if (filterDiscoTipo.includes('M.2')) params.disco_tipo = 'M.2';
-        else if (filterDiscoTipo.includes('Híbrido')) params.disco_tipo = 'hibrido';
-        else if (filterDiscoTipo.includes('Solo SSD')) params.disco_tipo = 'solo_ssd';
-        else if (filterDiscoTipo.includes('Solo HDD')) params.disco_tipo = 'solo_hdd';
+      if (f.storage !== 'Todos') params.disco = f.storage;
+      if (f.disco_tipo !== 'Todos') {
+        const dt = f.disco_tipo;
+        params.disco_tipo = dt.includes('NVMe') ? 'NVMe' : dt.includes('M.2') ? 'M.2' : dt.includes('Híbrido') ? 'hibrido' : dt.includes('Solo SSD') ? 'solo_ssd' : 'solo_hdd';
       }
-
-      if (filterVga !== 'Todos') params.vga = filterVga.includes('Con') ? 'si' : 'no';
-      if (filterHdmi !== 'Todos') params.hdmi = filterHdmi.includes('Con') ? 'si' : 'no';
-      if (filterWifi !== 'Todos') params.wifi = filterWifi.includes('Con') ? 'si' : 'no';
-      if (filterLan !== 'Todos') params.lan = filterLan.includes('Con') ? 'si' : 'no';
-      if (filterBluetooth !== 'Todos') params.bluetooth = filterBluetooth.includes('Con') ? 'si' : 'no';
-
-      if (filterOffice !== 'Todos') {
-        if (filterOffice.includes('Business')) params.office = 'home_business';
-        else if (filterOffice.includes('preinstalado')) params.office = 'si';
-        else if (filterOffice.includes('Sin')) params.office = 'no';
-      }
-
-      if (filterGarantia !== 'Todos') {
-        if (filterGarantia.includes('36')) params.garantia = '36';
-        else if (filterGarantia.includes('24')) params.garantia = '24';
-        else if (filterGarantia.includes('12')) params.garantia = '12';
-      }
-
-      if (filterUnidadOptica !== 'Todos') params.unidad_optica = filterUnidadOptica.includes('Con') ? 'si' : 'no';
-      if (filterCamara !== 'Todos') params.camara = filterCamara.includes('Con') ? 'si' : 'no';
-      if (filterTactil !== 'Todos') params.tactil = filterTactil.includes('Táctil') ? 'si' : 'no';
-
-      if (filterDisplay !== 'Todos') params.pantalla = filterDisplay;
-      if (filterPanel !== 'Todos') params.panel = filterPanel;
-      if (filterResolution !== 'Todos') params.resolucion = filterResolution;
-      if (filterOs !== 'Todos') params.so = filterOs;
+      // Booleanos: valor almacenado es 'si'/'no'/'Todos' directamente
+      ['vga','hdmi','wifi','lan','bluetooth','unidad_optica','camara','tactil'].forEach(k => {
+        if (f[k] !== 'Todos') params[k] = f[k];
+      });
+      if (f.office !== 'Todos') params.office = f.office;
+      if (f.garantia !== 'Todos') params.garantia = f.garantia;
+      if (f.display !== 'Todos') params.pantalla = f.display;
+      if (f.panel !== 'Todos') params.panel = f.panel;
+      if (f.resolution !== 'Todos') params.resolucion = f.resolution;
+      if (f.os !== 'Todos') params.so = f.os;
 
       const res = await proveedoresApi.getFichas(params);
-      if (currentReqId !== reqIdRef.current) return; // Stale request, ignore
+      if (currentReqId !== reqIdRef.current) return;
 
       const raw = res.data?.items || [];
       setTotalItems(res.data?.total ?? raw.length);
-      
-      // Parse specs for each item
-      const enriched = raw.map(item => ({
-        ...item,
-        specs: parseProductSpecs(item)
-      }));
-      setItems(enriched);
+      setItems(raw.map(item => ({ ...item, specs: parseProductSpecs(item) })));
     } catch (err) {
       if (currentReqId !== reqIdRef.current) return;
       console.error('Error fetching piezas data:', err);
@@ -469,18 +258,11 @@ const FiltroPiezas = () => {
       setItems([]);
       setTotalItems(0);
     } finally {
-      if (currentReqId === reqIdRef.current) {
-        setLoading(false);
-      }
+      if (currentReqId === reqIdRef.current) setLoading(false);
     }
   }, [
     selectedProveedor, selectedCategory, selectedRegion, soloConStock,
-    soloConOrden, sortBy,
-    search, filterMarca, filterCpu, filterCpuGen, filterRam, filterRamTech,
-    filterStorage, filterDiscoTipo, filterVga, filterHdmi, filterWifi, filterLan,
-    filterBluetooth, filterOffice, filterGarantia, filterUnidadOptica,
-    filterCamara, filterTactil, filterDisplay, filterPanel, filterResolution,
-    filterOs, page, limit
+    soloConOrden, sortBy, search, filters, page, limit
   ]);
 
   useEffect(() => {
@@ -500,27 +282,7 @@ const FiltroPiezas = () => {
   };
 
   const handleResetFilters = () => {
-    setFilterCpu('Todos');
-    setFilterCpuGen('Todos');
-    setFilterRam('Todos');
-    setFilterRamTech('Todos');
-    setFilterStorage('Todos');
-    setFilterDiscoTipo('Todos');
-    setFilterVga('Todos');
-    setFilterHdmi('Todos');
-    setFilterWifi('Todos');
-    setFilterLan('Todos');
-    setFilterBluetooth('Todos');
-    setFilterOffice('Todos');
-    setFilterGarantia('Todos');
-    setFilterUnidadOptica('Todos');
-    setFilterCamara('Todos');
-    setFilterTactil('Todos');
-    setFilterDisplay('Todos');
-    setFilterPanel('Todos');
-    setFilterResolution('Todos');
-    setFilterOs('Todos');
-    setFilterMarca('Todos');
+    dispatchFilters({ type: 'RESET' });
     setSearch('');
     setSoloConStock(false);
     setSoloConOrden(false);
@@ -541,21 +303,10 @@ const FiltroPiezas = () => {
   const showPorts = catType === 'desktop' || catType === 'laptop' || catType === 'aio' || catType === 'monitor' || catType === 'all';
   const showPeripherals = catType === 'desktop' || catType === 'aio' || catType === 'laptop' || catType === 'all';
 
-  // Compute display options depending on category
-  const activeDisplayOptions = useMemo(() => {
-    if (catType === 'laptop') return LAPTOP_DISPLAY_OPTIONS;
-    if (catType === 'tablet') return TABLET_DISPLAY_OPTIONS;
-    if (catType === 'monitor' || catType === 'display' || catType === 'aio') return MONITOR_DISPLAY_OPTIONS;
-    return ['Todos', ...LAPTOP_DISPLAY_OPTIONS.slice(1), ...MONITOR_DISPLAY_OPTIONS.slice(1)];
-  }, [catType]);
 
   const hasActiveFilters = (
-    filterCpu !== 'Todos' || filterCpuGen !== 'Todos' || filterRam !== 'Todos' || filterRamTech !== 'Todos' ||
-    filterStorage !== 'Todos' || filterDiscoTipo !== 'Todos' || filterVga !== 'Todos' || filterHdmi !== 'Todos' ||
-    filterWifi !== 'Todos' || filterLan !== 'Todos' || filterBluetooth !== 'Todos' || filterOffice !== 'Todos' ||
-    filterGarantia !== 'Todos' || filterUnidadOptica !== 'Todos' || filterCamara !== 'Todos' || filterTactil !== 'Todos' ||
-    filterDisplay !== 'Todos' || filterPanel !== 'Todos' || filterResolution !== 'Todos' ||
-    filterOs !== 'Todos' || filterMarca !== 'Todos' || search.trim() !== '' || soloConStock || soloConOrden || sortBy !== ''
+    Object.values(filters).some(v => v !== 'Todos') ||
+    search.trim() !== '' || soloConStock || soloConOrden || sortBy !== ''
   );
 
   const totalPages = Math.max(1, Math.ceil(totalItems / limit));
@@ -878,10 +629,11 @@ const FiltroPiezas = () => {
             <select
               className="form-select"
               style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
-              value={filterMarca}
-              onChange={(e) => { setFilterMarca(e.target.value); setPage(1); }}
+              value={filters.marca}
+              onChange={(e) => { setFilter('marca', e.target.value); setPage(1); }}
             >
-              {availableMarcas.map(m => <option key={m} value={m}>{m}</option>)}
+              <option value="Todos">Todos</option>
+              {filterOptions.marcas.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
 
@@ -895,10 +647,11 @@ const FiltroPiezas = () => {
               <select
                 className="form-select"
                 style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
-                value={filterCpu}
-                onChange={(e) => { setFilterCpu(e.target.value); setPage(1); }}
+                value={filters.cpu}
+                onChange={(e) => { setFilter('cpu', e.target.value); setPage(1); }}
               >
-                {CPU_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="Todos">Todos</option>
+                {filterOptions.cpus.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
           )}
@@ -913,10 +666,11 @@ const FiltroPiezas = () => {
               <select
                 className="form-select"
                 style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
-                value={filterCpuGen}
-                onChange={(e) => { setFilterCpuGen(e.target.value); setPage(1); }}
+                value={filters.cpu_gen}
+                onChange={(e) => { setFilter('cpu_gen', e.target.value); setPage(1); }}
               >
-                {CPU_GEN_OPTIONS.map(cg => <option key={cg} value={cg}>{cg}</option>)}
+                <option value="Todos">Todos</option>
+                {filterOptions.cpu_gens.map(cg => <option key={cg} value={cg}>{cg}</option>)}
               </select>
             </div>
           )}
@@ -931,15 +685,16 @@ const FiltroPiezas = () => {
               <select
                 className="form-select"
                 style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
-                value={filterRam}
-                onChange={(e) => { setFilterRam(e.target.value); setPage(1); }}
+                value={filters.ram}
+                onChange={(e) => { setFilter('ram', e.target.value); setPage(1); }}
               >
-                {RAM_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                <option value="Todos">Todos</option>
+                {filterOptions.rams.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
           )}
 
-          {/* Memoria RAM Tecnología */}
+          {/* Tecnología RAM */}
           {showCpuRamStorage && (
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -949,15 +704,16 @@ const FiltroPiezas = () => {
               <select
                 className="form-select"
                 style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
-                value={filterRamTech}
-                onChange={(e) => { setFilterRamTech(e.target.value); setPage(1); }}
+                value={filters.ram_tech}
+                onChange={(e) => { setFilter('ram_tech', e.target.value); setPage(1); }}
               >
-                {RAM_TECH_OPTIONS.map(rt => <option key={rt} value={rt}>{rt}</option>)}
+                <option value="Todos">Todos</option>
+                {filterOptions.ram_techs.map(rt => <option key={rt} value={rt}>{rt}</option>)}
               </select>
             </div>
           )}
 
-          {/* Disco Capacidad */}
+          {/* Almacenamiento */}
           {(showCpuRamStorage || catType === 'storage') && (
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -967,15 +723,16 @@ const FiltroPiezas = () => {
               <select
                 className="form-select"
                 style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
-                value={filterStorage}
-                onChange={(e) => { setFilterStorage(e.target.value); setPage(1); }}
+                value={filters.storage}
+                onChange={(e) => { setFilter('storage', e.target.value); setPage(1); }}
               >
-                {STORAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                <option value="Todos">Todos</option>
+                {filterOptions.storages.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           )}
 
-          {/* Tipo de Disco / Tecnología */}
+          {/* Tipo de Disco */}
           {(showCpuRamStorage || catType === 'storage') && (
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -985,16 +742,17 @@ const FiltroPiezas = () => {
               <select
                 className="form-select"
                 style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
-                value={filterDiscoTipo}
-                onChange={(e) => { setFilterDiscoTipo(e.target.value); setPage(1); }}
+                value={filters.disco_tipo}
+                onChange={(e) => { setFilter('disco_tipo', e.target.value); setPage(1); }}
               >
-                {DISCO_TIPO_OPTIONS.map(dt => <option key={dt} value={dt}>{dt}</option>)}
+                <option value="Todos">Todos</option>
+                {filterOptions.disco_tipos.map(dt => <option key={dt} value={dt}>{dt}</option>)}
               </select>
             </div>
           )}
         </div>
 
-        {/* ── SECCIÓN 2: PUERTOS Y CONECTIVIDAD (VGA, HDMI, LAN, Wi-Fi...) ─ */}
+        {/* ── SECCIÓN 2: PUERTOS Y CONECTIVIDAD — generado dinámicamente ─── */}
         {showMoreFilters && showPorts && (
           <div style={{ borderTop: '1px solid var(--c-border-light)', paddingTop: 12, marginBottom: 12 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-brand)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -1002,88 +760,28 @@ const FiltroPiezas = () => {
               <span>Puertos de Video y Conectividad:</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-              {/* VGA */}
-              <div>
-                <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'block' }}>
-                  Puerto VGA
-                </label>
-                <select
-                  className="form-select"
-                  style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                  value={filterVga}
-                  onChange={(e) => { setFilterVga(e.target.value); setPage(1); }}
-                >
-                  {VGA_OPTIONS.map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
-              </div>
-
-              {/* HDMI */}
-              <div>
-                <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'block' }}>
-                  Puerto HDMI
-                </label>
-                <select
-                  className="form-select"
-                  style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                  value={filterHdmi}
-                  onChange={(e) => { setFilterHdmi(e.target.value); setPage(1); }}
-                >
-                  {HDMI_OPTIONS.map(h => <option key={h} value={h}>{h}</option>)}
-                </select>
-              </div>
-
-              {/* Wi-Fi / WLAN */}
-              <div>
-                <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Wifi size={12} style={{ color: '#0284c7' }} />
-                  Wi-Fi / WLAN
-                </label>
-                <select
-                  className="form-select"
-                  style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                  value={filterWifi}
-                  onChange={(e) => { setFilterWifi(e.target.value); setPage(1); }}
-                >
-                  {WIFI_OPTIONS.map(w => <option key={w} value={w}>{w}</option>)}
-                </select>
-              </div>
-
-              {/* Puerto LAN (RJ45) */}
-              <div>
-                <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'block' }}>
-                  Puerto LAN (Red)
-                </label>
-                <select
-                  className="form-select"
-                  style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                  value={filterLan}
-                  onChange={(e) => { setFilterLan(e.target.value); setPage(1); }}
-                >
-                  {LAN_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
-                </select>
-              </div>
-
-              {/* Bluetooth */}
-              <div>
-                <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'block' }}>
-                  Bluetooth
-                </label>
-                <select
-                  className="form-select"
-                  style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                  value={filterBluetooth}
-                  onChange={(e) => { setFilterBluetooth(e.target.value); setPage(1); }}
-                >
-                  <option value="Todos">Todos</option>
-                  <option value="si">Con Bluetooth (SI)</option>
-                  <option value="no">Sin Bluetooth (NO)</option>
-                </select>
-              </div>
+              {BOOL_FILTER_PAIRS.map(({ key, label }) => (
+                <div key={key}>
+                  <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'block' }}>
+                    {label}
+                  </label>
+                  <select
+                    className="form-select"
+                    style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
+                    value={filters[key]}
+                    onChange={(e) => { setFilter(key, e.target.value); setPage(1); }}
+                  >
+                    <option value="Todos">Todos</option>
+                    <option value="si">Con {label} (SI)</option>
+                    <option value="no">Sin {label} (NO)</option>
+                  </select>
+                </div>
+              ))}
             </div>
           </div>
         )}
 
-        {/* ── SECCIÓN 3: PANTALLA, SISTEMA OPERATIVO, OFFICE Y GARANTÍA ──── */}
+        {/* ── SECCIÓN 3: PANTALLA, SOFTWARE Y GARANTÍA ────────────────── */}
         {showMoreFilters && (
           <div style={{ borderTop: '1px solid var(--c-border-light)', paddingTop: 12 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-brand)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -1101,15 +799,16 @@ const FiltroPiezas = () => {
                   <select
                     className="form-select"
                     style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                    value={filterDisplay}
-                    onChange={(e) => { setFilterDisplay(e.target.value); setPage(1); }}
+                    value={filters.display}
+                    onChange={(e) => { setFilter('display', e.target.value); setPage(1); }}
                   >
-                    {activeDisplayOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                    <option value="Todos">Todos</option>
+                    {filterOptions.displays.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                 </div>
               )}
 
-              {/* Panel (Monitores) */}
+              {/* Tipo de Panel */}
               {showPanelResolution && (
                 <div>
                   <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'block' }}>
@@ -1118,10 +817,11 @@ const FiltroPiezas = () => {
                   <select
                     className="form-select"
                     style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                    value={filterPanel}
-                    onChange={(e) => { setFilterPanel(e.target.value); setPage(1); }}
+                    value={filters.panel}
+                    onChange={(e) => { setFilter('panel', e.target.value); setPage(1); }}
                   >
-                    {PANEL_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                    <option value="Todos">Todos</option>
+                    {filterOptions.panels.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </div>
               )}
@@ -1135,10 +835,11 @@ const FiltroPiezas = () => {
                   <select
                     className="form-select"
                     style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                    value={filterResolution}
-                    onChange={(e) => { setFilterResolution(e.target.value); setPage(1); }}
+                    value={filters.resolution}
+                    onChange={(e) => { setFilter('resolution', e.target.value); setPage(1); }}
                   >
-                    {RESOLUTION_OPTIONS.map(res => <option key={res} value={res}>{res}</option>)}
+                    <option value="Todos">Todos</option>
+                    {filterOptions.resolutions.map(res => <option key={res} value={res}>{res}</option>)}
                   </select>
                 </div>
               )}
@@ -1152,15 +853,16 @@ const FiltroPiezas = () => {
                   <select
                     className="form-select"
                     style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                    value={filterOs}
-                    onChange={(e) => { setFilterOs(e.target.value); setPage(1); }}
+                    value={filters.os}
+                    onChange={(e) => { setFilter('os', e.target.value); setPage(1); }}
                   >
-                    {OS_OPTIONS.map(os => <option key={os} value={os}>{os}</option>)}
+                    <option value="Todos">Todos</option>
+                    {filterOptions.oss.map(os => <option key={os} value={os}>{os}</option>)}
                   </select>
                 </div>
               )}
 
-              {/* Office Suite */}
+              {/* Suite Ofimática */}
               {showPeripherals && (
                 <div>
                   <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1170,10 +872,13 @@ const FiltroPiezas = () => {
                   <select
                     className="form-select"
                     style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                    value={filterOffice}
-                    onChange={(e) => { setFilterOffice(e.target.value); setPage(1); }}
+                    value={filters.office}
+                    onChange={(e) => { setFilter('office', e.target.value); setPage(1); }}
                   >
-                    {OFFICE_OPTIONS.map(off => <option key={off} value={off}>{off}</option>)}
+                    <option value="Todos">Todos</option>
+                    <option value="home_business">Con Office Home &amp; Business</option>
+                    <option value="si">Con Office (cualquier versión)</option>
+                    <option value="no">Sin Office / Licencia Libre</option>
                   </select>
                 </div>
               )}
@@ -1188,63 +893,13 @@ const FiltroPiezas = () => {
                   <select
                     className="form-select"
                     style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                    value={filterGarantia}
-                    onChange={(e) => { setFilterGarantia(e.target.value); setPage(1); }}
+                    value={filters.garantia}
+                    onChange={(e) => { setFilter('garantia', e.target.value); setPage(1); }}
                   >
-                    {GARANTIA_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
-                  </select>
-                </div>
-              )}
-
-              {/* Unidad Óptica DVD (PCs de escritorio) */}
-              {catType === 'desktop' && (
-                <div>
-                  <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Disc size={12} style={{ color: '#475569' }} />
-                    Unidad Óptica (DVD)
-                  </label>
-                  <select
-                    className="form-select"
-                    style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                    value={filterUnidadOptica}
-                    onChange={(e) => { setFilterUnidadOptica(e.target.value); setPage(1); }}
-                  >
-                    {UNIDAD_OPTICA_OPTIONS.map(uo => <option key={uo} value={uo}>{uo}</option>)}
-                  </select>
-                </div>
-              )}
-
-              {/* Cámara Web (Laptops y AIO) */}
-              {(catType === 'laptop' || catType === 'aio') && (
-                <div>
-                  <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Camera size={12} style={{ color: '#0284c7' }} />
-                    Cámara Web
-                  </label>
-                  <select
-                    className="form-select"
-                    style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                    value={filterCamara}
-                    onChange={(e) => { setFilterCamara(e.target.value); setPage(1); }}
-                  >
-                    {CAMARA_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-              )}
-
-              {/* Pantalla Táctil */}
-              {(catType === 'laptop' || catType === 'display' || catType === 'tablet') && (
-                <div>
-                  <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'block' }}>
-                    Pantalla Táctil
-                  </label>
-                  <select
-                    className="form-select"
-                    style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                    value={filterTactil}
-                    onChange={(e) => { setFilterTactil(e.target.value); setPage(1); }}
-                  >
-                    {TACTIL_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                    <option value="Todos">Todos</option>
+                    <option value="36">36 Meses (3 Años On-Site)</option>
+                    <option value="24">24 Meses (2 Años)</option>
+                    <option value="12">12 Meses (1 Año)</option>
                   </select>
                 </div>
               )}
@@ -1718,8 +1373,8 @@ const FiltroPiezas = () => {
                     <HeaderFilter
                       title="Marca"
                       column="marca"
-                      currentFilter={filterMarca === 'Todos' ? '' : filterMarca}
-                      onFilterChange={(v) => { setFilterMarca(v || 'Todos'); setPage(1); }}
+                      currentFilter={filters.marca === 'Todos' ? '' : filters.marca}
+                      onFilterChange={(v) => { setFilter('marca', v || 'Todos'); setPage(1); }}
                       apiCall={proveedoresApi.getColumnFilter}
                     />
                   </th>
