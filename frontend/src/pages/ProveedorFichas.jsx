@@ -11,9 +11,9 @@ import {
 } from 'lucide-react';
 
 const MAIN_PROVIDERS = [
-  { id: 'all', name: 'Todos los Proveedores (Consolidado)', short: 'Todos los Proveedores', tag: 'Global' },
-  { id: 'thekingcomputer', name: 'THE KING COMPUTER E.I.R.L.', short: 'The King Computer', ruc: '20601234567' },
-  { id: 'jorge_rojas', name: 'ROJAS VILLANUEVA JORGE LUIS', short: 'Jorge Rojas Villanueva', ruc: '10408899991' },
+  { id: 'all', name: 'Todos los Proveedores (Consolidado)', short: '🏢 Comparar Precios (The King vs Jorge Rojas)', tag: 'Comparativa' },
+  { id: 'thekingcomputer', name: 'THE KING COMPUTER E.I.R.L.', short: '👑 The King Computer', ruc: '20601234567' },
+  { id: 'jorge_rojas', name: 'ROJAS VILLANUEVA JORGE LUIS', short: '👤 Jorge Rojas Villanueva', ruc: '10408899991' },
 ];
 
 const PERU_REGIONES = [
@@ -171,7 +171,7 @@ const ProveedorFichas = () => {
   // Estados de procesos y modales
   const [scraping, setScraping] = useState(false);
   const [scrapeStatus, setScrapeStatus] = useState(null);
-  const [showLogModal, setShowLogModal] = useState(false);
+  const [showLiveBanner, setShowLiveBanner] = useState(false);
   const [selectedJsonItem, setSelectedJsonItem] = useState(null);
   const [selectedRegionItem, setSelectedRegionItem] = useState(null);
   const [showScrapePlazosModal, setShowScrapePlazosModal] = useState(false);
@@ -259,19 +259,19 @@ const ProveedorFichas = () => {
     };
 
     checkStatus();
-    if (scraping || showLogModal) {
+    if (scraping || showLiveBanner) {
       interval = setInterval(checkStatus, 2500);
     }
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [scraping, showLogModal]);
+  }, [scraping, showLiveBanner]);
 
   // Acciones
   const handleStartScrape = async () => {
     setScraping(true);
     wasScrapingRef.current = true;
-    setShowLogModal(true);
+    setShowLiveBanner(true);
     try {
       await proveedoresApi.scrape({ proveedor: selectedProvider });
     } catch (err) {
@@ -283,7 +283,7 @@ const ProveedorFichas = () => {
   const handleStartSyncEstados = async () => {
     setScraping(true);
     wasScrapingRef.current = true;
-    setShowLogModal(true);
+    setShowLiveBanner(true);
     try {
       await proveedoresApi.syncEstados({ proveedor: selectedProvider });
     } catch (err) {
@@ -296,7 +296,7 @@ const ProveedorFichas = () => {
     setShowScrapePlazosModal(false);
     setScraping(true);
     wasScrapingRef.current = true;
-    setShowLogModal(true);
+    setShowLiveBanner(true);
     try {
       await proveedoresApi.scrapePlazos({
         proveedor: scrapePlazosProvider,
@@ -454,6 +454,33 @@ const ProveedorFichas = () => {
             <CheckCircle2 size={14} style={{ color: '#0284c7' }} />
             {scraping ? 'Sincronizando...' : 'Incluir Estados'}
           </button>
+
+          {scrapeStatus && (scraping || (scrapeStatus.logs?.length > 0)) && (
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowLiveBanner(prev => !prev)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '7px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                border: showLiveBanner ? '1px solid var(--c-brand)' : '1px solid var(--c-border)',
+                background: showLiveBanner ? '#eff6ff' : '#ffffff',
+                color: showLiveBanner ? 'var(--c-brand)' : 'var(--c-text-secondary)'
+              }}
+              title={showLiveBanner ? "Ocultar panel de extracción" : "Mostrar consola de extracción en vivo"}
+            >
+              <RefreshCw size={13} className={scraping ? 'spin' : ''} />
+              <span>{showLiveBanner ? 'Ocultar Consola' : 'Ver Consola'}</span>
+              {scraping && (
+                <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 4, background: 'var(--c-brand)', color: '#fff' }}>
+                  {scrapeStatus?.combos_completed || 0}/{scrapeStatus?.combos_total || 21}
+                </span>
+              )}
+            </button>
+          )}
 
           <button
             className="btn btn-primary"
@@ -665,7 +692,7 @@ const ProveedorFichas = () => {
       </div>
 
       {/* ── 5. Live Extraction Status Banner ───────────────────────────────── */}
-      {(showLogModal || scraping || (scrapeStatus && scrapeStatus.logs?.length > 0)) && (
+      {showLiveBanner && (
         <div style={{ marginBottom: 14, padding: '12px 16px', borderRadius: 8, border: '1px solid var(--c-brand)', background: '#ffffff', boxShadow: '0 2px 4px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: 'var(--c-brand)' }}>
@@ -683,8 +710,25 @@ const ProveedorFichas = () => {
               }}>
                 {scraping ? `Procesando (${scrapeStatus?.combos_completed || 0}/${scrapeStatus?.combos_total || 21})` : scrapeStatus?.status === 'error' ? 'Falla' : 'Completado'}
               </span>
-              <button onClick={() => setShowLogModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--c-text-tertiary)' }}>
-                <X size={15} />
+              <button 
+                onClick={() => setShowLiveBanner(false)}
+                title="Cerrar panel de extracción en vivo"
+                style={{
+                  border: '1px solid var(--c-border)',
+                  background: '#f8fafc',
+                  borderRadius: 6,
+                  padding: '3px 8px',
+                  cursor: 'pointer',
+                  color: 'var(--c-text-secondary)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontSize: 11,
+                  fontWeight: 600
+                }}
+              >
+                <X size={13} />
+                <span>Ocultar</span>
               </button>
             </div>
           </div>
@@ -903,82 +947,114 @@ const ProveedorFichas = () => {
                     {/* ── Columna 3: Ofertas & Precios (30%) ── */}
                     <td style={{ padding: '12px 14px', verticalAlign: 'top' }}>
                       {selectedProvider === 'all' ? (
-                        /* Vista Consolidada con Comparación */
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                          {/* Fila The King */}
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '3px 8px',
-                            borderRadius: 4,
-                            background: kingOferta?.precio_ofertado === bestPrice && hasCompetencia ? '#f0fdf4' : '#f8fafc',
-                            border: kingOferta?.precio_ofertado === bestPrice && hasCompetencia ? '1px solid #bbf7d0' : '1px solid #e2e8f0',
-                            fontSize: 11
-                          }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                              <span style={{ fontWeight: 700, color: '#7c3aed', fontSize: 10 }}>The King:</span>
-                              {kingOferta ? (
-                                <strong style={{ color: '#0f172a' }}>USD {fmt(kingOferta.precio_ofertado)}</strong>
-                              ) : (
-                                <span style={{ color: '#94a3b8' }}>Sin oferta</span>
-                              )}
-                            </div>
+                        (() => {
+                          const pKing = kingOferta?.precio_ofertado;
+                          const pRojas = rojasOferta?.precio_ofertado;
+                          const hasBoth = pKing != null && pRojas != null;
+                          const diff = hasBoth ? Math.abs(pKing - pRojas) : null;
+                          const kingCheaper = hasBoth && pKing < pRojas;
+                          const rojasCheaper = hasBoth && pRojas < pKing;
+                          const isTie = hasBoth && pKing === pRojas;
 
-                            {kingOferta && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10 }}>
-                                <span style={{ color: kingOferta.existencia_stock > 0 ? '#15803d' : '#94a3b8' }}>
-                                  Stock: <strong>{kingOferta.existencia_stock || 0}</strong>
-                                </span>
-                                <span style={{ color: '#64748b' }}>⏱️ {kingPlazo}d</span>
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {/* Fila The King */}
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '5px 8px',
+                                borderRadius: 5,
+                                background: kingCheaper ? '#f0fdf4' : '#f8fafc',
+                                border: kingCheaper ? '1px solid #86efac' : '1px solid #e2e8f0',
+                                fontSize: 11
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span style={{ fontWeight: 700, color: '#6d28d9', fontSize: 10 }}>The King:</span>
+                                  {pKing != null ? (
+                                    <strong style={{ color: '#0f172a', fontSize: 12 }}>USD {fmt(pKing)}</strong>
+                                  ) : (
+                                    <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin oferta</span>
+                                  )}
+                                  {kingCheaper && diff > 0 && (
+                                    <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#dcfce7', color: '#15803d', fontWeight: 700 }}>
+                                      🟢 -USD {fmt(diff)}
+                                    </span>
+                                  )}
+                                  {isTie && (
+                                    <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#f1f5f9', color: '#475569', fontWeight: 600 }}>
+                                      Empate
+                                    </span>
+                                  )}
+                                </div>
+
+                                {kingOferta && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10 }}>
+                                    <span style={{ color: kingOferta.existencia_stock > 0 ? '#15803d' : '#94a3b8', fontWeight: kingOferta.existencia_stock > 0 ? 600 : 400 }}>
+                                      {kingOferta.existencia_stock > 0 ? `📦 ${kingOferta.existencia_stock} unid.` : 'Sin stock'}
+                                    </span>
+                                    <span style={{ color: '#64748b' }}>⏱️ {kingPlazo} días</span>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
 
-                          {/* Fila Jorge Rojas */}
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '3px 8px',
-                            borderRadius: 4,
-                            background: rojasOferta?.precio_ofertado === bestPrice && hasCompetencia ? '#f0fdf4' : '#f8fafc',
-                            border: rojasOferta?.precio_ofertado === bestPrice && hasCompetencia ? '1px solid #bbf7d0' : '1px solid #e2e8f0',
-                            fontSize: 11
-                          }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                              <span style={{ fontWeight: 700, color: '#0284c7', fontSize: 10 }}>Jorge Rojas:</span>
-                              {rojasOferta ? (
-                                <strong style={{ color: '#0f172a' }}>USD {fmt(rojasOferta.precio_ofertado)}</strong>
-                              ) : (
-                                <span style={{ color: '#94a3b8' }}>Sin oferta</span>
-                              )}
-                            </div>
+                              {/* Fila Jorge Rojas */}
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '5px 8px',
+                                borderRadius: 5,
+                                background: rojasCheaper ? '#f0fdf4' : '#f8fafc',
+                                border: rojasCheaper ? '1px solid #86efac' : '1px solid #e2e8f0',
+                                fontSize: 11
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span style={{ fontWeight: 700, color: '#0284c7', fontSize: 10 }}>Jorge Rojas:</span>
+                                  {pRojas != null ? (
+                                    <strong style={{ color: '#0f172a', fontSize: 12 }}>USD {fmt(pRojas)}</strong>
+                                  ) : (
+                                    <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin oferta</span>
+                                  )}
+                                  {rojasCheaper && diff > 0 && (
+                                    <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#dcfce7', color: '#15803d', fontWeight: 700 }}>
+                                      🟢 -USD {fmt(diff)}
+                                    </span>
+                                  )}
+                                  {isTie && (
+                                    <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: '#f1f5f9', color: '#475569', fontWeight: 600 }}>
+                                      Empate
+                                    </span>
+                                  )}
+                                </div>
 
-                            {rojasOferta && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10 }}>
-                                <span style={{ color: rojasOferta.existencia_stock > 0 ? '#15803d' : '#94a3b8' }}>
-                                  Stock: <strong>{rojasOferta.existencia_stock || 0}</strong>
-                                </span>
-                                <span style={{ color: '#64748b' }}>⏱️ {rojasPlazo}d</span>
+                                {rojasOferta && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10 }}>
+                                    <span style={{ color: rojasOferta.existencia_stock > 0 ? '#15803d' : '#94a3b8', fontWeight: rojasOferta.existencia_stock > 0 ? 600 : 400 }}>
+                                      {rojasOferta.existencia_stock > 0 ? `📦 ${rojasOferta.existencia_stock} unid.` : 'Sin stock'}
+                                    </span>
+                                    <span style={{ color: '#64748b' }}>⏱️ {rojasPlazo} días</span>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        </div>
+                            </div>
+                          );
+                        })()
                       ) : (
                         /* Vista de Proveedor Individual */
                         <div>
-                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
-                            <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
-                              USD {fmt(f.precio_ofertado)}
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+                              USD {fmt(f.precio_ofertado || f.min_precio)}
                             </span>
                             <span style={{ fontSize: 11, color: f.existencia_stock > 0 ? '#15803d' : '#94a3b8', fontWeight: 600 }}>
-                              {f.existencia_stock > 0 ? `(${f.existencia_stock} en stock)` : '(Sin stock)'}
+                              {f.existencia_stock > 0 ? `📦 ${f.existencia_stock} unidades disponibles` : 'Sin existencias'}
                             </span>
                           </div>
                           <div style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span>Plazo regional:</span>
-                            <strong style={{ color: '#1e293b' }}>⏱️ {getPlazoForRegion(f, regionFilter)} días</strong>
+                            <Clock size={12} style={{ color: 'var(--c-brand)' }} />
+                            <span>Plazo de entrega ({regionFilter === 'all' ? 'Lima' : PERU_REGIONES.find(r=>r.id===regionFilter)?.name}):</span>
+                            <strong style={{ color: '#1e293b' }}>{getPlazoForRegion(f, regionFilter)} días hábiles</strong>
                           </div>
                         </div>
                       )}
@@ -989,20 +1065,20 @@ const ProveedorFichas = () => {
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
                         
                         {/* Badges de Estado */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                           <span
-                            title={f.motivo_estado ? `Motivo: ${f.motivo_estado}` : ''}
+                            title={f.motivo_estado ? `Motivo: ${f.motivo_estado}${f.justificacion_estado ? ` - ${f.justificacion_estado}` : ''}` : 'Estado en Catálogo Electrónico'}
                             style={{
                               fontSize: 10,
                               fontWeight: 700,
-                              padding: '2px 6px',
+                              padding: '2px 7px',
                               borderRadius: 4,
                               background: estadoFicha === 'EXCLUIDA' ? '#fef3c7' : estadoFicha === 'OFERTADA' ? '#e0f2fe' : '#dcfce7',
                               color: estadoFicha === 'EXCLUIDA' ? '#92400e' : estadoFicha === 'OFERTADA' ? '#0369a1' : '#166534',
                               border: `1px solid ${estadoFicha === 'EXCLUIDA' ? '#fde68a' : estadoFicha === 'OFERTADA' ? '#bae6fd' : '#bbf7d0'}`
                             }}
                           >
-                            {estadoFicha}
+                            {estadoFicha === 'VIGENTE' ? 'VIGENTE' : estadoFicha}
                           </span>
 
                           <span style={{
@@ -1011,13 +1087,14 @@ const ProveedorFichas = () => {
                             padding: '2px 6px',
                             borderRadius: 4,
                             background: estadoOferta === 'VIGENTE' ? '#f0fdf4' : '#fef2f2',
-                            color: estadoOferta === 'VIGENTE' ? '#15803d' : '#991b1b'
+                            color: estadoOferta === 'VIGENTE' ? '#15803d' : '#991b1b',
+                            border: `1px solid ${estadoOferta === 'VIGENTE' ? '#bbf7d0' : '#fecaca'}`
                           }}>
-                            {estadoOferta}
+                            {estadoOferta === 'VIGENTE' ? 'OFERTA ACTIVA' : estadoOferta}
                           </span>
                         </div>
 
-                        {/* Botón de Ficha PDF */}
+                        {/* Botón de Ficha PDF Oficial */}
                         {pdfUrl ? (
                           <a
                             href={pdfUrl}
@@ -1026,42 +1103,66 @@ const ProveedorFichas = () => {
                             style={{
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: 4,
+                              gap: 5,
                               fontSize: 11,
                               fontWeight: 600,
-                              color: '#dc2626',
+                              color: '#b91c1c',
                               background: '#fef2f2',
-                              border: '1px solid #fecaca',
+                              border: '1px solid #fca5a5',
                               borderRadius: 4,
-                              padding: '2px 7px',
+                              padding: '3px 8px',
                               textDecoration: 'none'
                             }}
-                            title="Abrir ficha técnica oficial en PDF"
+                            title="Abrir ficha técnica oficial en PDF de Perú Compras"
                           >
-                            <FileText size={11} />
-                            <span>Ver PDF</span>
-                            <ExternalLink size={9} />
+                            <FileText size={12} />
+                            <span>Ficha PDF</span>
+                            <ExternalLink size={10} />
                           </a>
                         ) : (
-                          <span style={{ fontSize: 10, color: '#94a3b8' }}>Sin PDF</span>
+                          <span style={{ fontSize: 10, color: '#94a3b8', fontStyle: 'italic' }}>Sin PDF oficial</span>
                         )}
 
                         {/* Botones de Inspección (Regiones & JSON) */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
                           <button
                             onClick={() => setSelectedRegionItem(f)}
-                            title="Ver plazos en las 25 regiones del Perú"
-                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--c-brand)', fontSize: 10, padding: 0, fontWeight: 600, textDecoration: 'underline' }}
+                            title="Ver días de entrega en las 25 regiones del Perú"
+                            style={{
+                              border: 'none',
+                              background: 'none',
+                              cursor: 'pointer',
+                              color: 'var(--c-brand)',
+                              fontSize: 11,
+                              padding: 0,
+                              fontWeight: 600,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 3,
+                              textDecoration: 'none'
+                            }}
                           >
-                            25 Regiones
+                            <MapPin size={11} />
+                            <span>25 Regiones</span>
                           </button>
                           <span style={{ color: '#cbd5e1' }}>•</span>
                           <button
                             onClick={() => setSelectedJsonItem(f)}
-                            title="Inspeccionar JSON crudo"
-                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--c-text-tertiary)', fontSize: 10, padding: 0 }}
+                            title="Ver datos crudos en formato JSON"
+                            style={{
+                              border: 'none',
+                              background: 'none',
+                              cursor: 'pointer',
+                              color: 'var(--c-text-tertiary)',
+                              fontSize: 11,
+                              padding: 0,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 3
+                            }}
                           >
-                            JSON
+                            <Code size={11} />
+                            <span>JSON</span>
                           </button>
                         </div>
 
