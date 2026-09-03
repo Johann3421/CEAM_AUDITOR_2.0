@@ -164,6 +164,7 @@ const ProveedorFichas = () => {
   const [competenciaFilter, setCompetenciaFilter] = useState('all');
   const [stockFilter, setStockFilter] = useState('');
   const [pdfFilter, setPdfFilter] = useState('all');
+  const [mostrarExcluidas, setMostrarExcluidas] = useState(false);
   const [sortBy, setSortBy] = useState('precio_asc');
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(25);
@@ -198,6 +199,7 @@ const ProveedorFichas = () => {
         search: search.trim() || undefined,
         stock_filter: stockFilter || undefined,
         pdf_filter: pdfFilter !== 'all' ? pdfFilter : undefined,
+        mostrar_excluidas: mostrarExcluidas ? true : undefined,
         sort_by: sortBy || undefined,
         page: page + 1,
         limit
@@ -227,7 +229,7 @@ const ProveedorFichas = () => {
 
   useEffect(() => {
     fetchData();
-  }, [selectedProvider, activeCategory, regionFilter, competenciaFilter, stockFilter, pdfFilter, sortBy, page, limit]);
+  }, [selectedProvider, activeCategory, regionFilter, competenciaFilter, stockFilter, pdfFilter, mostrarExcluidas, sortBy, page, limit]);
 
   // Manejar debounced search
   useEffect(() => {
@@ -325,7 +327,8 @@ const ProveedorFichas = () => {
     try {
       const res = await proveedoresApi.exportExcel({
         proveedor: selectedProvider !== 'all' ? selectedProvider : undefined,
-        categoria: activeCategory !== 'all' ? activeCategory : undefined
+        categoria: activeCategory !== 'all' ? activeCategory : undefined,
+        mostrar_excluidas: mostrarExcluidas ? true : undefined
       });
       const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = window.URL.createObjectURL(blob);
@@ -373,10 +376,11 @@ const ProveedorFichas = () => {
     setCompetenciaFilter('all');
     setStockFilter('');
     setPdfFilter('all');
+    setMostrarExcluidas(false);
     setPage(0);
   };
 
-  const hasActiveFilters = search || regionFilter !== 'all' || competenciaFilter !== 'all' || stockFilter || pdfFilter !== 'all';
+  const hasActiveFilters = search || regionFilter !== 'all' || competenciaFilter !== 'all' || stockFilter || pdfFilter !== 'all' || mostrarExcluidas;
 
   // Helper para resolver el plazo de entrega según la región
   const getPlazoForRegion = (oferta, regKey) => {
@@ -657,6 +661,32 @@ const ProveedorFichas = () => {
               <option value="with_pdf">📄 Con PDF</option>
               <option value="no_pdf">❌ Sin PDF</option>
             </select>
+
+            {/* Toggle Mostrar Excluidas */}
+            <label style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: 'pointer',
+              userSelect: 'none',
+              padding: '2px 8px',
+              height: 28,
+              borderRadius: 6,
+              background: mostrarExcluidas ? '#fef3c7' : '#f8fafc',
+              border: mostrarExcluidas ? '1px solid #fde68a' : '1px solid var(--c-border)',
+              color: mostrarExcluidas ? '#92400e' : 'var(--c-text-secondary)',
+              transition: 'all 0.15s ease'
+            }} title="Por defecto solo se muestran fichas OFERTADAS y sin clasificar. Marca esta casilla para ver también las EXCLUIDAS">
+              <input
+                type="checkbox"
+                checked={mostrarExcluidas}
+                onChange={(e) => { setMostrarExcluidas(e.target.checked); setPage(0); }}
+                style={{ cursor: 'pointer', accentColor: '#d97706' }}
+              />
+              <span>Mostrar excluidas</span>
+            </label>
 
             {hasActiveFilters && (
               <button

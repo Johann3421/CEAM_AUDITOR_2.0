@@ -121,6 +121,7 @@ def get_proveedor_fichas(
     camara: Optional[str] = Query(None, description="Filtro de Cámara Web: si, no"),
     tactil: Optional[str] = Query(None, description="Filtro de Pantalla Táctil: si, no"),
     con_orden: Optional[bool] = Query(None, description="Filtrar solo fichas con orden de compra registrada"),
+    mostrar_excluidas: bool = Query(False, description="Si es False (por defecto), solo muestra OFERTADA y sin estado. Si es True, incluye EXCLUIDA."),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=5000),
     db: Session = Depends(get_db)
@@ -467,6 +468,9 @@ def get_proveedor_fichas(
         elif '12' in garantia:
             where_clauses.append("UPPER(f.descripcion_producto) LIKE '%12 MESES%'")
 
+    if not mostrar_excluidas:
+        where_clauses.append("(f.estado_ficha_producto IS NULL OR TRIM(f.estado_ficha_producto) = '' OR UPPER(f.estado_ficha_producto) NOT LIKE 'EXCLU%')")
+
     where_sql = " AND ".join(where_clauses)
     is_consolidated = (not proveedor or proveedor.lower() == "all")
 
@@ -495,15 +499,21 @@ def get_proveedor_fichas(
 
         having_sql = f"HAVING {' AND '.join(having_clauses)}" if having_clauses else ""
 
-        order_by_sql = "g.id DESC, g.group_key ASC"
+        priority_order = """CASE 
+            WHEN UPPER(COALESCE(g.estado_ficha_producto, '')) LIKE '%OFERTADA%' THEN 1
+            WHEN g.estado_ficha_producto IS NULL OR TRIM(g.estado_ficha_producto) = '' THEN 2
+            ELSE 3
+        END ASC"""
+
+        order_by_sql = f"{priority_order}, g.id DESC, g.group_key ASC"
         if sort_by == "precio_asc":
-            order_by_sql = "g.min_precio ASC NULLS LAST, g.group_key ASC"
+            order_by_sql = f"{priority_order}, g.min_precio ASC NULLS LAST, g.group_key ASC"
         elif sort_by == "precio_desc":
-            order_by_sql = "g.min_precio DESC NULLS LAST, g.group_key ASC"
+            order_by_sql = f"{priority_order}, g.min_precio DESC NULLS LAST, g.group_key ASC"
         elif sort_by == "stock_desc":
-            order_by_sql = "g.existencia_stock DESC NULLS LAST, g.group_key ASC"
+            order_by_sql = f"{priority_order}, g.existencia_stock DESC NULLS LAST, g.group_key ASC"
         elif sort_by == "marca_asc":
-            order_by_sql = "g.marca ASC, g.group_key ASC"
+            order_by_sql = f"{priority_order}, g.marca ASC, g.group_key ASC"
 
         sql = f"""
             WITH raw_matched AS (
@@ -667,15 +677,21 @@ def get_proveedor_fichas(
             LIMIT :limit OFFSET :offset
         """
     else:
-        order_by_sql = "f.id DESC"
+        priority_order_f = """CASE 
+            WHEN UPPER(COALESCE(f.estado_ficha_producto, '')) LIKE '%OFERTADA%' THEN 1
+            WHEN f.estado_ficha_producto IS NULL OR TRIM(f.estado_ficha_producto) = '' THEN 2
+            ELSE 3
+        END ASC"""
+
+        order_by_sql = f"{priority_order_f}, f.id DESC"
         if sort_by == "precio_asc":
-            order_by_sql = "f.precio_ofertado ASC NULLS LAST"
+            order_by_sql = f"{priority_order_f}, f.precio_ofertado ASC NULLS LAST"
         elif sort_by == "precio_desc":
-            order_by_sql = "f.precio_ofertado DESC NULLS LAST"
+            order_by_sql = f"{priority_order_f}, f.precio_ofertado DESC NULLS LAST"
         elif sort_by == "stock_desc":
-            order_by_sql = "f.existencia_stock DESC NULLS LAST"
+            order_by_sql = f"{priority_order_f}, f.existencia_stock DESC NULLS LAST"
         elif sort_by == "marca_asc":
-            order_by_sql = "f.marca ASC"
+            order_by_sql = f"{priority_order_f}, f.marca ASC"
 
         sql = f"""
             SELECT 
@@ -1190,6 +1206,7 @@ def export_proveedor_fichas_excel(
     camara: Optional[str] = Query(None),
     tactil: Optional[str] = Query(None),
     con_orden: Optional[bool] = Query(None),
+    mostrar_excluidas: bool = Query(False),
     db: Session = Depends(get_db)
 ):
     """
@@ -1237,6 +1254,7 @@ def export_proveedor_fichas_excel(
         camara=camara,
         tactil=tactil,
         con_orden=con_orden,
+        mostrar_excluidas=mostrar_excluidas,
         page=1,
         limit=100000,
         db=db
