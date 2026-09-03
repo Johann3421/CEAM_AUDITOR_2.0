@@ -169,6 +169,15 @@ async def async_sync_estados_fichas(
     nombre_proveedor = prov_nombre
     ruc_proveedor = prov_cfg.get("ruc", "")
 
+    if is_all_providers:
+        prov_pattern = "%"
+    elif "rojas" in provider_key.lower():
+        prov_pattern = "%ROJAS%"
+    elif "king" in provider_key.lower():
+        prov_pattern = "%KING%"
+    else:
+        prov_pattern = f"%{prov_nombre.upper()}%"
+
     EXTRACTION_STATUS["is_running"] = True
     EXTRACTION_STATUS["status"] = "running"
     EXTRACTION_STATUS["provider"] = provider_key
@@ -200,7 +209,7 @@ async def async_sync_estados_fichas(
                       AND marca IS NOT NULL
                       AND TRIM(marca) NOT IN ('', 'VARIOS', 'S/N', 'SN', '-')
                 """)
-                res_m = db.execute(sql_marcas, {"p": f"%{prov_nombre.upper()}%"}).fetchall()
+                res_m = db.execute(sql_marcas, {"p": prov_pattern}).fetchall()
 
             for r_cat, r_marca in res_m:
                 if r_cat:
@@ -216,7 +225,7 @@ async def async_sync_estados_fichas(
                     WHERE (marca IS NULL OR UPPER(TRIM(marca)) IN ('VARIOS', 'S/N', 'SN', '', '-'))
                       AND descripcion_producto ILIKE '%UNIDAD%'
                 """ + ("" if is_all_providers else " AND UPPER(nombre_proveedor) LIKE :p"))
-                res_desc = db.execute(sql_desc_marcas, {} if is_all_providers else {"p": f"%{prov_nombre.upper()}%"}).fetchall()
+                res_desc = db.execute(sql_desc_marcas, {} if is_all_providers else {"p": prov_pattern}).fetchall()
                 for d_cat, d_desc in res_desc:
                     m_u = re.search(r'UNIDAD\s+([A-Z0-9_-]+)', d_desc or '', re.I)
                     if m_u:
@@ -426,7 +435,7 @@ async def async_sync_estados_fichas(
                                               AND nro_parte IS NOT NULL
                                               AND TRIM(nro_parte) NOT IN ('', 'S/N', 'SN', '-')
                                         """)
-                                        missing_nps = [r[0] for r in db.execute(sql_miss, {"p": f"%{prov_nombre.upper()}%", "cat_like": f"%{categ_nom}%", "cat_clean": categ_nom}).fetchall()]
+                                        missing_nps = [r[0] for r in db.execute(sql_miss, {"p": prov_pattern, "cat_like": f"%{categ_nom}%", "cat_clean": categ_nom}).fetchall()]
 
                                     extracted_nps = {it.get("nro_parte") for it in items if it.get("nro_parte")}
                                     remaining_nps = [np for np in missing_nps if np not in extracted_nps]
@@ -474,7 +483,7 @@ async def async_sync_estados_fichas(
                                   AND nro_parte IS NOT NULL
                                   AND TRIM(nro_parte) NOT IN ('', 'S/N', 'SN', '-')
                             """)
-                            db_targets = db.execute(sql_targets, {"p": f"%{prov_nombre.upper()}%"}).fetchall()
+                            db_targets = db.execute(sql_targets, {"p": prov_pattern}).fetchall()
 
                         # Índice rápido en memoria nro_parte -> lista de IDs en la BD (incluyendo versión alfanumérica limpia)
                         np_map = {}

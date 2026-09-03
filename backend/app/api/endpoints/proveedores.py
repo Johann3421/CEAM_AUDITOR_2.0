@@ -1936,24 +1936,28 @@ def get_available_accounts():
 @router.post("/scrape")
 async def trigger_scrape_proveedores(
     background_tasks: BackgroundTasks,
-    proveedor: str = Query("thekingcomputer", description="ID del proveedor a extraer: thekingcomputer, jorge_rojas")
+    proveedor: str = Query("thekingcomputer", description="ID del proveedor a extraer: thekingcomputer, jorge_rojas, all")
 ):
     """
-    Inicia la extracción en segundo plano para la cuenta del proveedor especificado.
+    Inicia la extracción en segundo plano para la cuenta del proveedor especificado (o ambos si es 'all').
     """
     from app.services.proveedores_scraper import PROVEEDORES_CONFIG, run_worker_pool_extraction
     from app.db.database import SessionLocal
-    prov_nombre = PROVEEDORES_CONFIG.get(proveedor, {}).get("nombre", proveedor)
 
     async def _async_task():
         with SessionLocal() as db_session:
-            await run_worker_pool_extraction([], db_session, provider_key=proveedor)
+            if proveedor in ("all", "ambos", "todos"):
+                for p_key in ("thekingcomputer", "jorge_rojas"):
+                    await run_worker_pool_extraction([], db_session, provider_key=p_key)
+            else:
+                await run_worker_pool_extraction([], db_session, provider_key=proveedor)
 
     background_tasks.add_task(_async_task)
+    prov_desc = "TODOS LOS PROVEEDORES (The King y Jorge Rojas)" if proveedor in ("all", "ambos", "todos") else PROVEEDORES_CONFIG.get(proveedor, {}).get("nombre", proveedor)
     return {
-        "message": f"Worker Pool de extracción iniciado para '{prov_nombre}'",
+        "message": f"Worker Pool de extracción iniciado para '{prov_desc}'",
         "proveedor": proveedor,
-        "nombre": prov_nombre
+        "nombre": prov_desc
     }
 
 @router.post("/scrape-plazos")

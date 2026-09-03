@@ -516,7 +516,12 @@ async def run_worker_pool_extraction(
                         break
 
                     if items:
-                        count = upsert_ofertas_history_db(db, items)
+                        for it in items:
+                            if not it.get("nombre_proveedor"):
+                                it["nombre_proveedor"] = nombre_proveedor
+                            if not it.get("ruc_proveedor"):
+                                it["ruc_proveedor"] = ruc_proveedor
+                        count = upsert_ofertas_history_db(db, items, default_nombre=nombre_proveedor, default_ruc=ruc_proveedor)
                         total_inserted += count
                         EXTRACTION_STATUS["items_inserted"] = total_inserted
 
@@ -542,7 +547,7 @@ async def run_worker_pool_extraction(
         add_status_log(f"❌ Error crítico en worker pool: {e}")
         return {"processed_combos": 0, "total_inserted": 0, "error": str(e)}
 
-def upsert_ofertas_history_db(db: Session, ofertas: List[Dict]) -> int:
+def upsert_ofertas_history_db(db: Session, ofertas: List[Dict], default_nombre: str = "THE KING COMPUTER E.I.R.L.", default_ruc: str = "20601234567") -> int:
     """
     Inserta o actualiza las ofertas validadas en la tabla `ofertas_proveedor_history`
     garantizando trazabilidad histórica y evitando colisiones entre catálogos y proveedores.
@@ -570,8 +575,8 @@ def upsert_ofertas_history_db(db: Session, ofertas: List[Dict]) -> int:
                 "nro_parte": o.get("nro_parte") or "S/N",
                 "descripcion": o.get("descripcion") or o.get("descripcion_producto") or "",
                 "marca": o.get("marca") or "VARIOS",
-                "ruc_proveedor": o.get("ruc_proveedor") or "20601234567",
-                "nombre_proveedor": o.get("nombre_proveedor") or o.get("proveedor") or "THE KING COMPUTER E.I.R.L.",
+                "ruc_proveedor": o.get("ruc_proveedor") or default_ruc,
+                "nombre_proveedor": o.get("nombre_proveedor") or o.get("proveedor") or default_nombre,
                 "acuerdo_marco": o.get("acuerdo_marco") or "EXT-CE-2022-5",
                 "catalogo": o.get("catalogo") or "COMPUTADORAS DE ESCRITORIO",
                 "categoria": o.get("categoria") or "ESCRITORIO",

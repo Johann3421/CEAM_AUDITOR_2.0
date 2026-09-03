@@ -352,9 +352,8 @@ const ProveedorFichas = () => {
       if (interval) clearInterval(interval);
     };
   }, [scraping, showLogModal, selectedProvider]);
-
   const handleStartScrape = async (targetProviderKey = null) => {
-    const provToScrape = targetProviderKey || (selectedProvider !== 'all' ? selectedProvider : 'thekingcomputer');
+    const provToScrape = targetProviderKey || selectedProvider;
     setScraping(true);
     wasScrapingRef.current = true;
     setShowLogModal(true);
