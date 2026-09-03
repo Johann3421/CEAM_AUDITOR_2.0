@@ -47,13 +47,13 @@ const PERU_REGIONES = [
 
 const CATEGORY_TABS = [
   { id: 'all', label: 'Todos los Catálogos', icon: Package },
-  { id: 'COMPUTADORA DE ESCRITORIO', label: 'Computadoras', icon: Monitor },
-  { id: 'COMPUTADORA PORTATIL', label: 'Laptops', icon: Laptop },
-  { id: 'COMPUTADORA TODO EN UNO', label: 'All-in-One', icon: Tv },
-  { id: 'MONITOR', label: 'Monitores', icon: Monitor },
-  { id: 'ESCANER', label: 'Escáneres', icon: Printer },
-  { id: 'ESTACION DE TRABAJO', label: 'Workstations', icon: Server },
-  { id: 'DISPOSITIVOS DE ALMACENAMIENTO', label: 'Almacenamiento', icon: HardDrive },
+  { id: 'escritorio', label: 'Computadoras', icon: Monitor },
+  { id: 'portatil', label: 'Laptops', icon: Laptop },
+  { id: 'aio', label: 'All-in-One', icon: Tv },
+  { id: 'monitor', label: 'Monitores', icon: Monitor },
+  { id: 'escaner_docs', label: 'Escáneres', icon: Printer },
+  { id: 'workstation', label: 'Workstations', icon: Server },
+  { id: 'almacenamiento_int', label: 'Almacenamiento', icon: HardDrive },
 ];
 
 const fmt = (n) =>
@@ -210,9 +210,13 @@ const ProveedorFichas = () => {
       ]);
 
       const data = resFichas.data;
-      setFichas(Array.isArray(data) ? data : (data?.data || []));
-      setTotalFichas(data?.total ?? (Array.isArray(data) ? data.length : 0));
-      setKpis(resKpis.data || null);
+      const list = Array.isArray(data) ? data : (data?.items || data?.data || []);
+      setFichas(list);
+      setTotalFichas(data?.total ?? list.length);
+      setKpis({
+        total_stock: data?.total_stock ?? 0,
+        avg_precio: resKpis?.data?.avg_precio ?? null
+      });
       setCategoryCounts(resCounts.data || {});
     } catch (err) {
       console.error('Error cargando fichas de proveedores:', err);
@@ -762,19 +766,19 @@ const ProveedorFichas = () => {
               </tr>
             ) : (
               fichas.map((f, fIdx) => {
-                const specs = parseSpecs(f.descripcion_producto, f.categoria, f.catalogo);
+                const specs = parseSpecs(f.descripcion || f.descripcion_producto, f.categoria, f.catalogo);
                 const ofertas = Array.isArray(f.ofertas) && f.ofertas.length > 0 ? f.ofertas : [f];
                 
                 // Resolver ofertas de The King y Jorge Rojas
                 const kingOferta = ofertas.find(o => {
-                  const n = (o.nombre_proveedor || '').toUpperCase();
-                  const r = o.ruc_proveedor || '';
+                  const n = (o.nombre_proveedor || o.proveedor || '').toUpperCase();
+                  const r = (o.ruc_proveedor || '').trim();
                   return n.includes('KING') || r === '20601234567';
                 });
 
                 const rojasOferta = ofertas.find(o => {
-                  const n = (o.nombre_proveedor || '').toUpperCase();
-                  const r = o.ruc_proveedor || '';
+                  const n = (o.nombre_proveedor || o.proveedor || '').toUpperCase();
+                  const r = (o.ruc_proveedor || '').trim();
                   return n.includes('ROJAS') || n.includes('JORGE') || r === '10408899991';
                 });
 
