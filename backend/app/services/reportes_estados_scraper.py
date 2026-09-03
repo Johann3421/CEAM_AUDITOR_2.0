@@ -213,55 +213,6 @@ async def async_sync_estados_fichas(
     if not is_batch:
         EXTRACTION_STATUS["items_inserted"] = 0
         EXTRACTION_STATUS["logs"] = []
-
-    # 0. Obtener dinámicamente de la BD todas las marcas y categorías registradas para ESTE proveedor
-    marcas_por_cat = {}
-    marcas_totales_prov = []
-    if db is not None:
-        try:
-            sql_marcas = text("""
-                SELECT DISTINCT UPPER(TRIM(categoria)), UPPER(TRIM(marca))
-                FROM ofertas_proveedor_history
-                WHERE (UPPER(nombre_proveedor) LIKE :p OR ruc_proveedor = :ruc)
-                  AND marca IS NOT NULL
-                  AND TRIM(marca) NOT IN ('', 'VARIOS', 'S/N', 'SN', '-')
-            """)
-            res_m = db.execute(sql_marcas, {"p": prov_pattern, "ruc": ruc_proveedor}).fetchall()
-
-            for r_cat, r_marca in res_m:
-                if r_cat:
-                    marcas_por_cat.setdefault(r_cat, set()).add(r_marca)
-                if r_marca and r_marca not in marcas_totales_prov:
-                    marcas_totales_prov.append(r_marca)
-
-            # Descubrir marcas adicionales a partir de la descripción (ej. JFA)
-            try:
-                sql_desc_marcas = text("""
-                    SELECT DISTINCT UPPER(TRIM(categoria)), descripcion_producto
-                    FROM ofertas_proveedor_history
-                    WHERE (marca IS NULL OR UPPER(TRIM(marca)) IN ('VARIOS', 'S/N', 'SN', '', '-'))
-                      AND (UPPER(nombre_proveedor) LIKE :p OR ruc_proveedor = :ruc)
-                      AND descripcion_producto ILIKE '%UNIDAD%'
-                """)
-                res_desc = db.execute(sql_desc_marcas, {"p": prov_pattern, "ruc": ruc_proveedor}).fetchall()
-                for d_cat, d_desc in res_desc:
-                    m_u = re.search(r'UNIDAD\s+([A-Z0-9_-]+)', d_desc or '', re.I)
-                    if m_u:
-                        detected_m = m_u.group(1).upper().strip()
-                        if detected_m and detected_m not in ('VARIOS', 'SN', 'S/N', 'MARCA', 'UNIDAD'):
-                            if d_cat:
-                                marcas_por_cat.setdefault(d_cat.upper().strip(), set()).add(detected_m)
-                            if detected_m not in marcas_totales_prov:
-                                marcas_totales_prov.append(detected_m)
-            except Exception as desc_m_err:
-                logger.debug(f"Aviso escaneando descripciones: {desc_m_err}")
-
-            if marcas_totales_prov:
-                sample_m = ', '.join(marcas_totales_prov[:10]) + ('...' if len(marcas_totales_prov) > 10 else '')
-                add_status_log(f"📋 Marcas registradas en BD para '{prov_nombre}': {len(marcas_totales_prov)} marcas ({sample_m}).")
-        except Exception as db_m_err:
-            logger.warning(f"Error consultando marcas del proveedor: {db_m_err}")
-
     total_actualizados = 0
 
     try:
@@ -404,62 +355,7 @@ async def async_sync_estados_fichas(
                     if raw_html:
                         items = parse_tabla_reportes(raw_html)
 
-                    # 2. Si la consulta directa sin filtros no trajo datos (servidor estatal colapsado por volumen masivo >25k):
-                    if not items:
-                        # Extraer dinámicamente TODAS las marcas que el proveedor tiene para esta categoría (o sus marcas globales)
-                        marcas_cat_set = set()
-                        for c_key, m_set in marcas_por_cat.items():
-                            if c_key in categ_nom.upper() or categ_nom.upper() in c_key:
-                                marcas_cat_set.update(m_set)
 
-                        marcas_a_consultar = sorted(list(marcas_cat_set)) if marcas_cat_set else sorted(marcas_totales_prov)
-
-                        if marcas_a_consultar:
-                            add_status_log(f"   ⚡ Categoría masiva ({categ_nom}): extrayendo {len(marcas_a_consultar)} marcas del proveedor ({', '.join(marcas_a_consultar)})...")
-                            for m_idx, m_nom in enumerate(marcas_a_consultar, 1):
-                                add_status_log(f"      [{m_idx}/{len(marcas_a_consultar)}] Consultando marca '{m_nom}'...")
-                                raw_m = await _fetch_ruta_reportes(n_cat, n_categ, c_desc=m_nom, timeout_ms=60000)
-                                if raw_m:
-                                    it_m = parse_tabla_reportes(raw_m)
-                                    if it_m:
-                                        items.extend(it_m)
-                                        add_status_log(f"         ✓ {len(it_m)} fichas extraídas para marca '{m_nom}'.")
-                                    else:
-                                        add_status_log(f"         ℹ️ 0 fichas encontradas para '{m_nom}'.")
-                                else:
-                                    add_status_log(f"         ⚠️ Servidor estatal tardó más de 60s en responder para '{m_nom}'.")
-                                await asyncio.sleep(0.3)
-
-                            # PASO 2.B (Garantía de Cobertura 100%):
-                            # Si quedaron productos de esta categoría en la BD sin cubrir (ej. marcas raras o sin clasificar como JFA):
-                            if db is not None:
-                                try:
-                                    sql_miss = text("""
-                                        SELECT DISTINCT UPPER(TRIM(nro_parte))
-                                        FROM ofertas_proveedor_history
-                                        WHERE (UPPER(nombre_proveedor) LIKE :p OR ruc_proveedor = :ruc)
-                                          AND (categoria ILIKE :cat_like OR :cat_clean ILIKE '%' || categoria || '%')
-                                          AND (pdf_url IS NULL OR estado_ficha_producto IS NULL)
-                                          AND nro_parte IS NOT NULL
-                                          AND TRIM(nro_parte) NOT IN ('', 'S/N', 'SN', '-')
-                                    """)
-                                    missing_nps = [r[0] for r in db.execute(sql_miss, {"p": prov_pattern, "ruc": ruc_proveedor, "cat_like": f"%{categ_nom}%", "cat_clean": categ_nom}).fetchall()]
-
-                                    extracted_nps = {it.get("nro_parte") for it in items if it.get("nro_parte")}
-                                    remaining_nps = [np for np in missing_nps if np not in extracted_nps]
-
-                                    if remaining_nps:
-                                        add_status_log(f"   🔍 Consultando {len(remaining_nps)} productos específicos de {categ_nom} no cubiertos por marcas (ej. JFA)...")
-                                        for np_idx, np_item in enumerate(remaining_nps, 1):
-                                            raw_np_data = await _fetch_ruta_reportes(n_cat, n_categ, c_desc=np_item, timeout_ms=20000)
-                                            if raw_np_data:
-                                                it_np = parse_tabla_reportes(raw_np_data)
-                                                if it_np:
-                                                    items.extend(it_np)
-                                                    add_status_log(f"      ✓ [{np_idx}/{len(remaining_nps)}] Ficha extraída para '{np_item}'.")
-                                            await asyncio.sleep(0.15)
-                                except Exception as miss_err:
-                                    logger.warning(f"Error verificando números de parte faltantes en {categ_nom}: {miss_err}")
 
                     # Deduplicar por id_producto_ofertado o nro_parte
                     unique_dict = {}
