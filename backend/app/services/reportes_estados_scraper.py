@@ -158,31 +158,50 @@ def parse_tabla_reportes(html_content: str) -> List[Dict[str, Any]]:
 
 async def async_sync_estados_fichas(
     provider_key: str = "thekingcomputer",
-    db: Optional[Session] = None
+    db: Optional[Session] = None,
+    is_batch: bool = False
 ) -> Dict[str, Any]:
     """
     Ejecuta el proceso completo de sincronización de estados y PDFs:
-    1. Abre sesión en Perú Compras con las credenciales del proveedor.
+    1. Abre sesión en Perú Compras con las credenciales del proveedor específico.
     2. Navega a Reportes/ProductoOfertadoIndex y fija Acuerdo 2022-5 (249).
     3. Itera las categorías oficiales obteniendo `_detProductoOfertadoIndex`.
-    4. Cruza e inserta los estados y PDFs en `ofertas_proveedor_history`.
+    4. Cruza e inserta los estados y PDFs exclusivamente en las ofertas del proveedor actual.
     """
-    is_all_providers = provider_key in ("all", "todos", "ambos")
+    # Si se seleccionó "Todos los proveedores", ejecutar secuencialmente cada cuenta por separado
+    if provider_key in ("all", "todos", "ambos"):
+        EXTRACTION_STATUS["is_running"] = True
+        EXTRACTION_STATUS["status"] = "running"
+        EXTRACTION_STATUS["provider"] = "all"
+        EXTRACTION_STATUS["provider_name"] = "Ambos Proveedores (Secuencial)"
+        EXTRACTION_STATUS["logs"] = []
+        EXTRACTION_STATUS["items_inserted"] = 0
+        add_status_log("⚡ Iniciando sincronización de estados y PDFs por proveedor de forma secuencial...")
+
+        add_status_log("=================================================================")
+        add_status_log("👉 [1/2] Iniciando sesión y proceso para: THE KING COMPUTER E.I.R.L...")
+        add_status_log("=================================================================")
+        res_king = await async_sync_estados_fichas(provider_key="thekingcomputer", db=db, is_batch=True)
+
+        add_status_log("=================================================================")
+        add_status_log("👉 [2/2] Iniciando sesión y proceso para: ROJAS VILLANUEVA JORGE LUIS...")
+        add_status_log("=================================================================")
+        res_rojas = await async_sync_estados_fichas(provider_key="jorge_rojas", db=db, is_batch=False)
+
+        total_up = res_king.get("items_updated", 0) + res_rojas.get("items_updated", 0)
+        EXTRACTION_STATUS["is_running"] = False
+        EXTRACTION_STATUS["status"] = "completed"
+        EXTRACTION_STATUS["progress_message"] = f"Estados y PDFs sincronizados para ambos proveedores ({total_up} ofertas)."
+        add_status_log(f"🎉 Sincronización completada con éxito para ambos proveedores! Total ofertas actualizadas: {total_up}")
+        return {"success": True, "items_updated": total_up}
+
     prov_cfg = PROVEEDORES_CONFIG.get(provider_key, PROVEEDORES_CONFIG["thekingcomputer"])
     user = prov_cfg["user"]
     password = prov_cfg["pass"]
-    prov_nombre = "TODOS LOS PROVEEDORES" if is_all_providers else prov_cfg["nombre"]
+    prov_nombre = prov_cfg["nombre"]
     nombre_proveedor = prov_nombre
     ruc_proveedor = prov_cfg.get("ruc", "")
-
-    if is_all_providers:
-        prov_pattern = "%"
-    elif "rojas" in provider_key.lower():
-        prov_pattern = "%ROJAS%"
-    elif "king" in provider_key.lower():
-        prov_pattern = "%KING%"
-    else:
-        prov_pattern = f"%{prov_nombre.upper()}%"
+    prov_pattern = "%ROJAS%" if "rojas" in provider_key.lower() else "%KING%"
 
     EXTRACTION_STATUS["is_running"] = True
     EXTRACTION_STATUS["status"] = "running"
@@ -191,31 +210,23 @@ async def async_sync_estados_fichas(
     EXTRACTION_STATUS["last_error"] = None
     EXTRACTION_STATUS["combos_total"] = len(CATEGORIAS_OFICIALES_ESTADOS)
     EXTRACTION_STATUS["combos_completed"] = 0
-    EXTRACTION_STATUS["items_inserted"] = 0
-    EXTRACTION_STATUS["logs"] = []
+    if not is_batch:
+        EXTRACTION_STATUS["items_inserted"] = 0
+        EXTRACTION_STATUS["logs"] = []
 
-    # 0. Obtener dinámicamente de la BD todas las marcas y categorías registradas
+    # 0. Obtener dinámicamente de la BD todas las marcas y categorías registradas para ESTE proveedor
     marcas_por_cat = {}
     marcas_totales_prov = []
     if db is not None:
         try:
-            if is_all_providers:
-                sql_marcas = text("""
-                    SELECT DISTINCT UPPER(TRIM(categoria)), UPPER(TRIM(marca))
-                    FROM ofertas_proveedor_history
-                    WHERE marca IS NOT NULL
-                      AND TRIM(marca) NOT IN ('', 'VARIOS', 'S/N', 'SN', '-')
-                """)
-                res_m = db.execute(sql_marcas).fetchall()
-            else:
-                sql_marcas = text("""
-                    SELECT DISTINCT UPPER(TRIM(categoria)), UPPER(TRIM(marca))
-                    FROM ofertas_proveedor_history
-                    WHERE UPPER(nombre_proveedor) LIKE :p
-                      AND marca IS NOT NULL
-                      AND TRIM(marca) NOT IN ('', 'VARIOS', 'S/N', 'SN', '-')
-                """)
-                res_m = db.execute(sql_marcas, {"p": prov_pattern}).fetchall()
+            sql_marcas = text("""
+                SELECT DISTINCT UPPER(TRIM(categoria)), UPPER(TRIM(marca))
+                FROM ofertas_proveedor_history
+                WHERE (UPPER(nombre_proveedor) LIKE :p OR ruc_proveedor = :ruc)
+                  AND marca IS NOT NULL
+                  AND TRIM(marca) NOT IN ('', 'VARIOS', 'S/N', 'SN', '-')
+            """)
+            res_m = db.execute(sql_marcas, {"p": prov_pattern, "ruc": ruc_proveedor}).fetchall()
 
             for r_cat, r_marca in res_m:
                 if r_cat:
@@ -223,15 +234,16 @@ async def async_sync_estados_fichas(
                 if r_marca and r_marca not in marcas_totales_prov:
                     marcas_totales_prov.append(r_marca)
 
-            # Descubrir marcas adicionales a partir de la descripción (por si se guardó como 'VARIOS', ej. JFA)
+            # Descubrir marcas adicionales a partir de la descripción (ej. JFA)
             try:
                 sql_desc_marcas = text("""
                     SELECT DISTINCT UPPER(TRIM(categoria)), descripcion_producto
                     FROM ofertas_proveedor_history
                     WHERE (marca IS NULL OR UPPER(TRIM(marca)) IN ('VARIOS', 'S/N', 'SN', '', '-'))
+                      AND (UPPER(nombre_proveedor) LIKE :p OR ruc_proveedor = :ruc)
                       AND descripcion_producto ILIKE '%UNIDAD%'
-                """ + ("" if is_all_providers else " AND UPPER(nombre_proveedor) LIKE :p"))
-                res_desc = db.execute(sql_desc_marcas, {} if is_all_providers else {"p": prov_pattern}).fetchall()
+                """)
+                res_desc = db.execute(sql_desc_marcas, {"p": prov_pattern, "ruc": ruc_proveedor}).fetchall()
                 for d_cat, d_desc in res_desc:
                     m_u = re.search(r'UNIDAD\s+([A-Z0-9_-]+)', d_desc or '', re.I)
                     if m_u:
@@ -422,27 +434,16 @@ async def async_sync_estados_fichas(
                             # Si quedaron productos de esta categoría en la BD sin cubrir (ej. marcas raras o sin clasificar como JFA):
                             if db is not None:
                                 try:
-                                    if is_all_providers:
-                                        sql_miss = text("""
-                                            SELECT DISTINCT UPPER(TRIM(nro_parte))
-                                            FROM ofertas_proveedor_history
-                                            WHERE (categoria ILIKE :cat_like OR :cat_clean ILIKE '%' || categoria || '%')
-                                              AND (pdf_url IS NULL OR estado_ficha_producto IS NULL)
-                                              AND nro_parte IS NOT NULL
-                                              AND TRIM(nro_parte) NOT IN ('', 'S/N', 'SN', '-')
-                                        """)
-                                        missing_nps = [r[0] for r in db.execute(sql_miss, {"cat_like": f"%{categ_nom}%", "cat_clean": categ_nom}).fetchall()]
-                                    else:
-                                        sql_miss = text("""
-                                            SELECT DISTINCT UPPER(TRIM(nro_parte))
-                                            FROM ofertas_proveedor_history
-                                            WHERE UPPER(nombre_proveedor) LIKE :p
-                                              AND (categoria ILIKE :cat_like OR :cat_clean ILIKE '%' || categoria || '%')
-                                              AND (pdf_url IS NULL OR estado_ficha_producto IS NULL)
-                                              AND nro_parte IS NOT NULL
-                                              AND TRIM(nro_parte) NOT IN ('', 'S/N', 'SN', '-')
-                                        """)
-                                        missing_nps = [r[0] for r in db.execute(sql_miss, {"p": prov_pattern, "cat_like": f"%{categ_nom}%", "cat_clean": categ_nom}).fetchall()]
+                                    sql_miss = text("""
+                                        SELECT DISTINCT UPPER(TRIM(nro_parte))
+                                        FROM ofertas_proveedor_history
+                                        WHERE (UPPER(nombre_proveedor) LIKE :p OR ruc_proveedor = :ruc)
+                                          AND (categoria ILIKE :cat_like OR :cat_clean ILIKE '%' || categoria || '%')
+                                          AND (pdf_url IS NULL OR estado_ficha_producto IS NULL)
+                                          AND nro_parte IS NOT NULL
+                                          AND TRIM(nro_parte) NOT IN ('', 'S/N', 'SN', '-')
+                                    """)
+                                    missing_nps = [r[0] for r in db.execute(sql_miss, {"p": prov_pattern, "ruc": ruc_proveedor, "cat_like": f"%{categ_nom}%", "cat_clean": categ_nom}).fetchall()]
 
                                     extracted_nps = {it.get("nro_parte") for it in items if it.get("nro_parte")}
                                     remaining_nps = [np for np in missing_nps if np not in extracted_nps]
@@ -473,24 +474,15 @@ async def async_sync_estados_fichas(
                     # PASO B: Actualizar en base de datos ultrarrápido (matching instantáneo O(1) y update por Primary Key)
                     if items and db is not None:
                         cat_actualizados = 0
-                        # 1. Cargar las ofertas registradas en memoria (de todos o del proveedor específico)
-                        if is_all_providers:
-                            sql_targets = text("""
-                                SELECT id, UPPER(TRIM(nro_parte)) AS np
-                                FROM ofertas_proveedor_history
-                                WHERE nro_parte IS NOT NULL
-                                  AND TRIM(nro_parte) NOT IN ('', 'S/N', 'SN', '-')
-                            """)
-                            db_targets = db.execute(sql_targets).fetchall()
-                        else:
-                            sql_targets = text("""
-                                SELECT id, UPPER(TRIM(nro_parte)) AS np
-                                FROM ofertas_proveedor_history
-                                WHERE UPPER(nombre_proveedor) LIKE :p
-                                  AND nro_parte IS NOT NULL
-                                  AND TRIM(nro_parte) NOT IN ('', 'S/N', 'SN', '-')
-                            """)
-                            db_targets = db.execute(sql_targets, {"p": prov_pattern}).fetchall()
+                        # 1. Cargar las ofertas registradas en memoria exclusivamente para el proveedor actual
+                        sql_targets = text("""
+                            SELECT id, UPPER(TRIM(nro_parte)) AS np
+                            FROM ofertas_proveedor_history
+                            WHERE (UPPER(nombre_proveedor) LIKE :p OR ruc_proveedor = :ruc)
+                              AND nro_parte IS NOT NULL
+                              AND TRIM(nro_parte) NOT IN ('', 'S/N', 'SN', '-')
+                        """)
+                        db_targets = db.execute(sql_targets, {"p": prov_pattern, "ruc": ruc_proveedor}).fetchall()
 
                         # Índice rápido en memoria nro_parte -> lista de IDs en la BD (incluyendo versión alfanumérica limpia)
                         np_map = {}
@@ -562,10 +554,13 @@ async def async_sync_estados_fichas(
                 # Pausa mínima de cortesía entre categorías
                 await asyncio.sleep(1.0)
 
-            add_status_log(f"🎉 Sincronización completada con éxito. Total ofertas actualizadas: {total_actualizados}")
-            EXTRACTION_STATUS["status"] = "completed"
-            EXTRACTION_STATUS["is_running"] = False
-            EXTRACTION_STATUS["progress_message"] = f"Estados y PDFs incluidos exitosamente ({total_actualizados} ofertas)."
+            if not is_batch:
+                add_status_log(f"🎉 Sincronización completada con éxito para '{prov_nombre}'. Total ofertas actualizadas: {total_actualizados}")
+                EXTRACTION_STATUS["status"] = "completed"
+                EXTRACTION_STATUS["is_running"] = False
+                EXTRACTION_STATUS["progress_message"] = f"Estados y PDFs incluidos exitosamente para '{prov_nombre}' ({total_actualizados} ofertas)."
+            else:
+                add_status_log(f"✅ Sincronización finalizada para '{prov_nombre}'. Total ofertas actualizadas: {total_actualizados}")
             await _capture_live_preview(page, update_live_screenshot)
             await browser.close()
 
