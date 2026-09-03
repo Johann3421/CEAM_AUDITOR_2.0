@@ -626,13 +626,18 @@ def _parse_html_products_partial(html_text: str) -> List[Dict[str, Any]]:
                 except ValueError:
                     stock = 0
 
-                # Extraer marca y nro_parte del bloque UNIDAD ... SIST. MANEJO
+                # Extraer marca y nro_parte del bloque UNIDAD
                 marca = "VARIOS"
                 nro_parte = "S/N"
-                unidad_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)(?:\s+(.*?))?(?:\s+([A-Z0-9_*#/-]+))?\s+SIST\.\s+MANEJO', desc, re.IGNORECASE)
+                unidad_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)(?:\s+(.*?))?\s+([A-Z0-9_*#/-]+)(?:\s+SIST\.\s+MANEJO.*|\s*$)', desc, re.IGNORECASE)
                 if unidad_match:
-                    marca = unidad_match.group(1).upper()
-                    nro_parte = unidad_match.group(3) or unidad_match.group(2) or "S/N"
+                    g1 = unidad_match.group(1).upper()
+                    g2 = (unidad_match.group(2) or "").upper()
+                    g3 = unidad_match.group(3).upper()
+                    marca = g1
+                    if g2 and g2.startswith("TECHNOLOGY"):
+                        marca = f"{g1} TECHNOLOGY"
+                    nro_parte = g3
                 else:
                     words = desc.split()
                     nro_parte = words[-1] if words else "S/N"
