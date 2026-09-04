@@ -1,0 +1,315 @@
+{
+  "name": "Alertas Deudas y Órdenes — Control Deudas v3 (Evolution API)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-6"
+            }
+          ]
+        }
+      },
+      "id": "4f36bd7d-cb0d-4623-994b-430f8ccd02dd",
+      "name": "⏰ Lun-Sáb 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        48,
+        3904
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// CONSULTAR API ALERTAS v2.0\n// Credenciales hardcodeadas — compatible con n8n free plan.\nconst ALERTAS_TOKEN = 'Rd2GcVzGM3Bh8j0V+2XCriMqsdWqSSWv8mmdPyL8eMY=';\nconst API_URL       = 'https://deudas.sekaitech.com.pe';\n\nlet result;\ntry {\n  result = await this.helpers.httpRequest({\n    method: 'GET',\n    url: API_URL + '/api/alertas/vencimientos?dias=7',\n    headers: {\n      'X-Alertas-Token': ALERTAS_TOKEN,\n      'Accept': 'application/json'\n    },\n    timeout: 20000,\n    json: true\n  });\n  // Por si el content-type no lo parsea\n  if (typeof result === 'string') result = JSON.parse(result);\n} catch(e) {\n  return [{ json: { error: true, message: e.message } }];\n}\n\nreturn [{ json: result }];\n"
+      },
+      "id": "4e19d18f-b547-425b-9a51-3f2b215e69c2",
+      "name": "🌐 Consultar API Alertas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        3904
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "cond-api-ok",
+              "leftValue": "={{ $json.error !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bf525be5-e280-4664-9a75-4618f772ea06",
+      "name": "🔍 ¿Error de API?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        512,
+        3904
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// NOTIFICAR ERROR VIA EVOLUTION API\nconst EVOLUTION_URL      = 'https://evolution.sekaitech.com.pe';\nconst EVOLUTION_API_KEY  = '6mF28RqtJdPIZorVIbAaRBiKZoZr3a5t4d9jikNna7c=';\nconst EVOLUTION_INSTANCE = 'sekaitech';\nconst GROUP_JID          = '120363425809386009@g.us';\n\nconst inp  = $input.item.json;\nconst errorMsg = inp.message || inp.error || 'Error desconocido';\nconst ahora = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });\n\nconst texto = `⚠️ *ERROR — API Alertas Control Deudas*\\n🗓️ ${ahora}\\n────────────────────────────────────\\nNo se pudo consultar la API de vencimientos.\\n\\nError: ${errorMsg}\\n\\nRevisa los logs en Dokploy.`;\n\ntry {\n  await this.helpers.httpRequest({\n    method: 'POST',\n    url: EVOLUTION_URL + '/message/sendText/' + EVOLUTION_INSTANCE,\n    headers: {\n      'apikey': EVOLUTION_API_KEY,\n      'Content-Type': 'application/json'\n    },\n    body: { number: GROUP_JID, text: texto },\n    json: true,\n    timeout: 10000\n  });\n} catch(e) {\n  // silenciar error secundario\n}\n\nreturn [{ json: { notified: true, error: errorMsg } }];\n"
+      },
+      "id": "02fca78e-f6e8-4c8a-a3b8-fabb75bdb7c4",
+      "name": "🆘 Notificar Error API",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        3760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// =================================================================\n//  PROCESAR DATOS Y PREPARAR MENSAJES (AGRUPADOS POR URGENCIA)\n// =================================================================\nlet data = $input.first().json;\n\n// n8n a veces anida la respuesta en .body o en .data\nif (data.body && data.body.deudas !== undefined) data = data.body;\nif (data.data && data.data.deudas !== undefined) data = data.data;\n\nconst deudas  = Array.isArray(data.deudas)  ? data.deudas.map(d => ({...d, _tipo: 'deuda'}))  : [];\nconst ordenes = Array.isArray(data.ordenes) ? data.ordenes.map(o => ({...o, _tipo: 'orden'})) : [];\nconst todos = [...deudas, ...ordenes];\n\nif (todos.length === 0) {\n  return [{ json: { debug_input: data, hayAlertas: \"false\", mensajes: [], total: 0 } }];\n}\n\nconst sep = '─'.repeat(30);\nconst mensajes = [];\n\nconst vencHoy = todos.filter(x => x.dias_restantes <= 0);\nconst criticas = todos.filter(x => x.dias_restantes > 0 && x.dias_restantes <= 3);\nconst aviso = todos.filter(x => x.dias_restantes > 3);\n\nlet header = [\n  '📋 *ALERTAS DE VENCIMIENTO*',\n  '🗓️ ' + (data.generado || new Date().toLocaleString('es-PE')) + '  |  deudas.sekaitech.com.pe',\n  sep,\n  '📊 *Resumen de Alertas:*',\n  '   • Total activas: *' + todos.length + '*'\n];\nif (vencHoy.length) header.push('   • 🔴 Vencidas/Hoy: *' + vencHoy.length + '*');\nif (criticas.length) header.push('   • 🟠 Críticas (≤3d): *' + criticas.length + '*');\nif (aviso.length) header.push('   • 🟡 Próximas (>3d): *' + aviso.length + '*');\nmensajes.push(header.join('\\n'));\n\nconst buildItem = (item, i) => {\n  let res = [];\n  res.push('');\n  if (item._tipo === 'deuda') {\n    res.push(` *${i + 1}. [DEUDA] ${item.cliente}*`);\n    res.push(`   📋 Concepto: ${item.descripcion}`);\n    res.push(`   💰 Pendiente: *${item.monto}*`);\n    res.push(`   👤 Resp: ${item.responsable || 'No asignado'}`);\n    let diasStr = item.dias_restantes < 0 ? `Hace ${Math.abs(item.dias_restantes)} día(s)` : \n                  item.dias_restantes === 0 ? `¡HOY!` : \n                  `Faltan ${item.dias_restantes} días`;\n    res.push(`   📅 Vence: *${item.fecha_vencimiento}* (${diasStr})`);\n  } else {\n    res.push(` *${i + 1}. [ORDEN] OC #${item.orden_compra}*`);\n    res.push(`   🏢 Entidad: ${item.entidad}`);\n    res.push(`   🔧 Item: ${item.producto_servicio}`);\n    res.push(`   💰 Monto: *${item.monto}*`);\n    res.push(`   📊 Estado: ${item.estado_seguimiento}`);\n    res.push(`   👤 Resp: ${item.responsable || 'No asignado'}`);\n    let diasStr = item.dias_restantes < 0 ? `Hace ${Math.abs(item.dias_restantes)} día(s)` : \n                  item.dias_restantes === 0 ? `¡HOY!` : \n                  `Faltan ${item.dias_restantes} días`;\n    res.push(`   📅 Límite: *${item.fecha_limite_pago}* (${diasStr})`);\n  }\n  return res.join('\\n');\n};\n\nif (vencHoy.length > 0) {\n  let bloque = ['🔴 *VENCIDAS O VENCEN HOY (Acción Inmediata)*', sep];\n  vencHoy.forEach((x, i) => bloque.push(buildItem(x, i)));\n  mensajes.push(bloque.join('\\n'));\n}\n\nif (criticas.length > 0) {\n  let bloque = ['🟠 *CRÍTICAS (Próximas a vencer 1-3 días)*', sep];\n  criticas.forEach((x, i) => bloque.push(buildItem(x, i)));\n  mensajes.push(bloque.join('\\n'));\n}\n\nif (aviso.length > 0) {\n  let bloque = ['🟡 *AVISO DE VENCIMIENTO (> 3 días)*', sep];\n  aviso.forEach((x, i) => bloque.push(buildItem(x, i)));\n  mensajes.push(bloque.join('\\n'));\n}\n\nreturn [{ json: { hayAlertas: \"true\", mensajes, total: todos.length } }];\n"
+      },
+      "id": "73d822a2-fb70-4a73-b536-987fb1d15663",
+      "name": "📝 Procesar y Construir Mensajes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        3984
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "id": "cond-hay-alertas",
+              "leftValue": "={{ $json.hayAlertas }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dd1b5736-812f-47b4-a632-f1c27425f4c0",
+      "name": "❓ ¿Hay Alertas?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        992,
+        3984
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "mensajes",
+        "options": {
+          "destinationFieldName": "mensaje"
+        }
+      },
+      "id": "7a250f58-2760-478d-be80-0af1b73384a1",
+      "name": "✂️ Dividir Mensajes",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1216,
+        3888
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 1.5
+      },
+      "id": "1cee556c-8fd3-4d23-bf03-f7f7ae6dd864",
+      "name": "⏳ Esperar 1.5s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1440,
+        3888
+      ],
+      "webhookId": "wait-between-messages"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ENVIAR VIA EVOLUTION API → GRUPO WHATSAPP\nconst EVOLUTION_URL      = 'https://evolution.sekaitech.com.pe';\nconst EVOLUTION_API_KEY  = '6mF28RqtJdPIZorVIbAaRBiKZoZr3a5t4d9jikNna7c=';\nconst EVOLUTION_INSTANCE = 'sekaitech';\nconst GROUP_JID          = '120363425809386009@g.us';\n\nlet results = [];\n\n// Iteramos sobre TODOS los mensajes generados para asegurar que ninguno se pierda\nfor (const item of $input.all()) {\n  const mensaje = item.json.mensaje || '';\n  if (!mensaje) continue;\n\n  try {\n    const r = await this.helpers.httpRequest({\n      method: 'POST',\n      url: EVOLUTION_URL + '/message/sendText/' + EVOLUTION_INSTANCE,\n      headers: {\n        'apikey': EVOLUTION_API_KEY,\n        'Content-Type': 'application/json'\n      },\n      body: {\n        number: GROUP_JID,\n        text: mensaje\n      },\n      json: true,\n      timeout: 15000\n    });\n    results.push({ json: { success: true, key: r.key } });\n    \n    // Retraso de seguridad interno para no saturar WhatsApp\n    await new Promise(resolve => setTimeout(resolve, 1500));\n  } catch(e) {\n    results.push({ json: { success: false, error: e.message } });\n  }\n}\n\nreturn results;\n"
+      },
+      "id": "e722ac29-603f-4358-a94a-7e6f1d15a590",
+      "name": "📲 Enviar a WhatsApp (Evolution)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1648,
+        3888
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "f723ff55-e496-4a7e-b7c5-72d8e3026a1e",
+      "name": "🔕 Sin Alertas — OK",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1216,
+        4080
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "⏰ Lun-Sáb 08:00": {
+      "main": [
+        [
+          {
+            "node": "🌐 Consultar API Alertas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🌐 Consultar API Alertas": {
+      "main": [
+        [
+          {
+            "node": "🔍 ¿Error de API?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 ¿Error de API?": {
+      "main": [
+        [
+          {
+            "node": "🆘 Notificar Error API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📝 Procesar y Construir Mensajes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Procesar y Construir Mensajes": {
+      "main": [
+        [
+          {
+            "node": "❓ ¿Hay Alertas?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ ¿Hay Alertas?": {
+      "main": [
+        [
+          {
+            "node": "✂️ Dividir Mensajes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "🔕 Sin Alertas — OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✂️ Dividir Mensajes": {
+      "main": [
+        [
+          {
+            "node": "⏳ Esperar 1.5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⏳ Esperar 1.5s": {
+      "main": [
+        [
+          {
+            "node": "📲 Enviar a WhatsApp (Evolution)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "8fc5efb0-bf42-49c2-997c-035683060988",
+  "meta": {
+    "instanceId": "82826da98ab0f0cd5b82b97b2705d997b42d5f740d56c2d5ecbd63478384fc7c"
+  },
+  "id": "cTv6whSkvfS8tXKa",
+  "tags": [
+    {
+      "updatedAt": "2026-03-31T21:39:57.034Z",
+      "createdAt": "2026-03-31T21:39:57.034Z",
+      "id": "KjgBm7TpkooFqVgL",
+      "name": "alertas"
+    },
+    {
+      "updatedAt": "2026-03-31T21:39:57.039Z",
+      "createdAt": "2026-03-31T21:39:57.039Z",
+      "id": "920L7jfh3ypyiIn8",
+      "name": "chatwoot"
+    },
+    {
+      "updatedAt": "2026-03-31T21:39:57.041Z",
+      "createdAt": "2026-03-31T21:39:57.041Z",
+      "id": "ULkWsyo5YKo6QPvN",
+      "name": "deudas"
+    },
+    {
+      "updatedAt": "2026-03-31T22:16:24.899Z",
+      "createdAt": "2026-03-31T22:16:24.899Z",
+      "id": "iuuGse4v5WSUdLwX",
+      "name": "produccion"
+    },
+    {
+      "updatedAt": "2026-04-01T00:57:24.947Z",
+      "createdAt": "2026-04-01T00:57:24.947Z",
+      "id": "DZmxORTwPoKoU4lg",
+      "name": "evolution-api"
+    }
+  ]
+}

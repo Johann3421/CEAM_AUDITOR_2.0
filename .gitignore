@@ -63,6 +63,10 @@ captcha_*.png
 debug_shot.png
 backend/*.png
 
-# Ignore custom user file
-Alertas Deudas y Órdenes — Control Deudas v3 (Evolution API).json
-Flujo Alertas Fichas Suspendidas (CEAM).json
+# Scripts temporales y volcados locales
+scripts/
+
+# --- Integraciones ---
+!integrations/
+!integrations/n8n/
+!integrations/n8n/*.json

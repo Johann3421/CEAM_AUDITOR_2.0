@@ -14,8 +14,13 @@ router = APIRouter(prefix="/fichas", tags=["Fichas Producto"])
 _TABLE = "fichas_producto"
 
 
+_SAFE_COL_CACHE: Optional[list[str]] = None
+
 def _safe_col(db: Session) -> list[str]:
-    """Return actual column names from the DB table (may not exist yet)."""
+    """Return actual column names from the DB table (cached in memory)."""
+    global _SAFE_COL_CACHE
+    if _SAFE_COL_CACHE is not None:
+        return _SAFE_COL_CACHE
     try:
         rows = db.execute(
             text(
@@ -24,7 +29,8 @@ def _safe_col(db: Session) -> list[str]:
             ),
             {"t": _TABLE},
         ).fetchall()
-        return [r[0] for r in rows]
+        _SAFE_COL_CACHE = [r[0] for r in rows]
+        return _SAFE_COL_CACHE
     except Exception:
         return []
 
