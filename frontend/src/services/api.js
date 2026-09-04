@@ -60,7 +60,7 @@ export const preciosFichasApi = {
 };
 
 export const proveedoresApi = {
-  getFichas: (params) => api.get('/proveedores/fichas', { params }),
+  getFichas: (params, config = {}) => api.get('/proveedores/fichas', { params, ...config }),
   getKpis: (params) => api.get('/proveedores/kpis', { params }),
   getAccounts: () => api.get('/proveedores/accounts'),
   getCategoriesCount: (params) => api.get('/proveedores/categories-count', { params }),

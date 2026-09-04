@@ -10,23 +10,26 @@ from app.services.proveedores_scraper import run_worker_pool_extraction, fetch_s
 
 router = APIRouter(prefix="/proveedores", tags=["proveedores"])
 
-def _get_fichas_pdf_join(db: Session):
+_FICHAS_METADATA_CACHE = None
+
+def _get_fichas_columns_metadata(db: Session):
     """
-    Returns (join_sql, select_expr, ord_min_expr, fec_min_expr, pref_expr, pmin_expr, momin_expr) 
-    to link PDF and historical order/price data from fichas_producto by nro_parte.
+    Detecta y almacena en caché los nombres de columnas de fichas_producto 
+    para evitar consultas repetidas a information_schema en cada petición.
     """
-    fallback = ("", "f.pdf_url", "NULL::text", "NULL::text", "NULL::numeric", "NULL::numeric", "NULL::numeric")
+    global _FICHAS_METADATA_CACHE
+    if _FICHAS_METADATA_CACHE is not None:
+        return _FICHAS_METADATA_CACHE
     try:
         rows = db.execute(text(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'fichas_producto'"
         )).fetchall()
         cols = [r[0] for r in rows]
         if not cols:
-            return fallback
+            _FICHAS_METADATA_CACHE = (None, None)
+            return _FICHAS_METADATA_CACHE
             
         col_set = set(cols)
-        
-        # 1. Detect nro_parte column
         nro_col = next((c for c in [
             "nro_parte_o_código_único_de_identificación",
             "nro_parte_o_cdigo_nico_de_identificacin",
@@ -35,56 +38,16 @@ def _get_fichas_pdf_join(db: Session):
         if not nro_col:
             nro_col = next((c for c in cols if 'parte' in c.lower() or 'codigo' in c.lower()), None)
             
-        # 2. Detect pdf column
         pdf_col = next((c for c in [
             "ficha_técnica", "ficha_tcnica", "ficha_tecnica", "url_pdf", "pdf_url"
         ] if c in col_set), None)
         if not pdf_col:
             pdf_col = next((c for c in cols if 'pdf' in c.lower() or 'ficha' in c.lower() or 'url' in c.lower()), None)
             
-        if nro_col:
-            pdf_select_field = f'fp."{pdf_col}" AS _linked_pdf,' if pdf_col else "NULL::text AS _linked_pdf,"
-            ord_min_field = 'fp.orden_min AS _linked_orden_min,' if 'orden_min' in col_set else "NULL::text AS _linked_orden_min,"
-            fec_min_field = 'fp.fecha_orden_min::text AS _linked_fecha_orden_min,' if 'fecha_orden_min' in col_set else "NULL::text AS _linked_fecha_orden_min,"
-            pref_field = 'fp.precio_referencia AS _linked_precio_ref,' if 'precio_referencia' in col_set else "NULL::numeric AS _linked_precio_ref,"
-            pmin_field = 'fp.precio_min AS _linked_precio_min,' if 'precio_min' in col_set else "NULL::numeric AS _linked_precio_min,"
-            momin_field = 'fp.monto_orden_min AS _linked_monto_orden_min' if 'monto_orden_min' in col_set else "NULL::numeric AS _linked_monto_orden_min"
-
-            order_by_extra = f', fp."{pdf_col}" DESC NULLS LAST' if pdf_col else ''
-            join_sql = f"""
-                LEFT JOIN (
-                    SELECT DISTINCT ON (UPPER(TRIM(fp."{nro_col}")))
-                        UPPER(TRIM(fp."{nro_col}")) AS _match_nro,
-                        {pdf_select_field}
-                        {ord_min_field}
-                        {fec_min_field}
-                        {pref_field}
-                        {pmin_field}
-                        {momin_field}
-                    FROM fichas_producto fp
-                    WHERE fp."{nro_col}" IS NOT NULL AND fp."{nro_col}" != ''
-                    ORDER BY 
-                        UPPER(TRIM(fp."{nro_col}")),
-                        (fp.orden_min IS NOT NULL AND fp.orden_min != '') DESC,
-                        (fp.precio_min IS NOT NULL) DESC,
-                        fp.precio_min ASC NULLS LAST
-                        {order_by_extra}
-                ) fp_pdf ON UPPER(TRIM(f.nro_parte)) = fp_pdf._match_nro
-            """
-            select_expr = "COALESCE(NULLIF(NULLIF(f.pdf_url, ''), '#'), fp_pdf._linked_pdf)" if pdf_col else "f.pdf_url"
-            return (
-                join_sql,
-                select_expr,
-                "fp_pdf._linked_orden_min",
-                "fp_pdf._linked_fecha_orden_min",
-                "fp_pdf._linked_precio_ref",
-                "fp_pdf._linked_precio_min",
-                "fp_pdf._linked_monto_orden_min"
-            )
+        _FICHAS_METADATA_CACHE = (nro_col, pdf_col)
+        return _FICHAS_METADATA_CACHE
     except Exception:
-        pass
-        
-    return fallback
+        return (None, None)
 
 
 @router.get("/fichas")
@@ -133,7 +96,7 @@ def get_proveedor_fichas(
     params = {}
     where_clauses = ["1=1"]
 
-    pdf_join, pdf_select, ord_min_expr, fec_min_expr, pref_expr, pmin_expr, momin_expr = _get_fichas_pdf_join(db)
+    nro_col, pdf_col = _get_fichas_columns_metadata(db)
 
     if proveedor and proveedor.lower() != "all":
         prov_l = proveedor.lower()
@@ -239,12 +202,16 @@ def get_proveedor_fichas(
     if pdf_filter:
         pdf_l = pdf_filter.lower().strip()
         if pdf_l in ("with_pdf", "con_pdf", "pdf", "1", "true"):
-            where_clauses.append(f"({pdf_select} IS NOT NULL AND {pdf_select} != '' AND {pdf_select} != '#')")
+            where_clauses.append("(f.pdf_url IS NOT NULL AND f.pdf_url != '' AND f.pdf_url != '#')")
         elif pdf_l in ("no_pdf", "sin_pdf", "0", "false"):
-            where_clauses.append(f"({pdf_select} IS NULL OR {pdf_select} = '' OR {pdf_select} = '#')")
+            where_clauses.append("(f.pdf_url IS NULL OR f.pdf_url = '' OR f.pdf_url = '#')")
 
-    if con_orden:
-        where_clauses.append(f"({ord_min_expr} IS NOT NULL AND {ord_min_expr} != '')")
+    if con_orden and nro_col:
+        where_clauses.append(f"""EXISTS (
+            SELECT 1 FROM fichas_producto fp_chk
+            WHERE UPPER(TRIM(fp_chk."{nro_col}")) = UPPER(TRIM(f.nro_parte))
+              AND fp_chk.orden_min IS NOT NULL AND fp_chk.orden_min != ''
+        )""")
 
     # ── Filtros de Características Técnicas por Componente ───────────────
     if cpu and cpu != 'Todos':
@@ -533,25 +500,24 @@ def get_proveedor_fichas(
                     COALESCE(f.raw_json->'plazos_por_region', '{{}}'::json) AS plazos_por_region,
                     f.region,
                     f.provincia,
-                    {pdf_select} AS pdf_url,
+                    f.pdf_url AS pdf_url,
                     f.estado_ficha_producto,
                     f.estado_oferta,
                     f.motivo_estado,
                     f.justificacion_estado,
                     f.id_producto_ofertado,
                     f.fecha_extraccion,
-                    {ord_min_expr} AS orden_min,
-                    {fec_min_expr} AS fecha_orden_min,
-                    {pref_expr} AS precio_referencia,
-                    {pmin_expr} AS precio_historico_min,
-                    {momin_expr} AS monto_orden_min,
+                    NULL::text AS orden_min,
+                    NULL::text AS fecha_orden_min,
+                    NULL::numeric AS precio_referencia,
+                    NULL::numeric AS precio_historico_min,
+                    NULL::numeric AS monto_orden_min,
                     CASE 
                         WHEN UPPER(TRIM(COALESCE(f.nro_parte, ''))) IN ('', '-', 'S/N', 'SN', 'COLECTIVO', 'VARIOS', '0', 'NO TIENE', 'SIN NUMERO', 'SIN NUMERO DE PARTE', 'NO APLICA') 
                         THEN CONCAT(COALESCE(NULLIF(TRIM(f.nro_parte), ''), 'S/N'), '::', MD5(COALESCE(f.descripcion_producto, f.id::text)))
                         ELSE UPPER(TRIM(f.nro_parte))
                     END AS group_key
                 FROM ofertas_proveedor_history f
-                {pdf_join}
                 WHERE {where_sql}
             ),
             dedup_provider_offers AS (
@@ -713,17 +679,17 @@ def get_proveedor_fichas(
                 COALESCE(f.raw_json->'plazos_por_region', '{{}}'::json) AS plazos_por_region,
                 f.region,
                 f.provincia,
-                {pdf_select} AS pdf_url,
+                f.pdf_url AS pdf_url,
                 f.estado_ficha_producto,
                 f.estado_oferta,
                 f.motivo_estado,
                 f.justificacion_estado,
                 f.id_producto_ofertado,
-                {ord_min_expr} AS orden_min,
-                {fec_min_expr} AS fecha_orden_min,
-                {pref_expr} AS precio_referencia,
-                {pmin_expr} AS precio_historico_min,
-                {momin_expr} AS monto_orden_min,
+                NULL::text AS orden_min,
+                NULL::text AS fecha_orden_min,
+                NULL::numeric AS precio_referencia,
+                NULL::numeric AS precio_historico_min,
+                NULL::numeric AS monto_orden_min,
                 f.raw_json,
                 f.fecha_extraccion::text AS fecha_extraccion,
                 1 AS total_proveedores,
@@ -737,7 +703,7 @@ def get_proveedor_fichas(
                     'plazos_por_region', COALESCE(f.raw_json->'plazos_por_region', '{{}}'::json),
                     'region', f.region,
                     'provincia', f.provincia,
-                    'pdf_url', {pdf_select},
+                    'pdf_url', f.pdf_url,
                     'estado_ficha_producto', f.estado_ficha_producto,
                     'estado_oferta', f.estado_oferta,
                     'motivo_estado', f.motivo_estado,
@@ -750,7 +716,6 @@ def get_proveedor_fichas(
                 0::bigint AS total_competing_count,
                 SUM(COALESCE(f.existencia_stock, 0)) OVER() AS total_stock_global
             FROM ofertas_proveedor_history f
-            {pdf_join}
             WHERE {where_sql}
             ORDER BY {order_by_sql}
             LIMIT :limit OFFSET :offset
@@ -777,6 +742,47 @@ def get_proveedor_fichas(
                 item_dict.pop("total_competing_count", None)
                 item_dict.pop("total_stock_global", None)
                 items.append(item_dict)
+
+            # Enriquecimiento post-query ultra-rápido (O(1)) para los items de la página actual
+            nps = list({(it.get("nro_parte") or "").strip().upper() for it in items if (it.get("nro_parte") or "").strip()})
+            if nps and nro_col:
+                pdf_field_sql = f'fp."{pdf_col}" AS pdf' if pdf_col else "NULL::text AS pdf"
+                enrich_sql = f"""
+                    SELECT DISTINCT ON (UPPER(TRIM(fp."{nro_col}")))
+                        UPPER(TRIM(fp."{nro_col}")) AS nro,
+                        {pdf_field_sql},
+                        fp.orden_min,
+                        fp.fecha_orden_min::text AS fecha_orden_min,
+                        fp.precio_referencia,
+                        fp.precio_min,
+                        fp.monto_orden_min
+                    FROM fichas_producto fp
+                    WHERE UPPER(TRIM(fp."{nro_col}")) = ANY(:nps)
+                    ORDER BY UPPER(TRIM(fp."{nro_col}")),
+                             (fp.orden_min IS NOT NULL AND fp.orden_min != '') DESC,
+                             fp.precio_min ASC NULLS LAST
+                """
+                try:
+                    enrich_rows = db.execute(text(enrich_sql), {"nps": nps}).mappings().all()
+                    enrich_map = {er["nro"]: er for er in enrich_rows}
+                    for it in items:
+                        np_k = (it.get("nro_parte") or "").strip().upper()
+                        enrich = enrich_map.get(np_k)
+                        if enrich:
+                            if not it.get("pdf_url") or it.get("pdf_url") == "#":
+                                it["pdf_url"] = enrich.get("pdf")
+                            it["orden_min"] = enrich.get("orden_min")
+                            it["fecha_orden_min"] = enrich.get("fecha_orden_min")
+                            it["precio_referencia"] = enrich.get("precio_referencia")
+                            it["precio_historico_min"] = enrich.get("precio_min")
+                            it["monto_orden_min"] = enrich.get("monto_orden_min")
+                        if it.get("ofertas") and isinstance(it["ofertas"], list):
+                            for of in it["ofertas"]:
+                                if enrich and (not of.get("pdf_url") or of.get("pdf_url") == "#"):
+                                    of["pdf_url"] = enrich.get("pdf")
+                except Exception as e_enrich:
+                    import logging
+                    logging.getLogger("ceam.proveedores").warning("Error en enriquecimiento de fichas: %s", e_enrich)
 
             return {
                 "items": items,
@@ -1680,126 +1686,66 @@ def get_categories_count(
             params["prov"] = f"%{proveedor}%"
 
     try:
-        total = db.execute(text(f"SELECT COUNT(*) FROM ofertas_proveedor_history WHERE 1=1 {prov_where};"), params).scalar() or 0
-        
-        # 1. COMPUTADORAS DE ESCRITORIO (Catálogo 252 - 8 categorías)
-        escritorio = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where}
-              AND (
-                UPPER(categoria) = 'COMPUTADORA DE ESCRITORIO'
-                OR (
-                    (UPPER(categoria) LIKE '%ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%ESCRITORIO%')
-                    AND UPPER(categoria) NOT LIKE '%TODO EN UNO%'
-                    AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
-                    AND UPPER(descripcion_producto) NOT LIKE '%ALL IN ONE%'
-                    AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
-                    AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%'
-                )
-              );
-        """), params).scalar() or 0
-
-        aio = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where}
-              AND (
-                UPPER(categoria) LIKE '%TODO EN UNO%' 
-                OR UPPER(descripcion_producto) LIKE '%TODO EN UNO%' 
-                OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%'
-              );
-        """), params).scalar() or 0
-
-        workstation = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where}
-              AND UPPER(categoria) = 'ESTACION DE TRABAJO'
-              AND UPPER(categoria) NOT LIKE '%PORTATIL%';
-        """), params).scalar() or 0
-
-        monitor = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where}
-              AND (UPPER(categoria) = 'MONITOR' OR (UPPER(descripcion_producto) LIKE 'MONITOR%' AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'));
-        """), params).scalar() or 0
-
-        pantalla_pub = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where} AND UPPER(categoria) LIKE '%PANTALLA PUBLICITARIA%';
-        """), params).scalar() or 0
-
-        pantalla_int = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where} AND UPPER(categoria) LIKE '%PANTALLA INTERACTIVA%';
-        """), params).scalar() or 0
-
-        almacenamiento_int = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where} AND UPPER(categoria) LIKE '%ALMACENAMIENTO INTERNO%';
-        """), params).scalar() or 0
-
-        almacenamiento_ext = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where} AND UPPER(categoria) LIKE '%ALMACENAMIENTO EXTERNO%';
-        """), params).scalar() or 0
-
-        # 2. COMPUTADORAS PORTÁTILES (Catálogo 250 - 3 categorías)
-        portatil = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where}
-              AND (
-                UPPER(categoria) = 'COMPUTADORA PORTATIL'
-                OR (
-                    (UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%')
-                    AND UPPER(categoria) NOT LIKE '%ESTACION%'
-                    AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
-                )
-              );
-        """), params).scalar() or 0
-
-        workstation_portatil = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where}
-              AND (UPPER(categoria) LIKE '%ESTACION DE TRABAJO PORTATIL%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION PORTATIL%');
-        """), params).scalar() or 0
-
-        tableta = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where}
-              AND (UPPER(categoria) LIKE '%TABLET%' OR UPPER(descripcion_producto) LIKE '%TABLETA%');
-        """), params).scalar() or 0
-
-        # 3. ESCÁNERES (Catálogo 251 - 3 categorías)
-        escaner_planos = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where} AND UPPER(categoria) LIKE '%ESCANER DE PLANOS%';
-        """), params).scalar() or 0
-
-        escaner_docs = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where} AND (UPPER(categoria) LIKE '%ESCANER DE DOCUMENTOS%' OR (UPPER(catalogo) LIKE '%ESCANER%' AND UPPER(categoria) NOT LIKE '%PLANOS%' AND UPPER(categoria) NOT LIKE '%LIBROS%'));
-        """), params).scalar() or 0
-
-        escaner_libros = db.execute(text(f"""
-            SELECT COUNT(*) FROM ofertas_proveedor_history 
-            WHERE 1=1 {prov_where} AND UPPER(categoria) LIKE '%ESCANER DE LIBROS%';
-        """), params).scalar() or 0
-
-        return {
-            "total": total,
-            "escritorio": escritorio,
-            "aio": aio,
-            "workstation": workstation,
-            "monitor": monitor,
-            "pantalla_pub": pantalla_pub,
-            "pantalla_int": pantalla_int,
-            "almacenamiento_int": almacenamiento_int,
-            "almacenamiento_ext": almacenamiento_ext,
-            "portatil": portatil,
-            "workstation_portatil": workstation_portatil,
-            "tableta": tableta,
-            "escaner_planos": escaner_planos,
-            "escaner_docs": escaner_docs,
-            "escaner_libros": escaner_libros
+        sql = f"""
+            SELECT 
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE (
+                    UPPER(categoria) = 'COMPUTADORA DE ESCRITORIO'
+                    OR (
+                        (UPPER(categoria) LIKE '%ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%ESCRITORIO%')
+                        AND UPPER(categoria) NOT LIKE '%TODO EN UNO%'
+                        AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
+                        AND UPPER(descripcion_producto) NOT LIKE '%ALL IN ONE%'
+                        AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
+                        AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%'
+                    )
+                )) AS escritorio,
+                COUNT(*) FILTER (WHERE (
+                    UPPER(categoria) LIKE '%TODO EN UNO%' 
+                    OR UPPER(descripcion_producto) LIKE '%TODO EN UNO%' 
+                    OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%'
+                )) AS aio,
+                COUNT(*) FILTER (WHERE (
+                    UPPER(categoria) = 'ESTACION DE TRABAJO'
+                    AND UPPER(categoria) NOT LIKE '%PORTATIL%'
+                )) AS workstation,
+                COUNT(*) FILTER (WHERE (
+                    UPPER(categoria) = 'MONITOR' 
+                    OR (UPPER(descripcion_producto) LIKE 'MONITOR%' AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%')
+                )) AS monitor,
+                COUNT(*) FILTER (WHERE UPPER(categoria) LIKE '%PANTALLA PUBLICITARIA%') AS pantalla_pub,
+                COUNT(*) FILTER (WHERE UPPER(categoria) LIKE '%PANTALLA INTERACTIVA%') AS pantalla_int,
+                COUNT(*) FILTER (WHERE UPPER(categoria) LIKE '%ALMACENAMIENTO INTERNO%') AS almacenamiento_int,
+                COUNT(*) FILTER (WHERE UPPER(categoria) LIKE '%ALMACENAMIENTO EXTERNO%') AS almacenamiento_ext,
+                COUNT(*) FILTER (WHERE (
+                    UPPER(categoria) = 'COMPUTADORA PORTATIL'
+                    OR (
+                        (UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%')
+                        AND UPPER(categoria) NOT LIKE '%ESTACION%'
+                        AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
+                    )
+                )) AS portatil,
+                COUNT(*) FILTER (WHERE (
+                    UPPER(categoria) LIKE '%ESTACION DE TRABAJO PORTATIL%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION PORTATIL%'
+                )) AS workstation_portatil,
+                COUNT(*) FILTER (WHERE (
+                    UPPER(categoria) LIKE '%TABLET%' OR UPPER(descripcion_producto) LIKE '%TABLETA%'
+                )) AS tableta,
+                COUNT(*) FILTER (WHERE UPPER(categoria) LIKE '%ESCANER DE PLANOS%') AS escaner_planos,
+                COUNT(*) FILTER (WHERE (
+                    UPPER(categoria) LIKE '%ESCANER DE DOCUMENTOS%' 
+                    OR (UPPER(catalogo) LIKE '%ESCANER%' AND UPPER(categoria) NOT LIKE '%PLANOS%' AND UPPER(categoria) NOT LIKE '%LIBROS%')
+                )) AS escaner_docs,
+                COUNT(*) FILTER (WHERE UPPER(categoria) LIKE '%ESCANER DE LIBROS%') AS escaner_libros
+            FROM ofertas_proveedor_history
+            WHERE 1=1 {prov_where};
+        """
+        row = db.execute(text(sql), params).mappings().first()
+        return dict(row) if row else {
+            "total": 0, "escritorio": 0, "aio": 0, "workstation": 0, "monitor": 0,
+            "pantalla_pub": 0, "pantalla_int": 0, "almacenamiento_int": 0, "almacenamiento_ext": 0,
+            "portatil": 0, "workstation_portatil": 0, "tableta": 0,
+            "escaner_planos": 0, "escaner_docs": 0, "escaner_libros": 0
         }
     except Exception as e:
         return {

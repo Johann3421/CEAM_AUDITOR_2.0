@@ -33,6 +33,10 @@ try:
             _c.execute(text("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_oferta_prov_unique 
                 ON ofertas_proveedor_history (nro_parte, ruc_proveedor, acuerdo_marco, catalogo, categoria, (COALESCE(region, 'N/A')));
+                CREATE INDEX IF NOT EXISTS ix_oph_nombre_prov_cat ON ofertas_proveedor_history (nombre_proveedor, categoria);
+                CREATE INDEX IF NOT EXISTS ix_oph_ruc_cat ON ofertas_proveedor_history (ruc_proveedor, categoria);
+                CREATE INDEX IF NOT EXISTS ix_oph_nro_parte_trim ON ofertas_proveedor_history (UPPER(TRIM(nro_parte)));
+                CREATE INDEX IF NOT EXISTS ix_oph_categoria ON ofertas_proveedor_history (categoria);
             """))
         except Exception:
             pass

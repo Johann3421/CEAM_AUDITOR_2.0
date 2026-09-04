@@ -186,9 +186,46 @@ const ProveedorFichas = () => {
   const [scrapePlazosRegion, setScrapePlazosRegion] = useState('all');
 
   const wasScrapingRef = useRef(false);
+  const abortControllerRef = useRef(null);
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
 
-  // 1. Cargar datos principales
+  // Debounce para búsqueda sin colisiones
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(0);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  // Cargar conteos por categoría y KPIs solo cuando cambia el proveedor
+  const fetchCountsAndKpis = async () => {
+    try {
+      const [resKpis, resCounts] = await Promise.all([
+        proveedoresApi.getKpis({ proveedor: selectedProvider !== 'all' ? selectedProvider : undefined }),
+        proveedoresApi.getCategoriesCount({ proveedor: selectedProvider !== 'all' ? selectedProvider : undefined })
+      ]);
+      setKpis({
+        avg_precio: resKpis?.data?.avg_precio ?? null
+      });
+      setCategoryCounts(resCounts.data || {});
+    } catch (err) {
+      console.error('Error cargando conteos y KPIs de proveedores:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchCountsAndKpis();
+  }, [selectedProvider]);
+
+  // 1. Cargar datos principales de la página actual con cancelación de solicitudes pendientes
   const fetchData = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     try {
       const params = {
@@ -196,7 +233,7 @@ const ProveedorFichas = () => {
         proveedor_filter: selectedProvider === 'all' && competenciaFilter !== 'all' ? competenciaFilter : undefined,
         categoria: activeCategory !== 'all' ? activeCategory : undefined,
         region: regionFilter !== 'all' ? regionFilter : undefined,
-        search: search.trim() || undefined,
+        search: debouncedSearch.trim() || undefined,
         stock_filter: stockFilter || undefined,
         pdf_filter: pdfFilter !== 'all' ? pdfFilter : undefined,
         mostrar_excluidas: mostrarExcluidas ? true : undefined,
@@ -205,40 +242,29 @@ const ProveedorFichas = () => {
         limit
       };
 
-      const [resFichas, resKpis, resCounts] = await Promise.all([
-        proveedoresApi.getFichas(params),
-        proveedoresApi.getKpis(params),
-        proveedoresApi.getCategoriesCount({ proveedor: selectedProvider !== 'all' ? selectedProvider : undefined })
-      ]);
-
+      const resFichas = await proveedoresApi.getFichas(params, { signal: controller.signal });
       const data = resFichas.data;
       const list = Array.isArray(data) ? data : (data?.items || data?.data || []);
       setFichas(list);
       setTotalFichas(data?.total ?? list.length);
-      setKpis({
-        total_stock: data?.total_stock ?? 0,
-        avg_precio: resKpis?.data?.avg_precio ?? null
-      });
-      setCategoryCounts(resCounts.data || {});
+      setKpis(prev => ({
+        ...prev,
+        total_stock: data?.total_stock ?? 0
+      }));
     } catch (err) {
-      console.error('Error cargando fichas de proveedores:', err);
+      if (err?.name !== 'CanceledError' && err?.code !== 'ERR_CANCELED' && err?.message !== 'canceled') {
+        console.error('Error cargando fichas de proveedores:', err);
+      }
     } finally {
-      setLoading(false);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     fetchData();
-  }, [selectedProvider, activeCategory, regionFilter, competenciaFilter, stockFilter, pdfFilter, mostrarExcluidas, sortBy, page, limit]);
-
-  // Manejar debounced search
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setPage(0);
-      fetchData();
-    }, 350);
-    return () => clearTimeout(handler);
-  }, [search]);
+  }, [selectedProvider, activeCategory, regionFilter, competenciaFilter, stockFilter, pdfFilter, mostrarExcluidas, sortBy, page, limit, debouncedSearch]);
 
   // Polling del estado de extracción
   useEffect(() => {
@@ -255,6 +281,7 @@ const ProveedorFichas = () => {
           if (wasScrapingRef.current) {
             wasScrapingRef.current = false;
             fetchData();
+            fetchCountsAndKpis();
           }
         }
       } catch (_) {}
@@ -314,7 +341,7 @@ const ProveedorFichas = () => {
     setReclassifying(true);
     try {
       await proveedoresApi.reclassify();
-      await fetchData();
+      await Promise.all([fetchData(), fetchCountsAndKpis()]);
     } catch (err) {
       console.error(err);
     } finally {
