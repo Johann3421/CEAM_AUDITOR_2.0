@@ -453,10 +453,10 @@ const ProveedorFichas = () => {
             onClick={handleStartSyncEstados}
             disabled={scraping}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', fontSize: 12, fontWeight: 600 }}
-            title="Sincronizar Estados de Ficha y Enlaces Oficiales a PDFs"
+            title="Corregir estados de fichas, existencias de stock reales y enlaces oficiales de Perú Compras"
           >
             <CheckCircle2 size={14} style={{ color: '#0284c7' }} />
-            {scraping ? 'Sincronizando...' : 'Incluir Estados'}
+            {scraping ? 'Corrigiendo estados...' : 'Corregir estados'}
           </button>
 
           {scrapeStatus && (scraping || (scrapeStatus.logs?.length > 0)) && (

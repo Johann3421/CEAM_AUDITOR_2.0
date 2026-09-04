@@ -26,7 +26,12 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from playwright.async_api import async_playwright
-from app.services.perucompras_core import login_automatico, saltar_verificacion, _capture_live_preview
+from app.services.perucompras_core import (
+    login_automatico,
+    saltar_verificacion,
+    _capture_live_preview,
+    _parse_html_products_partial
+)
 from app.services.proveedores_scraper import (
     PROVEEDORES_CONFIG,
     EXTRACTION_STATUS,
@@ -336,6 +341,32 @@ async def async_sync_estados_fichas(
                 """
                 return await page.evaluate(js_fetch, {"url": target_url, "timeout": timeout_ms})
 
+            # Función para consultar directamente la ruta /MejoraBasica/_ListaProductosOfertados (para existencias y stock reales)
+            async def _fetch_ruta_mejora_stock(cat_id: str, categ_id: str, timeout_ms: int = 25000) -> str:
+                target_url = (
+                    f"/MejoraBasica/_ListaProductosOfertados"
+                    f"?N_Acuerdo={ID_ACUERDO_2022_5}&N_Catalogo={cat_id}&N_Categoria={categ_id}"
+                    f"&C_Descripcion=&_={int(time.time() * 1000)}"
+                )
+                js_fetch = """
+                async (args) => {
+                    try {
+                        const controller = new AbortController();
+                        const timer = setTimeout(() => controller.abort(), args.timeout);
+                        const res = await fetch(args.url, {
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                            signal: controller.signal
+                        });
+                        clearTimeout(timer);
+                        if (!res.ok) return '';
+                        return await res.text();
+                    } catch(e) {
+                        return '';
+                    }
+                }
+                """
+                return await page.evaluate(js_fetch, {"url": target_url, "timeout": timeout_ms})
+
             # 5. Iterar sobre todas las categorías descubiertas
             for idx, cat_item in enumerate(combos_a_procesar):
                 n_cat = cat_item["catalogo_id"]
@@ -345,7 +376,7 @@ async def async_sync_estados_fichas(
 
                 add_status_log(f"📂 [{idx+1}/{len(combos_a_procesar)}] Consultando ruta: {cat_nom} -> {categ_nom}...")
                 EXTRACTION_STATUS["combos_completed"] = idx + 1
-                EXTRACTION_STATUS["progress_message"] = f"Extrayendo estados: {categ_nom} ({idx+1}/{len(combos_a_procesar)})"
+                EXTRACTION_STATUS["progress_message"] = f"Extrayendo estados y stock: {categ_nom} ({idx+1}/{len(combos_a_procesar)})"
 
                 try:
                     items = []
@@ -355,7 +386,27 @@ async def async_sync_estados_fichas(
                     if raw_html:
                         items = parse_tabla_reportes(raw_html)
 
-
+                    # 2. Consulta directa a MejoraBasica (existencias reales de stock y precios ofertados)
+                    stock_map = {}
+                    try:
+                        raw_mejora = await _fetch_ruta_mejora_stock(n_cat, n_categ, timeout_ms=30000)
+                        if raw_mejora:
+                            mejora_items = _parse_html_products_partial(raw_mejora)
+                            for mi in mejora_items:
+                                np_m = (mi.get("nro_parte") or "").strip().upper()
+                                if np_m and np_m not in ("S/N", "SN", "-"):
+                                    stock_map[np_m] = {
+                                        "stock": mi.get("existencia_stock"),
+                                        "precio": mi.get("precio_ofertado"),
+                                        "estado_mejora": mi.get("estado")
+                                    }
+                                    clean_m = re.sub(r'[^A-Z0-9]', '', np_m)
+                                    if clean_m and clean_m != np_m:
+                                        stock_map[clean_m] = stock_map[np_m]
+                            if mejora_items:
+                                add_status_log(f"   📦 {len(mejora_items)} existencias de stock obtenidas para {categ_nom}.")
+                    except Exception as s_err:
+                        logger.warning(f"Aviso leyendo stock de {categ_nom}: {s_err}")
 
                     # Deduplicar por id_producto_ofertado o nro_parte
                     unique_dict = {}
@@ -368,7 +419,7 @@ async def async_sync_estados_fichas(
                     add_status_log(f"   📊 Total consolidado: {len(items)} fichas procesadas en {categ_nom}.")
 
                     # PASO B: Actualizar en base de datos ultrarrápido (matching instantáneo O(1) y update por Primary Key)
-                    if items and db is not None:
+                    if (items or stock_map) and db is not None:
                         cat_actualizados = 0
                         # 1. Cargar las ofertas registradas en memoria exclusivamente para el proveedor actual
                         sql_targets = text("""
@@ -398,11 +449,14 @@ async def async_sync_estados_fichas(
                                 justificacion_estado = COALESCE(NULLIF(:justif, ''), justificacion_estado),
                                 id_producto_ofertado = COALESCE(NULLIF(:id_of, ''), id_producto_ofertado),
                                 pdf_url = COALESCE(NULLIF(:pdf, ''), pdf_url),
-                                marca = CASE WHEN (marca IS NULL OR UPPER(TRIM(marca)) IN ('VARIOS', 'S/N', 'SN', '', '-')) AND :marca_extraida != '' THEN :marca_extraida ELSE marca END
+                                existencia_stock = COALESCE(:stock, existencia_stock),
+                                precio_ofertado = COALESCE(:precio, precio_ofertado),
+                                marca = CASE WHEN (marca IS NULL OR UPPER(TRIM(marca)) IN ('VARIOS', 'S/N', 'SN', '', '-')) AND :marca_extraida != '' THEN :marca_extraida ELSE marca END,
+                                fecha_extraccion = NOW()
                             WHERE id = :target_id;
                         """)
 
-                        # 2. Matching en memoria O(1) puro (10 milisegundos para 38,000 fichas, sin bucles anidados)
+                        # 2. Matching en memoria O(1) puro
                         coincidentes_por_id = {}
                         for it in items:
                             it_np = (it.get("nro_parte") or "").strip().upper()
@@ -410,12 +464,15 @@ async def async_sync_estados_fichas(
                                 continue
 
                             target_ids = np_map.get(it_np)
-                            if not target_ids:
-                                it_clean = re.sub(r'[^A-Z0-9]', '', it_np)
-                                if it_clean:
-                                    target_ids = np_map.get(it_clean)
+                            it_clean = re.sub(r'[^A-Z0-9]', '', it_np)
+                            if not target_ids and it_clean:
+                                target_ids = np_map.get(it_clean)
 
                             if target_ids:
+                                s_entry = stock_map.get(it_np) or (stock_map.get(it_clean) if it_clean else None)
+                                s_stock = s_entry["stock"] if (s_entry and s_entry.get("stock") is not None) else None
+                                s_precio = s_entry["precio"] if (s_entry and s_entry.get("precio") is not None) else it.get("precio")
+
                                 payload = {
                                     "estado_f": it.get("estado_ficha_producto") or "",
                                     "estado_o": it.get("estado_oferta") or "",
@@ -423,10 +480,36 @@ async def async_sync_estados_fichas(
                                     "justif": it.get("justificacion") or "",
                                     "id_of": it.get("id_producto_ofertado") or "",
                                     "pdf": it.get("pdf_url") or "",
+                                    "stock": s_stock,
+                                    "precio": s_precio,
                                     "marca_extraida": (it.get("marca") or "").strip().upper()
                                 }
                                 for tid in target_ids:
                                     coincidentes_por_id[tid] = {"target_id": tid, **payload}
+
+                        # Complementar con productos presentes en stock_map que no hayan sido listados en Reportes
+                        for np_m, s_data in stock_map.items():
+                            tids = np_map.get(np_m)
+                            if tids:
+                                for tid in tids:
+                                    if tid not in coincidentes_por_id:
+                                        coincidentes_por_id[tid] = {
+                                            "target_id": tid,
+                                            "estado_f": "",
+                                            "estado_o": s_data.get("estado_mejora") or "",
+                                            "motivo": "",
+                                            "justif": "",
+                                            "id_of": "",
+                                            "pdf": "",
+                                            "stock": s_data.get("stock"),
+                                            "precio": s_data.get("precio"),
+                                            "marca_extraida": ""
+                                        }
+                                    else:
+                                        if s_data.get("stock") is not None and coincidentes_por_id[tid].get("stock") is None:
+                                            coincidentes_por_id[tid]["stock"] = s_data.get("stock")
+                                        if s_data.get("precio") is not None and coincidentes_por_id[tid].get("precio") is None:
+                                            coincidentes_por_id[tid]["precio"] = s_data.get("precio")
 
                         # 3. Ejecutar actualización precisa únicamente sobre las filas que coinciden en nuestra BD
                         for up_item in coincidentes_por_id.values():
@@ -440,7 +523,7 @@ async def async_sync_estados_fichas(
                         db.commit()
                         total_actualizados += cat_actualizados
                         EXTRACTION_STATUS["items_inserted"] = total_actualizados
-                        add_status_log(f"   💾 {cat_actualizados} registros actualizados en BD para {categ_nom}.")
+                        add_status_log(f"   💾 {cat_actualizados} registros actualizados en BD (estados y stock) para {categ_nom}.")
 
                 except Exception as cat_err:
                     if db is not None:

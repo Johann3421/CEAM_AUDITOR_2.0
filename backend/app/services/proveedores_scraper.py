@@ -719,8 +719,11 @@ async def async_extract_plazos_regionales(
             # - Subcategoría 11738 (ESCANER DE DOCUMENTOS) gobierna los plazos de escáneres.
             ac_prov_id = lista_acuerdos[0]["acuerdo_prov_id"]
             combos_activos = [
-                {"id_catalogo": "250", "id_subcategoria": "11743", "nom_subcategoria": "EQUIPOS DE COMPUTO (PORTATIL, ESCRITORIO, AIO, MONITOR, PANTALLAS, ALMACENAMIENTO)", "tipo": "COMPUTO"},
-                {"id_catalogo": "251", "id_subcategoria": "11738", "nom_subcategoria": "ESCANERES (DOCUMENTOS Y PLANOS)", "tipo": "ESCANER"}
+                {"id_catalogo": "250", "id_subcategoria": "11743", "nom_subcategoria": "COMPUTADORAS PORTÁTILES", "tipo": "COMPUTO"},
+                {"id_catalogo": "252", "id_subcategoria": "11741", "nom_subcategoria": "MONITORES", "tipo": "COMPUTO"},
+                {"id_catalogo": "252", "id_subcategoria": "11735", "nom_subcategoria": "COMPUTADORAS DE ESCRITORIO", "tipo": "COMPUTO"},
+                {"id_catalogo": "252", "id_subcategoria": "11736", "nom_subcategoria": "COMPUTADORAS TODO EN UNO (AIO)", "tipo": "COMPUTO"},
+                {"id_catalogo": "251", "id_subcategoria": "11738", "nom_subcategoria": "ESCÁNERES (DOCUMENTOS Y PLANOS)", "tipo": "ESCANER"}
             ]
 
             prov_search = "%KING%" if "KING" in nombre_proveedor.upper() else "%ROJAS%"
@@ -860,19 +863,24 @@ async def async_extract_plazos_regionales(
                                             np_f = unidad_match.group(3).upper() if unidad_match else (desc_f.split()[-1].upper() if desc_f.split() else "")
                                             
                                             if np_f:
+                                                np_clean = re.sub(r'[^A-Z0-9]', '', np_f)
                                                 db.execute(text("""
                                                     UPDATE ofertas_proveedor_history
                                                     SET existencia_stock = :stock,
                                                         id_producto_ofertado = COALESCE(NULLIF(:id_prod, ''), id_producto_ofertado),
                                                         fecha_extraccion = NOW()
                                                     WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
-                                                      AND UPPER(nro_parte) = :np
+                                                      AND (
+                                                          UPPER(nro_parte) = :np
+                                                          OR UPPER(REPLACE(nro_parte, '-', '')) = :np_clean
+                                                      )
                                                 """), {
                                                     "stock": stock_f,
                                                     "id_prod": id_prod_ofer,
                                                     "ruc": ruc,
                                                     "prov_match": prov_search,
-                                                    "np": np_f
+                                                    "np": np_f,
+                                                    "np_clean": np_clean
                                                 })
                                                 stock_sync_count += 1
                                         except Exception:

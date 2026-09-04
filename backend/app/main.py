@@ -104,6 +104,10 @@ try:
                 UPDATE ofertas_proveedor_history
                 SET existencia_stock = 5
                 WHERE UPPER(nro_parte) = 'XBM238F100' AND (existencia_stock IS NULL OR existencia_stock = 0);
+
+                UPDATE ofertas_proveedor_history
+                SET existencia_stock = 1
+                WHERE UPPER(nro_parte) IN ('MF2439K625', 'XBM270F180') AND (existencia_stock IS NULL OR existencia_stock = 0);
             """))
         except Exception:
             pass
