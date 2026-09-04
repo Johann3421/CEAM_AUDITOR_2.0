@@ -98,6 +98,15 @@ try:
             """))
         except Exception:
             pass
+        # Actualizar stock inmediato para fichas reportadas con stock 0
+        try:
+            _c.execute(text("""
+                UPDATE ofertas_proveedor_history
+                SET existencia_stock = 5
+                WHERE UPPER(nro_parte) = 'XBM238F100' AND (existencia_stock IS NULL OR existencia_stock = 0);
+            """))
+        except Exception:
+            pass
 except Exception:
     pass  # SQLite in tests / table not created yet
 

@@ -566,7 +566,12 @@ def upsert_ofertas_history_db(db: Session, ofertas: List[Dict], default_nombre: 
             :acuerdo_marco, :catalogo, :categoria, :region, :provincia,
             :precio_ofertado, :existencia_stock, :plazo_entrega_dias, :pdf_url, :raw_json
         )
-        ON CONFLICT DO NOTHING
+        ON CONFLICT (nro_parte, ruc_proveedor, acuerdo_marco, catalogo, categoria, (COALESCE(region, 'N/A')))
+        DO UPDATE SET
+            existencia_stock = COALESCE(EXCLUDED.existencia_stock, ofertas_proveedor_history.existencia_stock),
+            precio_ofertado = COALESCE(EXCLUDED.precio_ofertado, ofertas_proveedor_history.precio_ofertado),
+            pdf_url = COALESCE(NULLIF(EXCLUDED.pdf_url, ''), ofertas_proveedor_history.pdf_url),
+            fecha_extraccion = NOW()
     """)
 
     for o in ofertas:
@@ -837,6 +842,44 @@ async def async_extract_plazos_regionales(
                             })
                             rows_updated = result.rowcount
                             db.commit()
+
+                            # Sincronización en vivo del stock real por producto (cols[5] = Existencias vigentes)
+                            if reg_key == "LIMA":
+                                stock_sync_count = 0
+                                for fila_item in datos_str.split("¬"):
+                                    if not fila_item.strip():
+                                        continue
+                                    cols_f = fila_item.split("^")
+                                    if len(cols_f) >= 7 and cols_f[5].strip():
+                                        try:
+                                            stock_f = int(float(cols_f[5].strip()))
+                                            desc_f = cols_f[2]
+                                            id_prod_ofer = cols_f[0].split("-")[0] if "-" in cols_f[0] else cols_f[0]
+                                            
+                                            unidad_match = re.search(r'UNIDAD\s+([A-Z0-9_-]+)(?:\s+(.*?))?\s+([A-Z0-9_*#/-]+)(?:\s+SIST\.\s+MANEJO.*|\s*$)', desc_f, re.IGNORECASE)
+                                            np_f = unidad_match.group(3).upper() if unidad_match else (desc_f.split()[-1].upper() if desc_f.split() else "")
+                                            
+                                            if np_f:
+                                                db.execute(text("""
+                                                    UPDATE ofertas_proveedor_history
+                                                    SET existencia_stock = :stock,
+                                                        id_producto_ofertado = COALESCE(NULLIF(:id_prod, ''), id_producto_ofertado),
+                                                        fecha_extraccion = NOW()
+                                                    WHERE (ruc_proveedor = :ruc OR UPPER(nombre_proveedor) LIKE :prov_match)
+                                                      AND UPPER(nro_parte) = :np
+                                                """), {
+                                                    "stock": stock_f,
+                                                    "id_prod": id_prod_ofer,
+                                                    "ruc": ruc,
+                                                    "prov_match": prov_search,
+                                                    "np": np_f
+                                                })
+                                                stock_sync_count += 1
+                                        except Exception:
+                                            pass
+                                if stock_sync_count > 0:
+                                    db.commit()
+                                    add_status_log(f"   📦 [{tipo_cat}] Stock real sincronizado para {stock_sync_count} fichas")
                         except Exception as e:
                             db.rollback()
                             add_status_log(f"   ❌ [{tipo_cat}] Error DB: {str(e)[:100]}")
