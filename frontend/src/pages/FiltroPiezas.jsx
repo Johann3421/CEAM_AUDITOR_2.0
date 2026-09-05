@@ -385,7 +385,7 @@ const FiltroPiezas = () => {
 
   const handleExtraerCategoria = async () => {
     setExtractMenuOpen(false);
-    const catName = activeCategoryConfig.name || selectedCategory;
+    const catName = activeCategoryConfig?.label || activeCategoryConfig?.name || selectedCategory;
     const confirmMsg = `¿Deseas iniciar la extracción de especificaciones oficiales desde PDFs para TODA la categoría "${catName}"?\n\nSe procesarán en segundo plano todas las fichas con PDF.`;
     if (!window.confirm(confirmMsg)) return;
 
@@ -399,6 +399,9 @@ const FiltroPiezas = () => {
       if (res.data?.started) {
         setExtractProgress(`Iniciada extracción en segundo plano de ${res.data.total} fichas de ${res.data.categoria}...`);
         startPollingStatus();
+      } else if (res.data?.success === false) {
+        setExtractProgress(`Error: ${res.data.error || res.data.message}`);
+        setTimeout(() => setExtractProgress(null), 6000);
       } else if (res.data?.message) {
         setExtractProgress(res.data.message);
         setTimeout(() => setExtractProgress(null), 5000);

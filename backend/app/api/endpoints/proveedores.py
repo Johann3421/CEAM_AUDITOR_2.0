@@ -2106,7 +2106,7 @@ def _run_bulk_category_extraction(items: List[Dict[str, Any]], cat_name: str):
                     if np and specs:
                         db_bg.execute(text("""
                             UPDATE ofertas_proveedor_history
-                            SET raw_json = jsonb_set(COALESCE(raw_json::jsonb, '{}'::jsonb), '{specs_pdf}', :specs_json::jsonb)::json
+                            SET raw_json = CAST(jsonb_set(COALESCE(CAST(raw_json AS jsonb), CAST('{}' AS jsonb)), ARRAY['specs_pdf'], CAST(:specs_json AS jsonb)) AS json)
                             WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
                         """), {
                             "np": np,
@@ -2117,10 +2117,18 @@ def _run_bulk_category_extraction(items: List[Dict[str, Any]], cat_name: str):
                             db_bg.commit()
                             batch_count = 0
                 except Exception as ex:
+                    try:
+                        db_bg.rollback()
+                    except Exception:
+                        pass
+                    batch_count = 0
                     _EXTRACTION_TASK["errors"] += 1
                     _EXTRACTION_TASK["last_error"] = str(ex)
 
-            db_bg.commit()
+            try:
+                db_bg.commit()
+            except Exception:
+                pass
         _EXTRACTION_TASK["status"] = "completed"
     except Exception as e:
         _EXTRACTION_TASK["status"] = "error"
@@ -2166,7 +2174,7 @@ def extraer_specs_pdf_endpoint(
                     sql += """ AND (
                         UPPER(categoria) = 'COMPUTADORA DE ESCRITORIO'
                         OR (
-                            (UPPER(catalogo) LIKE '%ESCRITORIO%' OR UPPER(categoria) LIKE '%ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%ESCRITORIO%')
+                            (UPPER(categoria) LIKE '%ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%ESCRITORIO%')
                             AND UPPER(categoria) NOT LIKE '%TODO EN UNO%'
                             AND UPPER(categoria) NOT LIKE '%MONITOR%'
                             AND UPPER(categoria) NOT LIKE '%ESTACION%'
@@ -2197,7 +2205,7 @@ def extraer_specs_pdf_endpoint(
                         OR UPPER(descripcion_producto) LIKE '%MONITOR GAMER%'
                     )"""
                 else:
-                    sql += " AND (UPPER(categoria) LIKE :cat OR UPPER(catalogo) LIKE :cat OR UPPER(descripcion_producto) LIKE :cat)"
+                    sql += " AND (UPPER(categoria) LIKE :cat OR UPPER(descripcion_producto) LIKE :cat)"
                     params["cat"] = f"%{cat.upper()}%"
 
             if not req.forzar:
@@ -2259,14 +2267,15 @@ def extraer_specs_pdf_endpoint(
                         try:
                             db.execute(text("""
                                 UPDATE ofertas_proveedor_history
-                                SET raw_json = jsonb_set(COALESCE(raw_json::jsonb, '{}'::jsonb), '{specs_pdf}', :specs_json::jsonb)::json
+                                SET raw_json = CAST(jsonb_set(COALESCE(CAST(raw_json AS jsonb), CAST('{}' AS jsonb)), ARRAY['specs_pdf'], CAST(:specs_json AS jsonb)) AS json)
                                 WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
                             """), {
                                 "np": np,
                                 "specs_json": json.dumps(specs, ensure_ascii=False)
                             })
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            import logging
+                            logging.getLogger(__name__).error("Error actualizando specs_pdf para %s: %s", np, e)
             try:
                 db.commit()
             except Exception:
@@ -2309,14 +2318,16 @@ def extraer_specs_pdf_endpoint(
             try:
                 db.execute(text("""
                     UPDATE ofertas_proveedor_history
-                    SET raw_json = jsonb_set(COALESCE(raw_json::jsonb, '{}'::jsonb), '{specs_pdf}', :specs_json::jsonb)::json
+                    SET raw_json = CAST(jsonb_set(COALESCE(CAST(raw_json AS jsonb), CAST('{}' AS jsonb)), ARRAY['specs_pdf'], CAST(:specs_json AS jsonb)) AS json)
                     WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
                 """), {
                     "np": np,
                     "specs_json": json.dumps(specs, ensure_ascii=False)
                 })
                 db.commit()
-            except Exception:
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error("Error individual actualizando specs_pdf para %s: %s", np, e)
                 db.rollback()
 
         return {"success": True, "specs": specs}
