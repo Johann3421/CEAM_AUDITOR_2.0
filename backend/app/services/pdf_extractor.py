@@ -107,6 +107,7 @@ TOKENS_PC_ORDENADOS = [
     ('graficos', ['Controlador de Video', 'Tarjeta de Video', 'Tarjeta Gráfica', 'Tarjeta Grafica', 'Unidad de video', 'Gráficos', 'Graficos', 'Video']),
     ('conectividad', ['Conectividad Inalámbrica', 'Conectividad Inalambrica', 'Conectividad', 'Red', 'LAN']),
     ('fuente_poder', ['Fuente de Poder', 'Fuente Poder', 'Potencia Fuente', 'Fuente']),
+    ('case_fuente', ['Case / Fuente', 'Gabinete / Fuente', 'Chasis / Fuente', 'Case', 'Gabinete', 'Chasis']),
     ('sistema_operativo', ['Sistema Operativo', 'Sist. Oper', 'S.O.']),
     ('suite_ofimatica', ['Software de Ofimatica', 'Software de Ofimática', 'Suite Ofimática', 'Suite Ofimatica', 'Office Pre-Instalado', 'Ofimática', 'Ofimatica', 'Office']),
     ('formato', ['Factor de Forma', 'Factorde Forma', 'Formato de Case', 'Formato']),
@@ -160,14 +161,29 @@ def extraer_specs_pc(raw_text: str) -> Dict[str, str]:
 
                 val_limpio = sanitizar_valor(val)
                 if val_limpio:
-                    # Filtro de falsos positivos específicos
                     val_u = val_limpio.upper()
+                    # Filtro de falsos positivos específicos
                     if key == 'graficos' and (val_u.startswith('AUDIO') or val_u == 'AUDIO'):
                         continue
                     if key == 'fuente_poder' and val_u in ('DE PODER', 'PODER', 'FUENTE'):
                         continue
+                    if key == 'case_fuente':
+                        # Si el case especifica la fuente (ej. 'Fuente de 500W Reales')
+                        if re.search(r'(?:fuente|\d+\s*w)', val_limpio, re.I):
+                            specs['fuente_poder'] = val_limpio
+                        continue
                     specs[key] = val_limpio
                     break
+
+    # Fallback global para fuente si no se encontró con etiquetas estándar
+    if 'fuente_poder' not in specs:
+        m_case = re.search(r'(?:Case|Gabinete|Chasis)[^\n\r:]*[:\t ]+([^\n\r]*(?:Fuente|\d+\s*W)[^\n\r]*)', raw_text, re.I)
+        if m_case:
+            specs['fuente_poder'] = sanitizar_valor(m_case.group(1))
+        else:
+            m_fb = re.search(r'(?:Fuente(?:\s+de\s+poder)?|Potencia)\s*[:\s\t]*(?:de\s+)?(\d+\s*W[^\n\r,]*)', raw_text, re.I)
+            if m_fb:
+                specs['fuente_poder'] = sanitizar_valor(m_fb.group(0))
 
     return specs
 

@@ -2106,7 +2106,7 @@ def _run_bulk_category_extraction(items: List[Dict[str, Any]], cat_name: str):
                     if np and specs:
                         db_bg.execute(text("""
                             UPDATE ofertas_proveedor_history
-                            SET raw_json = jsonb_set(COALESCE(raw_json, '{}'::jsonb), '{specs_pdf}', :specs_json::jsonb)
+                            SET raw_json = jsonb_set(COALESCE(raw_json::jsonb, '{}'::jsonb), '{specs_pdf}', :specs_json::jsonb)::json
                             WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
                         """), {
                             "np": np,
@@ -2147,140 +2147,185 @@ def extraer_specs_pdf_endpoint(
     y las persiste en la base de datos en raw_json->'specs_pdf'.
     Permite extracción por página, individual o de toda la categoría en segundo plano.
     """
-    # 1. Extracción de toda la categoría en background
-    if req.extraer_todo_categoria:
-        cat = (req.categoria or "").strip()
-        is_all = not cat or cat.lower() == 'todos'
+    try:
+        # 1. Extracción de toda la categoría en background
+        if req.extraer_todo_categoria:
+            cat = (req.categoria or "").strip()
+            cat_l = cat.lower()
+            is_all = not cat or cat_l in ('todos', 'all')
 
-        sql = """
-            SELECT DISTINCT ON (UPPER(TRIM(nro_parte)))
-                nro_parte, pdf_url, descripcion_producto, categoria
-            FROM ofertas_proveedor_history
-            WHERE pdf_url IS NOT NULL AND pdf_url != '#'
-        """
-        params: Dict[str, Any] = {}
-        if not is_all:
-            sql += " AND (UPPER(categoria) LIKE :cat OR UPPER(catalogo) LIKE :cat OR UPPER(descripcion_producto) LIKE :cat)"
-            params["cat"] = f"%{cat.upper()}%"
+            sql = """
+                SELECT DISTINCT ON (UPPER(TRIM(nro_parte)))
+                    nro_parte, pdf_url, descripcion_producto, categoria
+                FROM ofertas_proveedor_history
+                WHERE pdf_url IS NOT NULL AND pdf_url != '#'
+            """
+            params: Dict[str, Any] = {}
+            if not is_all:
+                if cat_l in ("escritorio", "computadora de escritorio", "computadoras de escritorio"):
+                    sql += """ AND (
+                        UPPER(categoria) = 'COMPUTADORA DE ESCRITORIO'
+                        OR (
+                            (UPPER(catalogo) LIKE '%ESCRITORIO%' OR UPPER(categoria) LIKE '%ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%ESCRITORIO%')
+                            AND UPPER(categoria) NOT LIKE '%TODO EN UNO%'
+                            AND UPPER(categoria) NOT LIKE '%MONITOR%'
+                            AND UPPER(categoria) NOT LIKE '%ESTACION%'
+                            AND UPPER(categoria) NOT LIKE '%ALMACENAMIENTO%'
+                            AND UPPER(categoria) NOT LIKE '%PANTALLA%'
+                            AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
+                            AND UPPER(descripcion_producto) NOT LIKE '%ALL IN ONE%'
+                            AND UPPER(descripcion_producto) NOT LIKE '%MONITOR%'
+                        )
+                    )"""
+                elif cat_l in ("portatil", "computadora portatil", "laptop", "laptops"):
+                    sql += """ AND (
+                        (UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTÁTIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%')
+                        AND UPPER(categoria) NOT LIKE '%TODO EN UNO%'
+                        AND UPPER(categoria) NOT LIKE '%ESTACION%'
+                    )"""
+                elif cat_l in ("aio", "todo en uno", "all in one", "computadora todo en uno"):
+                    sql += """ AND (
+                        UPPER(categoria) LIKE '%TODO EN UNO%'
+                        OR UPPER(descripcion_producto) LIKE '%TODO EN UNO%'
+                        OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%'
+                    )"""
+                elif cat_l in ("monitor", "monitores"):
+                    sql += """ AND (
+                        UPPER(categoria) LIKE '%MONITOR%'
+                        OR UPPER(descripcion_producto) LIKE 'MONITOR%'
+                        OR UPPER(descripcion_producto) LIKE '%MONITOR LED%'
+                        OR UPPER(descripcion_producto) LIKE '%MONITOR GAMER%'
+                    )"""
+                else:
+                    sql += " AND (UPPER(categoria) LIKE :cat OR UPPER(catalogo) LIKE :cat OR UPPER(descripcion_producto) LIKE :cat)"
+                    params["cat"] = f"%{cat.upper()}%"
 
-        if not req.forzar:
-            sql += " AND (raw_json->'specs_pdf' IS NULL OR raw_json->'specs_pdf' = '{}'::jsonb)"
+            if not req.forzar:
+                sql += " AND (raw_json->>'specs_pdf' IS NULL OR raw_json->>'specs_pdf' = '' OR raw_json->>'specs_pdf' = '{}')"
 
-        sql += " ORDER BY UPPER(TRIM(nro_parte)), id DESC"
+            sql += " ORDER BY UPPER(TRIM(nro_parte)), id DESC"
 
-        rows = db.execute(text(sql), params).mappings().all()
-        items_to_process = [dict(r) for r in rows]
+            rows = db.execute(text(sql), params).mappings().all()
+            items_to_process = [dict(r) for r in rows]
 
-        if not items_to_process:
+            if not items_to_process:
+                return {
+                    "success": True,
+                    "message": "Todas las fichas técnicas con PDF de esta categoría ya cuentan con especificaciones oficiales extraídas.",
+                    "total": 0,
+                    "processed": 0
+                }
+
+            if _EXTRACTION_TASK["status"] == "running":
+                return {
+                    "success": True,
+                    "already_running": True,
+                    "task": _EXTRACTION_TASK,
+                    "message": f"Ya hay una extracción en curso para {_EXTRACTION_TASK['categoria']} ({_EXTRACTION_TASK['processed']}/{_EXTRACTION_TASK['total']})."
+                }
+
+            cat_label = cat if not is_all else "Todas las categorías"
+            background_tasks.add_task(_run_bulk_category_extraction, items_to_process, cat_label)
             return {
                 "success": True,
-                "message": "Todas las fichas técnicas con PDF de esta categoría ya fueron enriquecidas.",
-                "total": 0,
-                "processed": 0
+                "started": True,
+                "total": len(items_to_process),
+                "categoria": cat_label,
+                "message": f"Iniciada la extracción en segundo plano de {len(items_to_process)} fichas técnicas de {cat_label}."
             }
 
-        if _EXTRACTION_TASK["status"] == "running":
-            return {
-                "success": True,
-                "already_running": True,
-                "task": _EXTRACTION_TASK,
-                "message": f"Ya hay una extracción en curso para {_EXTRACTION_TASK['categoria']} ({_EXTRACTION_TASK['processed']}/{_EXTRACTION_TASK['total']})."
-            }
+        # 2. Extracción de un lote de ítems (ej. página actual)
+        if req.items:
+            results = {}
+            def _process_item(it):
+                np = (it.get("nro_parte") or "").strip()
+                pdf = (it.get("pdf_url") or "").strip()
+                cat = it.get("categoria") or "COMPUTADORA"
+                desc = it.get("descripcion") or ""
+                if not pdf or pdf == "#":
+                    return np, None
+                try:
+                    specs = extraer_especificaciones_pdf(origen=pdf, categoria=cat, descripcion_fallback=desc)
+                    return np, specs
+                except Exception:
+                    return np, None
 
-        cat_label = cat if not is_all else "Todas las categorías"
-        background_tasks.add_task(_run_bulk_category_extraction, items_to_process, cat_label)
-        return {
-            "success": True,
-            "started": True,
-            "total": len(items_to_process),
-            "categoria": cat_label,
-            "message": f"Iniciada la extracción en segundo plano de {len(items_to_process)} fichas técnicas de {cat_label}."
-        }
-
-    # 2. Extracción de un lote de ítems (ej. página actual)
-    if req.items:
-        results = {}
-        def _process_item(it):
-            np = (it.get("nro_parte") or "").strip()
-            pdf = (it.get("pdf_url") or "").strip()
-            cat = it.get("categoria") or "COMPUTADORA"
-            desc = it.get("descripcion") or ""
-            if not pdf or pdf == "#":
-                return np, None
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+                future_to_item = {executor.submit(_process_item, it): it for it in req.items if (it.get("nro_parte") or "").strip()}
+                for fut in concurrent.futures.as_completed(future_to_item):
+                    np, specs = fut.result()
+                    if np and specs:
+                        results[np] = specs
+                        try:
+                            db.execute(text("""
+                                UPDATE ofertas_proveedor_history
+                                SET raw_json = jsonb_set(COALESCE(raw_json::jsonb, '{}'::jsonb), '{specs_pdf}', :specs_json::jsonb)::json
+                                WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
+                            """), {
+                                "np": np,
+                                "specs_json": json.dumps(specs, ensure_ascii=False)
+                            })
+                        except Exception:
+                            pass
             try:
-                specs = extraer_especificaciones_pdf(origen=pdf, categoria=cat, descripcion_fallback=desc)
-                return np, specs
+                db.commit()
             except Exception:
-                return np, None
+                db.rollback()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
-            future_to_item = {executor.submit(_process_item, it): it for it in req.items if (it.get("nro_parte") or "").strip()}
-            for fut in concurrent.futures.as_completed(future_to_item):
-                np, specs = fut.result()
-                if np and specs:
-                    results[np] = specs
-                    try:
-                        db.execute(text("""
-                            UPDATE ofertas_proveedor_history
-                            SET raw_json = jsonb_set(COALESCE(raw_json, '{}'::jsonb), '{specs_pdf}', :specs_json::jsonb)
-                            WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
-                        """), {
-                            "np": np,
-                            "specs_json": json.dumps(specs, ensure_ascii=False)
-                        })
-                    except Exception:
-                        pass
-        try:
-            db.commit()
-        except Exception:
-            db.rollback()
+            return {
+                "success": True,
+                "processed": len(results),
+                "specs_map": results
+            }
 
-        return {
-            "success": True,
-            "processed": len(results),
-            "specs_map": results
-        }
+        # 3. Procesamiento para un solo ítem individual
+        url = (req.pdf_url or "").strip()
+        np = (req.nro_parte or "").strip()
+        cat = req.categoria or "COMPUTADORA"
+        desc = req.descripcion or ""
 
-    # 3. Procesamiento para un solo ítem individual
-    url = (req.pdf_url or "").strip()
-    np = (req.nro_parte or "").strip()
-    cat = req.categoria or "COMPUTADORA"
-    desc = req.descripcion or ""
-
-    if (not url or url == "#") and np:
-        row = db.execute(text("""
-            SELECT pdf_url, descripcion_producto, categoria
-            FROM ofertas_proveedor_history
-            WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
-              AND pdf_url IS NOT NULL AND pdf_url != '#'
-            LIMIT 1
-        """), {"np": np}).mappings().first()
-        if row:
-            url = row["pdf_url"]
-            desc = desc or row.get("descripcion_producto") or ""
-            cat = cat or row.get("categoria") or "COMPUTADORA"
-
-    if not url or url == "#":
-        if desc:
-            specs = extraer_especificaciones_pdf(origen="", categoria=cat, descripcion_fallback=desc)
-            return {"success": True, "specs": specs, "warning": "Sin PDF disponible, extraído desde descripción"}
-        raise HTTPException(status_code=400, detail="No se encontró URL de PDF válida para esta ficha")
-
-    specs = extraer_especificaciones_pdf(origen=url, categoria=cat, descripcion_fallback=desc)
-
-    if np:
-        try:
-            db.execute(text("""
-                UPDATE ofertas_proveedor_history
-                SET raw_json = jsonb_set(COALESCE(raw_json, '{}'::jsonb), '{specs_pdf}', :specs_json::jsonb)
+        if (not url or url == "#") and np:
+            row = db.execute(text("""
+                SELECT pdf_url, descripcion_producto, categoria
+                FROM ofertas_proveedor_history
                 WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
-            """), {
-                "np": np,
-                "specs_json": json.dumps(specs, ensure_ascii=False)
-            })
-            db.commit()
-        except Exception:
-            db.rollback()
+                  AND pdf_url IS NOT NULL AND pdf_url != '#'
+                LIMIT 1
+            """), {"np": np}).mappings().first()
+            if row:
+                url = row["pdf_url"]
+                desc = desc or row.get("descripcion_producto") or ""
+                cat = cat or row.get("categoria") or "COMPUTADORA"
 
-    return {"success": True, "specs": specs}
+        if not url or url == "#":
+            if desc:
+                specs = extraer_especificaciones_pdf(origen="", categoria=cat, descripcion_fallback=desc)
+                return {"success": True, "specs": specs, "warning": "Sin PDF disponible, extraído desde descripción"}
+            raise HTTPException(status_code=400, detail="No se encontró URL de PDF válida para esta ficha")
+
+        specs = extraer_especificaciones_pdf(origen=url, categoria=cat, descripcion_fallback=desc)
+
+        if np:
+            try:
+                db.execute(text("""
+                    UPDATE ofertas_proveedor_history
+                    SET raw_json = jsonb_set(COALESCE(raw_json::jsonb, '{}'::jsonb), '{specs_pdf}', :specs_json::jsonb)::json
+                    WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
+                """), {
+                    "np": np,
+                    "specs_json": json.dumps(specs, ensure_ascii=False)
+                })
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        return {"success": True, "specs": specs}
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception("Error en extraer_specs_pdf_endpoint: %s", e)
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Error al procesar la extracción: {str(e)}"
+        }
 

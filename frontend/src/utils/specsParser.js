@@ -286,19 +286,17 @@ export function parseProductSpecs(item) {
   }
 
   if (!fuenteResumen) {
-    const fuenteMatch = desc.match(/FUENTE(?:\s+DE\s+PODER)?:\s*([^;]+?)(?=\s+[A-Z0-9\s]+:|$)/i);
+    const fuenteMatch = desc.match(/(?:FUENTE(?:\s+DE\s+PODER)?|CASE|GABINETE|CHASIS):\s*([^;]+?)(?=\s+[A-Z0-9\s]+:|$)/i);
     const rawFuente = fuenteMatch ? fuenteMatch[1].trim() : '';
-    if (rawFuente && !/^(?:DE\s+PODER|PODER|FUENTE)$/i.test(rawFuente)) {
+    const wMatch = (rawFuente + ' ' + desc).match(/(?:FUENTE.*?|POTENCIA.*?|\b)(\d{2,4})\s*W(?:ATTS?)?(?:\s+REALES)?/i);
+    if (wMatch && (parseInt(wMatch[1]) >= 150 && parseInt(wMatch[1]) <= 2000)) {
+      let cert = '';
+      if (/80\s*PLUS\s*GOLD|80\+\s*GOLD/i.test(desc)) cert = ' • 80+ Gold';
+      else if (/80\s*PLUS\s*BRONZE|80\+\s*BRONZE/i.test(desc)) cert = ' • 80+ Bronze';
+      else if (/80\s*PLUS|80\+/i.test(desc)) cert = ' • 80+ White';
+      fuenteResumen = `${wMatch[1]}W${cert}`;
+    } else if (rawFuente && !/^(?:DE\s+PODER|PODER|FUENTE|CASE|GABINETE|CHASIS)$/i.test(rawFuente) && !rawFuente.startsWith('FORMATO')) {
       fuenteResumen = rawFuente;
-    } else {
-      const wattsMatch = desc.match(/(\d+)\s*WATTS?/i);
-      if (wattsMatch) {
-        let cert = '';
-        if (desc.includes('80 PLUS GOLD') || desc.includes('80+ GOLD')) cert = ' • 80+ Gold';
-        else if (desc.includes('80 PLUS BRONZE') || desc.includes('80+ BRONZE')) cert = ' • 80+ Bronze';
-        else if (desc.includes('80 PLUS') || desc.includes('80+')) cert = ' • 80+ White';
-        fuenteResumen = `${wattsMatch[1]}W${cert}`;
-      }
     }
   }
 
