@@ -83,6 +83,9 @@ def get_proveedor_fichas(
     unidad_optica: Optional[str] = Query(None, description="Filtro de Unidad Óptica: si, no"),
     camara: Optional[str] = Query(None, description="Filtro de Cámara Web: si, no"),
     tactil: Optional[str] = Query(None, description="Filtro de Pantalla Táctil: si, no"),
+    gpu_tipo: Optional[str] = Query(None, description="Filtro de GPU: dedicada, integrada"),
+    fuente: Optional[str] = Query(None, description="Filtro de Fuente: 80plus, 500w, 600w"),
+    monitor_hz: Optional[str] = Query(None, description="Filtro de Refresco Hz: 60, 75, 100, 144"),
     con_orden: Optional[bool] = Query(None, description="Filtrar solo fichas con orden de compra registrada"),
     mostrar_excluidas: bool = Query(False, description="Si es False (por defecto), solo muestra OFERTADA y sin estado. Si es True, incluye EXCLUIDA."),
     page: int = Query(1, ge=1),
@@ -435,6 +438,46 @@ def get_proveedor_fichas(
         elif '12' in garantia:
             where_clauses.append("UPPER(f.descripcion_producto) LIKE '%12 MESES%'")
 
+    if gpu_tipo and gpu_tipo != 'Todos':
+        gt_l = gpu_tipo.lower()
+        if 'dedicad' in gt_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%DEDICAD%'
+                OR UPPER(f.descripcion_producto) LIKE '%PCIE%'
+                OR UPPER(f.descripcion_producto) LIKE '%RTX%'
+                OR UPPER(f.descripcion_producto) LIKE '%GTX%'
+                OR UPPER(f.descripcion_producto) LIKE '%RADEON RX%'
+                OR UPPER(f.descripcion_producto) LIKE '%GEFORCE%'
+                OR (f.raw_json->'specs_pdf'->>'gpu_tipo' = 'Dedicada')
+            )""")
+        elif 'integrad' in gt_l:
+            where_clauses.append("""(
+                (UPPER(f.descripcion_producto) NOT LIKE '%DEDICAD%'
+                 AND UPPER(f.descripcion_producto) NOT LIKE '%RTX%'
+                 AND UPPER(f.descripcion_producto) NOT LIKE '%GTX%')
+                OR (f.raw_json->'specs_pdf'->>'gpu_tipo' = 'Integrada')
+            )""")
+
+    if fuente and fuente != 'Todos':
+        fu_l = fuente.lower()
+        if '80' in fu_l or 'plus' in fu_l:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%80 PLUS%' OR UPPER(f.descripcion_producto) LIKE '%80+%' OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%80+%')")
+        elif '600' in fu_l:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%600 W%' OR UPPER(f.descripcion_producto) LIKE '%650 W%' OR UPPER(f.descripcion_producto) LIKE '%700 W%' OR UPPER(f.descripcion_producto) LIKE '%750 W%' OR UPPER(f.descripcion_producto) LIKE '%850 W%' OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%600W%' OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%650W%' OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%750W%')")
+        elif '500' in fu_l:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%500 W%' OR UPPER(f.descripcion_producto) LIKE '%550 W%' OR UPPER(f.descripcion_producto) LIKE '%600 W%' OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%500W%' OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%600W%')")
+
+    if monitor_hz and monitor_hz != 'Todos':
+        mhz_l = monitor_hz.lower()
+        if '144' in mhz_l:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%144HZ%' OR UPPER(f.descripcion_producto) LIKE '%165HZ%' OR UPPER(f.descripcion_producto) LIKE '%180HZ%' OR UPPER(f.descripcion_producto) LIKE '%240HZ%' OR f.raw_json->'specs_pdf'->>'monitor_hz' IN ('144 Hz', '165 Hz', '180 Hz', '240 Hz'))")
+        elif '100' in mhz_l:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%100HZ%' OR UPPER(f.descripcion_producto) LIKE '%100 HZ%' OR UPPER(f.descripcion_producto) LIKE '%144HZ%' OR UPPER(f.descripcion_producto) LIKE '%165HZ%' OR f.raw_json->'specs_pdf'->>'monitor_hz' IN ('100 Hz', '120 Hz', '144 Hz', '165 Hz'))")
+        elif '75' in mhz_l:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%75HZ%' OR UPPER(f.descripcion_producto) LIKE '%75 HZ%' OR f.raw_json->'specs_pdf'->>'monitor_hz' = '75 Hz')")
+        elif '60' in mhz_l:
+            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%60HZ%' OR UPPER(f.descripcion_producto) LIKE '%60 HZ%' OR f.raw_json->'specs_pdf'->>'monitor_hz' = '60 Hz')")
+
     if not mostrar_excluidas:
         where_clauses.append("(f.estado_ficha_producto IS NULL OR TRIM(f.estado_ficha_producto) = '' OR UPPER(f.estado_ficha_producto) NOT LIKE 'EXCLU%')")
 
@@ -501,6 +544,7 @@ def get_proveedor_fichas(
                     f.region,
                     f.provincia,
                     f.pdf_url AS pdf_url,
+                    f.raw_json->'specs_pdf' AS specs_pdf,
                     f.estado_ficha_producto,
                     f.estado_oferta,
                     f.motivo_estado,
@@ -539,6 +583,7 @@ def get_proveedor_fichas(
                     r.region,
                     r.provincia,
                     r.pdf_url,
+                    r.specs_pdf,
                     r.estado_ficha_producto,
                     r.estado_oferta,
                     r.motivo_estado,
@@ -570,6 +615,7 @@ def get_proveedor_fichas(
                     MAX(r.region) AS region,
                     MAX(r.provincia) AS provincia,
                     MAX(r.pdf_url) AS pdf_url,
+                    (json_agg(r.specs_pdf) FILTER (WHERE r.specs_pdf IS NOT NULL AND r.specs_pdf::text != 'null'))->0 AS specs_pdf,
                     MAX(r.estado_ficha_producto) AS estado_ficha_producto,
                     MAX(r.estado_oferta) AS estado_oferta,
                     MAX(r.motivo_estado) AS motivo_estado,
@@ -622,6 +668,7 @@ def get_proveedor_fichas(
                 g.region,
                 g.provincia,
                 g.pdf_url,
+                g.specs_pdf,
                 g.estado_ficha_producto,
                 g.estado_oferta,
                 g.motivo_estado,
@@ -680,6 +727,7 @@ def get_proveedor_fichas(
                 f.region,
                 f.provincia,
                 f.pdf_url AS pdf_url,
+                f.raw_json->'specs_pdf' AS specs_pdf,
                 f.estado_ficha_producto,
                 f.estado_oferta,
                 f.motivo_estado,
@@ -704,6 +752,7 @@ def get_proveedor_fichas(
                     'region', f.region,
                     'provincia', f.provincia,
                     'pdf_url', f.pdf_url,
+                    'specs_pdf', f.raw_json->'specs_pdf',
                     'estado_ficha_producto', f.estado_ficha_producto,
                     'estado_oferta', f.estado_oferta,
                     'motivo_estado', f.motivo_estado,
@@ -738,6 +787,11 @@ def get_proveedor_fichas(
                         item_dict["ofertas"] = json.loads(item_dict["ofertas"])
                     except Exception:
                         item_dict["ofertas"] = []
+                if isinstance(item_dict.get("specs_pdf"), str):
+                    try:
+                        item_dict["specs_pdf"] = json.loads(item_dict["specs_pdf"])
+                    except Exception:
+                        pass
                 # Remove window columns from item dicts (they're aggregate-level)
                 item_dict.pop("total_competing_count", None)
                 item_dict.pop("total_stock_global", None)
@@ -1989,4 +2043,114 @@ async def trigger_sync_estados(
 def get_scrape_status():
     from app.services.proveedores_scraper import EXTRACTION_STATUS
     return EXTRACTION_STATUS
+
+
+from pydantic import BaseModel
+from typing import Any
+import concurrent.futures
+from app.services.pdf_extractor import extraer_especificaciones_pdf
+
+class ExtraerSpecsPdfRequest(BaseModel):
+    items: Optional[List[Dict[str, Any]]] = None
+    id: Optional[int] = None
+    nro_parte: Optional[str] = None
+    pdf_url: Optional[str] = None
+    categoria: Optional[str] = None
+    descripcion: Optional[str] = None
+
+@router.post("/extraer-specs-pdf")
+def extraer_specs_pdf_endpoint(
+    req: ExtraerSpecsPdfRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Extrae especificaciones técnicas oficiales desde los PDFs de las fichas
+    (GPU dedicada/integrada, Fuente de Poder Watts/80+, CPU, RAM, SSD/HDD, Monitor Hz/ms/brillo/panel, SO, etc.)
+    y las persiste en la base de datos en raw_json->'specs_pdf'.
+    """
+    if req.items:
+        results = {}
+        def _process_item(it):
+            np = (it.get("nro_parte") or "").strip()
+            pdf = (it.get("pdf_url") or "").strip()
+            cat = it.get("categoria") or "COMPUTADORA"
+            desc = it.get("descripcion") or ""
+            if not pdf or pdf == "#":
+                return np, None
+            try:
+                specs = extraer_especificaciones_pdf(origen=pdf, categoria=cat, descripcion_fallback=desc)
+                return np, specs
+            except Exception:
+                return np, None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_item = {executor.submit(_process_item, it): it for it in req.items if (it.get("nro_parte") or "").strip()}
+            for fut in concurrent.futures.as_completed(future_to_item):
+                np, specs = fut.result()
+                if np and specs:
+                    results[np] = specs
+                    try:
+                        db.execute(text("""
+                            UPDATE ofertas_proveedor_history
+                            SET raw_json = jsonb_set(COALESCE(raw_json, '{}'::jsonb), '{specs_pdf}', :specs_json::jsonb)
+                            WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
+                        """), {
+                            "np": np,
+                            "specs_json": json.dumps(specs, ensure_ascii=False)
+                        })
+                    except Exception:
+                        pass
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+
+        return {
+            "success": True,
+            "processed": len(results),
+            "specs_map": results
+        }
+
+    # Procesamiento para un solo ítem
+    url = (req.pdf_url or "").strip()
+    np = (req.nro_parte or "").strip()
+    cat = req.categoria or "COMPUTADORA"
+    desc = req.descripcion or ""
+
+    if (not url or url == "#") and np:
+        row = db.execute(text("""
+            SELECT pdf_url, descripcion_producto, categoria
+            FROM ofertas_proveedor_history
+            WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
+              AND pdf_url IS NOT NULL AND pdf_url != '#'
+            LIMIT 1
+        """), {"np": np}).mappings().first()
+        if row:
+            url = row["pdf_url"]
+            desc = desc or row.get("descripcion_producto") or ""
+            cat = cat or row.get("categoria") or "COMPUTADORA"
+
+    if not url or url == "#":
+        if desc:
+            specs = extraer_especificaciones_pdf(origen="", categoria=cat, descripcion_fallback=desc)
+            return {"success": True, "specs": specs, "warning": "Sin PDF disponible, extraído desde descripción"}
+        raise HTTPException(status_code=400, detail="No se encontró URL de PDF válida para esta ficha")
+
+    specs = extraer_especificaciones_pdf(origen=url, categoria=cat, descripcion_fallback=desc)
+
+    if np:
+        try:
+            db.execute(text("""
+                UPDATE ofertas_proveedor_history
+                SET raw_json = jsonb_set(COALESCE(raw_json, '{}'::jsonb), '{specs_pdf}', :specs_json::jsonb)
+                WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
+            """), {
+                "np": np,
+                "specs_json": json.dumps(specs, ensure_ascii=False)
+            })
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    return {"success": True, "specs": specs}
 

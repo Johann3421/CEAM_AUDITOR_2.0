@@ -114,11 +114,13 @@ const FILTERS_INIT = {
   marca: 'Todos', cpu: 'Todos', cpu_gen: 'Todos',
   ram: 'Todos', ram_tech: 'Todos',
   storage: 'Todos', disco_tipo: 'Todos',
+  gpu_tipo: 'Todos', fuente: 'Todos',
   vga: 'Todos', hdmi: 'Todos', wifi: 'Todos',
   lan: 'Todos', bluetooth: 'Todos',
   office: 'Todos', garantia: 'Todos',
   unidad_optica: 'Todos', camara: 'Todos', tactil: 'Todos',
   display: 'Todos', panel: 'Todos', resolution: 'Todos', os: 'Todos',
+  monitor_hz: 'Todos',
 };
 
 function filtersReducer(state, action) {
@@ -261,6 +263,9 @@ const FiltroPiezas = () => {
       if (f.panel !== 'Todos') params.panel = f.panel;
       if (f.resolution !== 'Todos') params.resolucion = f.resolution;
       if (f.os !== 'Todos') params.so = f.os;
+      if (f.gpu_tipo && f.gpu_tipo !== 'Todos') params.gpu_tipo = f.gpu_tipo;
+      if (f.fuente && f.fuente !== 'Todos') params.fuente = f.fuente;
+      if (f.monitor_hz && f.monitor_hz !== 'Todos') params.monitor_hz = f.monitor_hz;
 
       const res = await proveedoresApi.getFichas(params);
       if (currentReqId !== reqIdRef.current) return;
@@ -285,6 +290,80 @@ const FiltroPiezas = () => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // ── Estados de extracción de especificaciones PDF ───────────────────────
+  const [extractingPdfs, setExtractingPdfs] = useState(false);
+  const [extractProgress, setExtractProgress] = useState(null);
+
+  const handleExtraerSpecsPage = async () => {
+    if (extractingPdfs) return;
+    const itemsWithPdf = items.filter(it => it.pdf_url && it.pdf_url !== '#');
+    if (itemsWithPdf.length === 0) {
+      alert('No hay fichas con PDF disponible en esta página.');
+      return;
+    }
+
+    setExtractingPdfs(true);
+    setExtractProgress(`Extrayendo especificaciones oficiales de ${itemsWithPdf.length} fichas PDF...`);
+    try {
+      const payload = {
+        items: itemsWithPdf.map(it => ({
+          id: it.id,
+          nro_parte: it.nro_parte,
+          pdf_url: it.pdf_url,
+          categoria: it.categoria || it.catalogo,
+          descripcion: it.descripcion || it.descripcion_producto
+        }))
+      };
+
+      const res = await proveedoresApi.extraerSpecsPdf(payload);
+      if (res.data?.specs_map) {
+        const specsMap = res.data.specs_map;
+        setItems(prevItems => prevItems.map(it => {
+          const np = it.nro_parte;
+          if (specsMap[np]) {
+            const updated = { ...it, specs_pdf: specsMap[np] };
+            return { ...updated, specs: parseProductSpecs(updated) };
+          }
+          return it;
+        }));
+        setExtractProgress(`✓ ¡Éxito! Se enriquecieron ${res.data.processed || Object.keys(specsMap).length} fichas técnicas desde sus PDFs.`);
+        setTimeout(() => setExtractProgress(null), 4000);
+      }
+    } catch (err) {
+      console.error('Error al extraer specs de PDF:', err);
+      setExtractProgress(`Error: ${err?.response?.data?.detail || err.message}`);
+      setTimeout(() => setExtractProgress(null), 5000);
+    } finally {
+      setExtractingPdfs(false);
+    }
+  };
+
+  const handleExtraerIndividual = async (item) => {
+    if (!item.pdf_url || item.pdf_url === '#') return;
+    try {
+      const payload = {
+        id: item.id,
+        nro_parte: item.nro_parte,
+        pdf_url: item.pdf_url,
+        categoria: item.categoria || item.catalogo,
+        descripcion: item.descripcion || item.descripcion_producto
+      };
+      const res = await proveedoresApi.extraerSpecsPdf(payload);
+      if (res.data?.specs) {
+        const specs = res.data.specs;
+        setItems(prevItems => prevItems.map(it => {
+          if (it.id === item.id || it.nro_parte === item.nro_parte) {
+            const updated = { ...it, specs_pdf: specs };
+            return { ...updated, specs: parseProductSpecs(updated) };
+          }
+          return it;
+        }));
+      }
+    } catch (err) {
+      console.error('Error extrayendo ficha individual:', err);
+    }
+  };
 
   // ── Reset dynamic spec filters when category changes ────────────────────
   const handleCategoryChange = (catId) => {
@@ -314,7 +393,9 @@ const FiltroPiezas = () => {
 
   const catType = activeCategoryConfig.type || 'all';
   const showCpuRamStorage = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'all';
+  const showGpuPsu = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'all';
   const showDisplay = catType === 'laptop' || catType === 'aio' || catType === 'monitor' || catType === 'display' || catType === 'tablet' || catType === 'all';
+  const showMonitorSpecs = catType === 'monitor' || catType === 'display' || catType === 'all';
   const showPanelResolution = catType === 'monitor' || catType === 'display' || catType === 'all';
   const showOs = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'all';
   const showPorts = catType === 'desktop' || catType === 'laptop' || catType === 'aio' || catType === 'monitor' || catType === 'all';
@@ -386,6 +467,29 @@ const FiltroPiezas = () => {
 
           <button
             className="btn btn-sm"
+            onClick={handleExtraerSpecsPage}
+            disabled={extractingPdfs || items.length === 0}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 8,
+              background: 'rgba(37,99,235,0.08)',
+              color: 'var(--c-brand)',
+              border: '1px solid rgba(37,99,235,0.25)',
+              fontWeight: 700,
+              fontSize: 12,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              cursor: extractingPdfs ? 'not-allowed' : 'pointer'
+            }}
+            title="Extrae en paralelo las especificaciones oficiales de los PDFs de esta página (GPU, Fuente, Monitores, etc.)"
+          >
+            <Sparkles size={14} className={extractingPdfs ? 'spin' : ''} />
+            {extractingPdfs ? 'Extrayendo PDFs...' : 'Extraer Specs PDF'}
+          </button>
+
+          <button
+            className="btn btn-sm"
             onClick={fetchData}
             disabled={loading}
             style={{ padding: '7px 12px', borderRadius: 8 }}
@@ -395,6 +499,35 @@ const FiltroPiezas = () => {
           </button>
         </div>
       </div>
+
+      {/* ── Status Banner for PDF Extraction ───────────────────────────── */}
+      {extractProgress && (
+        <div className="card fade-up" style={{
+          marginBottom: 12,
+          padding: '10px 16px',
+          borderRadius: 8,
+          background: extractProgress.startsWith('Error') ? 'rgba(239,68,68,0.08)' : 'rgba(37,99,235,0.08)',
+          color: extractProgress.startsWith('Error') ? 'var(--c-danger)' : 'var(--c-brand)',
+          border: `1px solid ${extractProgress.startsWith('Error') ? 'rgba(239,68,68,0.25)' : 'rgba(37,99,235,0.25)'}`,
+          fontSize: 12,
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {extractingPdfs ? <RefreshCw size={14} className="spin" /> : <Sparkles size={14} />}
+            <span>{extractProgress}</span>
+          </div>
+          <button
+            onClick={() => setExtractProgress(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex' }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* ── Toolbar: Search, Stock & Order Checkboxes, Sort By ─────────── */}
       <div className="card fade-up" style={{ marginBottom: 12, padding: '10px 16px', background: 'var(--c-surface)', border: '1px solid var(--c-border)' }}>
@@ -766,6 +899,69 @@ const FiltroPiezas = () => {
               </select>
             </div>
           )}
+
+          {/* Tarjeta Gráfica */}
+          {showGpuPsu && (
+            <div>
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Layers size={12} style={{ color: '#16a34a' }} />
+                Tarjeta Gráfica
+              </label>
+              <select
+                className="form-select"
+                style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
+                value={filters.gpu_tipo}
+                onChange={(e) => { setFilter('gpu_tipo', e.target.value); setPage(1); }}
+              >
+                <option value="Todos">Todos</option>
+                <option value="Dedicada">Con Tarjeta Dedicada (RTX/GTX/PCIe)</option>
+                <option value="Integrada">Gráficos Integrados</option>
+              </select>
+            </div>
+          )}
+
+          {/* Fuente de Poder */}
+          {showGpuPsu && (
+            <div>
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Sparkles size={12} style={{ color: '#ea580c' }} />
+                Fuente de Poder
+              </label>
+              <select
+                className="form-select"
+                style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
+                value={filters.fuente}
+                onChange={(e) => { setFilter('fuente', e.target.value); setPage(1); }}
+              >
+                <option value="Todos">Todos</option>
+                <option value="80plus">Certificación 80 Plus (Bronze/Gold)</option>
+                <option value="600w">600 Watts o superior</option>
+                <option value="500w">500 Watts o superior</option>
+              </select>
+            </div>
+          )}
+
+          {/* Tasa de Refresco (Monitores) */}
+          {showMonitorSpecs && (
+            <div>
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Tv size={12} style={{ color: 'var(--c-brand)' }} />
+                Tasa de Refresco (Hz)
+              </label>
+              <select
+                className="form-select"
+                style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
+                value={filters.monitor_hz}
+                onChange={(e) => { setFilter('monitor_hz', e.target.value); setPage(1); }}
+              >
+                <option value="Todos">Todos</option>
+                <option value="144">144 Hz o superior (Gaming / Pro)</option>
+                <option value="100">100 Hz o superior</option>
+                <option value="75">75 Hz</option>
+                <option value="60">60 Hz</option>
+              </select>
+            </div>
+          )}
         </div>
 
         {/* ── SECCIÓN 2: PUERTOS Y CONECTIVIDAD — generado dinámicamente ─── */}
@@ -1123,6 +1319,54 @@ const FiltroPiezas = () => {
                           {sp.os}
                         </span>
                       )}
+                      {/* GPU Chip */}
+                      {sp.gpuResumen && (
+                        <span style={{
+                          fontSize: 11,
+                          padding: '3px 8px',
+                          borderRadius: 6,
+                          background: sp.gpuTipo === 'Dedicada' ? 'rgba(34,197,94,0.1)' : '#f1f5f9',
+                          color: sp.gpuTipo === 'Dedicada' ? '#166534' : '#475569',
+                          fontWeight: 600,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}>
+                          🎮 {sp.gpuTipo === 'Dedicada' ? 'GPU Dedicada' : 'GPU Integrada'}: {sp.gpuResumen}
+                        </span>
+                      )}
+                      {/* Fuente de Poder Chip */}
+                      {sp.fuenteResumen && (
+                        <span style={{
+                          fontSize: 11,
+                          padding: '3px 8px',
+                          borderRadius: 6,
+                          background: 'rgba(234,88,12,0.08)',
+                          color: '#c2410c',
+                          fontWeight: 600,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}>
+                          ⚡ Fuente: {sp.fuenteResumen}
+                        </span>
+                      )}
+                      {/* Monitor Hz, ms, brillo Chips */}
+                      {sp.monitorHz && (
+                        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(37,99,235,0.08)', color: 'var(--c-brand)', fontWeight: 700 }}>
+                          ⚡ {sp.monitorHz}
+                        </span>
+                      )}
+                      {sp.monitorMs && (
+                        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'rgba(5,150,105,0.08)', color: 'var(--c-success)', fontWeight: 600 }}>
+                          ⏱️ {sp.monitorMs}
+                        </span>
+                      )}
+                      {sp.monitorBrillo && (
+                        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: '#f8fafc', border: '1px solid #e2e8f0', color: '#475569', fontWeight: 500 }}>
+                          ☀️ {sp.monitorBrillo}
+                        </span>
+                      )}
                     </div>
 
                     {/* Ports & Features Badges (VGA, HDMI, LAN, Wi-Fi, Office, Garantía) */}
@@ -1354,27 +1598,48 @@ const FiltroPiezas = () => {
                       )}
                       <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
                         {pdfUrl && pdfUrl !== '#' && (
-                          <a
-                            href={pdfUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="btn btn-sm"
-                            style={{
-                              fontSize: 11,
-                              padding: '4px 10px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              background: 'rgba(37,99,235,0.08)',
-                              color: 'var(--c-brand)',
-                              borderColor: 'rgba(37,99,235,0.25)',
-                              fontWeight: 600
-                            }}
-                            title="Abrir Ficha Técnica Oficial PDF"
-                          >
-                            <FileText size={13} />
-                            Ficha PDF
-                          </a>
+                          <>
+                            <button
+                              onClick={() => handleExtraerIndividual(item)}
+                              className="btn btn-sm"
+                              style={{
+                                fontSize: 11,
+                                padding: '4px 8px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: 'rgba(22,163,74,0.08)',
+                                color: '#16a34a',
+                                borderColor: 'rgba(22,163,74,0.25)',
+                                fontWeight: 600
+                              }}
+                              title="Extrae y actualiza las especificaciones técnicas oficiales desde su PDF"
+                            >
+                              <Sparkles size={12} />
+                              Extraer
+                            </button>
+                            <a
+                              href={pdfUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-sm"
+                              style={{
+                                fontSize: 11,
+                                padding: '4px 10px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                background: 'rgba(37,99,235,0.08)',
+                                color: 'var(--c-brand)',
+                                borderColor: 'rgba(37,99,235,0.25)',
+                                fontWeight: 600
+                              }}
+                              title="Abrir Ficha Técnica Oficial PDF"
+                            >
+                              <FileText size={13} />
+                              Ficha PDF
+                            </a>
+                          </>
                         )}
                       </div>
                     </div>
@@ -1413,6 +1678,11 @@ const FiltroPiezas = () => {
                   {showCpuRamStorage && <th>CPU / Gen</th>}
                   {showCpuRamStorage && <th>RAM / Tipo</th>}
                   {(showCpuRamStorage || catType === 'storage') && <th>Disco / Tipo</th>}
+                  {showGpuPsu && <th>Tarjeta Gráfica</th>}
+                  {showGpuPsu && <th>Fuente de Poder</th>}
+                  {showMonitorSpecs && <th>Hz / Refresco</th>}
+                  {showMonitorSpecs && <th>Ms / Resp.</th>}
+                  {showMonitorSpecs && <th>Brillo / Contraste</th>}
                   {showPorts && <th>VGA</th>}
                   {showPorts && <th>HDMI</th>}
                   {showPorts && <th>Wi-Fi</th>}
@@ -1453,6 +1723,11 @@ const FiltroPiezas = () => {
                       {showCpuRamStorage && <td><div className="skeleton" style={{ height: 16, width: 100 }} /></td>}
                       {showCpuRamStorage && <td><div className="skeleton" style={{ height: 16, width: 60 }} /></td>}
                       {(showCpuRamStorage || catType === 'storage') && <td><div className="skeleton" style={{ height: 16, width: 80 }} /></td>}
+                      {showGpuPsu && <td><div className="skeleton" style={{ height: 16, width: 90 }} /></td>}
+                      {showGpuPsu && <td><div className="skeleton" style={{ height: 16, width: 70 }} /></td>}
+                      {showMonitorSpecs && <td><div className="skeleton" style={{ height: 16, width: 50 }} /></td>}
+                      {showMonitorSpecs && <td><div className="skeleton" style={{ height: 16, width: 40 }} /></td>}
+                      {showMonitorSpecs && <td><div className="skeleton" style={{ height: 16, width: 80 }} /></td>}
                       {showPorts && <td><div className="skeleton" style={{ height: 16, width: 35 }} /></td>}
                       {showPorts && <td><div className="skeleton" style={{ height: 16, width: 35 }} /></td>}
                       {showPorts && <td><div className="skeleton" style={{ height: 16, width: 35 }} /></td>}
@@ -1510,6 +1785,49 @@ const FiltroPiezas = () => {
                           <td style={{ fontSize: 11 }}>
                             {sp.storage || '—'}
                             {sp.discoTipo && <span style={{ fontSize: 10, color: '#d97706', display: 'block' }}>{sp.discoTipo}</span>}
+                          </td>
+                        )}
+                        {showGpuPsu && (
+                          <td style={{ fontSize: 11 }}>
+                            {sp.gpuResumen ? (
+                              <div>
+                                <span style={{
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                  padding: '1px 5px',
+                                  borderRadius: 4,
+                                  background: sp.gpuTipo === 'Dedicada' ? 'rgba(34,197,94,0.12)' : '#f1f5f9',
+                                  color: sp.gpuTipo === 'Dedicada' ? '#166534' : '#475569',
+                                  display: 'inline-block',
+                                  marginBottom: 2
+                                }}>
+                                  {sp.gpuTipo || 'GPU'}
+                                </span>
+                                <span style={{ color: 'var(--c-text-primary)', fontSize: 10, display: 'block', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={sp.gpuResumen}>
+                                  {sp.gpuResumen}
+                                </span>
+                              </div>
+                            ) : '—'}
+                          </td>
+                        )}
+                        {showGpuPsu && (
+                          <td style={{ fontSize: 11, color: sp.fuenteResumen ? '#334155' : 'inherit', fontWeight: sp.fuenteResumen ? 600 : 'normal' }}>
+                            {sp.fuenteResumen || '—'}
+                          </td>
+                        )}
+                        {showMonitorSpecs && (
+                          <td style={{ fontSize: 11, fontWeight: 700, color: sp.monitorHz ? '#2563eb' : 'inherit' }}>
+                            {sp.monitorHz || '—'}
+                          </td>
+                        )}
+                        {showMonitorSpecs && (
+                          <td style={{ fontSize: 11, fontWeight: 600, color: sp.monitorMs ? '#059669' : 'inherit' }}>
+                            {sp.monitorMs || '—'}
+                          </td>
+                        )}
+                        {showMonitorSpecs && (
+                          <td style={{ fontSize: 10, color: 'var(--c-text-secondary)', whiteSpace: 'nowrap' }}>
+                            {[sp.monitorBrillo, sp.monitorContraste].filter(Boolean).join(' • ') || '—'}
                           </td>
                         )}
                         {showPorts && (
@@ -1637,16 +1955,32 @@ const FiltroPiezas = () => {
                         </td>
                         <td style={{ textAlign: 'center' }}>
                           {pdfUrl && pdfUrl !== '#' ? (
-                            <a
-                              href={pdfUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn btn-sm"
-                              style={{ padding: '3px 8px', fontSize: 11 }}
-                              title="Descargar / Ver PDF"
-                            >
-                              <ExternalLink size={12} />
-                            </a>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <button
+                                onClick={() => handleExtraerIndividual(item)}
+                                className="btn btn-sm"
+                                style={{
+                                  padding: '3px 6px',
+                                  fontSize: 11,
+                                  color: '#16a34a',
+                                  background: 'rgba(22,163,74,0.08)',
+                                  borderColor: 'rgba(22,163,74,0.25)'
+                                }}
+                                title="Extraer specs oficiales desde PDF"
+                              >
+                                <Sparkles size={12} />
+                              </button>
+                              <a
+                                href={pdfUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn btn-sm"
+                                style={{ padding: '3px 8px', fontSize: 11 }}
+                                title="Descargar / Ver PDF"
+                              >
+                                <ExternalLink size={12} />
+                              </a>
+                            </div>
                           ) : '—'}
                         </td>
                       </tr>

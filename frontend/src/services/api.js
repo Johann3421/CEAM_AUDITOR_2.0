@@ -74,6 +74,7 @@ export const proveedoresApi = {
   clearData: (params) => api.post('/proveedores/clear', null, { params }),
   getFilterOptions: (params) => api.get('/proveedores/filter-options', { params }),
   syncEstados: (params) => api.post('/proveedores/sync-estados', null, { params }),
+  extraerSpecsPdf: (data, params) => api.post('/proveedores/extraer-specs-pdf', data, { params }),
 };
 
 export default api;
