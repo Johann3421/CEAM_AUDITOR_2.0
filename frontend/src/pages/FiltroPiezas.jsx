@@ -4,7 +4,7 @@ import {
   Cpu, HardDrive, Monitor, Layers, Search, Filter,
   ExternalLink, Building2, LayoutGrid, List, Sparkles, X, RefreshCw,
   SlidersHorizontal, Laptop, Printer, Smartphone, Clock,
-  FileText, Check, Copy, AlertCircle, ChevronLeft, ChevronRight,
+  FileText, Check, Copy, AlertCircle, ChevronLeft, ChevronRight, ChevronDown,
   ChevronsLeft, ChevronsRight, Tv, MonitorCheck, Wifi, Shield,
   Briefcase, Disc, Camera, Touchpad, Cable, ArrowUp, ArrowDown, ChevronsUpDown, Tag, Package
 } from 'lucide-react';
@@ -294,8 +294,52 @@ const FiltroPiezas = () => {
   // ── Estados de extracción de especificaciones PDF ───────────────────────
   const [extractingPdfs, setExtractingPdfs] = useState(false);
   const [extractProgress, setExtractProgress] = useState(null);
+  const [extractMenuOpen, setExtractMenuOpen] = useState(false);
+  const [bgTaskStatus, setBgTaskStatus] = useState(null);
+  const pollingRef = useRef(null);
+
+  const startPollingStatus = useCallback(() => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    pollingRef.current = setInterval(async () => {
+      try {
+        const res = await proveedoresApi.getExtraerSpecsStatus();
+        const task = res.data;
+        setBgTaskStatus(task);
+        if (task && task.status === 'completed') {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+          setExtractProgress(`✓ ¡Extracción completada! Se enriquecieron ${task.processed} fichas oficiales de ${task.categoria}.`);
+          fetchData();
+          setTimeout(() => {
+            setExtractProgress(null);
+            setBgTaskStatus(null);
+          }, 6000);
+        } else if (task && task.status === 'error') {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+          setExtractProgress(`Error en la extracción: ${task.last_error || 'Desconocido'}`);
+          setTimeout(() => setExtractProgress(null), 6000);
+        }
+      } catch (err) {
+        console.error('Error consultando status de extracción:', err);
+      }
+    }, 2500);
+  }, [fetchData]);
+
+  useEffect(() => {
+    proveedoresApi.getExtraerSpecsStatus().then(res => {
+      if (res.data?.status === 'running') {
+        setBgTaskStatus(res.data);
+        startPollingStatus();
+      }
+    }).catch(() => {});
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [startPollingStatus]);
 
   const handleExtraerSpecsPage = async () => {
+    setExtractMenuOpen(false);
     if (extractingPdfs) return;
     const itemsWithPdf = items.filter(it => it.pdf_url && it.pdf_url !== '#');
     if (itemsWithPdf.length === 0) {
@@ -304,7 +348,7 @@ const FiltroPiezas = () => {
     }
 
     setExtractingPdfs(true);
-    setExtractProgress(`Extrayendo especificaciones oficiales de ${itemsWithPdf.length} fichas PDF...`);
+    setExtractProgress(`Extrayendo especificaciones oficiales de ${itemsWithPdf.length} fichas PDF de la página actual...`);
     try {
       const payload = {
         items: itemsWithPdf.map(it => ({
@@ -332,6 +376,35 @@ const FiltroPiezas = () => {
       }
     } catch (err) {
       console.error('Error al extraer specs de PDF:', err);
+      setExtractProgress(`Error: ${err?.response?.data?.detail || err.message}`);
+      setTimeout(() => setExtractProgress(null), 5000);
+    } finally {
+      setExtractingPdfs(false);
+    }
+  };
+
+  const handleExtraerCategoria = async () => {
+    setExtractMenuOpen(false);
+    const catName = activeCategoryConfig.name || selectedCategory;
+    const confirmMsg = `¿Deseas iniciar la extracción de especificaciones oficiales desde PDFs para TODA la categoría "${catName}"?\n\nSe procesarán en segundo plano todas las fichas con PDF.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setExtractingPdfs(true);
+    setExtractProgress(`Iniciando extracción para toda la categoría "${catName}"...`);
+    try {
+      const res = await proveedoresApi.extraerSpecsPdf({
+        categoria: selectedCategory === 'all' ? 'COMPUTADORA DE ESCRITORIO' : selectedCategory,
+        extraer_todo_categoria: true
+      });
+      if (res.data?.started) {
+        setExtractProgress(`Iniciada extracción en segundo plano de ${res.data.total} fichas de ${res.data.categoria}...`);
+        startPollingStatus();
+      } else if (res.data?.message) {
+        setExtractProgress(res.data.message);
+        setTimeout(() => setExtractProgress(null), 5000);
+      }
+    } catch (err) {
+      console.error('Error al iniciar extracción de categoría:', err);
       setExtractProgress(`Error: ${err?.response?.data?.detail || err.message}`);
       setTimeout(() => setExtractProgress(null), 5000);
     } finally {
@@ -465,28 +538,122 @@ const FiltroPiezas = () => {
             </button>
           </div>
 
-          <button
-            className="btn btn-sm"
-            onClick={handleExtraerSpecsPage}
-            disabled={extractingPdfs || items.length === 0}
-            style={{
-              padding: '6px 14px',
-              borderRadius: 8,
-              background: 'rgba(37,99,235,0.08)',
-              color: 'var(--c-brand)',
-              border: '1px solid rgba(37,99,235,0.25)',
-              fontWeight: 700,
-              fontSize: 12,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              cursor: extractingPdfs ? 'not-allowed' : 'pointer'
-            }}
-            title="Extrae en paralelo las especificaciones oficiales de los PDFs de esta página (GPU, Fuente, Monitores, etc.)"
-          >
-            <Sparkles size={14} className={extractingPdfs ? 'spin' : ''} />
-            {extractingPdfs ? 'Extrayendo PDFs...' : 'Extraer Specs PDF'}
-          </button>
+          {/* Menu de Extracción de Specs PDF */}
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'inline-flex', borderRadius: 8, border: '1px solid rgba(37,99,235,0.25)', overflow: 'hidden' }}>
+              <button
+                className="btn btn-sm"
+                onClick={handleExtraerSpecsPage}
+                disabled={extractingPdfs || items.length === 0}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 0,
+                  background: 'rgba(37,99,235,0.08)',
+                  color: 'var(--c-brand)',
+                  border: 'none',
+                  fontWeight: 700,
+                  fontSize: 12,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  cursor: extractingPdfs ? 'not-allowed' : 'pointer'
+                }}
+                title="Extrae en paralelo las especificaciones oficiales de los PDFs de esta página (GPU, Fuente, Monitores, etc.)"
+              >
+                <Sparkles size={14} className={extractingPdfs ? 'spin' : ''} />
+                {extractingPdfs ? 'Extrayendo...' : 'Extraer Specs PDF'}
+              </button>
+              <button
+                className="btn btn-sm"
+                onClick={() => setExtractMenuOpen(!extractMenuOpen)}
+                disabled={extractingPdfs}
+                style={{
+                  padding: '6px 8px',
+                  borderRadius: 0,
+                  background: 'rgba(37,99,235,0.12)',
+                  color: 'var(--c-brand)',
+                  border: 'none',
+                  borderLeft: '1px solid rgba(37,99,235,0.25)',
+                  cursor: 'pointer'
+                }}
+                title="Opciones de extracción"
+              >
+                <ChevronDown size={14} />
+              </button>
+            </div>
+
+            {extractMenuOpen && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: 4,
+                background: 'var(--c-surface)',
+                border: '1px solid var(--c-border)',
+                borderRadius: 8,
+                boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+                padding: '6px 0',
+                minWidth: 270,
+                zIndex: 100
+              }}>
+                <button
+                  onClick={handleExtraerSpecsPage}
+                  disabled={extractingPdfs || items.length === 0}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '8px 14px',
+                    fontSize: 12,
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    color: 'var(--c-text-primary)'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.04)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Sparkles size={13} style={{ color: 'var(--c-brand)' }} />
+                    Extraer página actual ({items.filter(it => it.pdf_url && it.pdf_url !== '#').length} fichas)
+                  </strong>
+                  <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginLeft: 19 }}>
+                    Rápido, solo las fichas de la vista actual
+                  </span>
+                </button>
+
+                <div style={{ height: 1, background: 'var(--c-border)', margin: '4px 0' }} />
+
+                <button
+                  onClick={handleExtraerCategoria}
+                  disabled={extractingPdfs || (bgTaskStatus && bgTaskStatus.status === 'running')}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '8px 14px',
+                    fontSize: 12,
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    color: 'var(--c-text-primary)'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.04)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <strong style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#16a34a' }}>
+                    <Layers size={13} />
+                    Extraer toda la categoría: {activeCategoryConfig.name || selectedCategory}
+                  </strong>
+                  <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginLeft: 19 }}>
+                    Procesa todas las fichas oficiales en segundo plano
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
             className="btn btn-sm"
@@ -499,6 +666,42 @@ const FiltroPiezas = () => {
           </button>
         </div>
       </div>
+
+      {/* ── Background Extraction Live Progress Banner ───────────────────── */}
+      {bgTaskStatus && bgTaskStatus.status === 'running' && (
+        <div className="card fade-up" style={{
+          marginBottom: 12,
+          padding: '12px 18px',
+          borderRadius: 8,
+          background: 'rgba(37,99,235,0.05)',
+          border: '1px solid rgba(37,99,235,0.25)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <RefreshCw size={18} className="spin" style={{ color: 'var(--c-brand)' }} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-text-primary)' }}>
+                Extrayendo especificaciones oficiales desde PDFs: {bgTaskStatus.categoria}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginTop: 2 }}>
+                Procesando <strong>{bgTaskStatus.processed}</strong> de <strong>{bgTaskStatus.total}</strong> fichas técnicas ({Math.round((bgTaskStatus.processed / Math.max(1, bgTaskStatus.total)) * 100)}%)
+              </div>
+            </div>
+          </div>
+          <div style={{ width: 160, height: 8, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${Math.min(100, Math.round((bgTaskStatus.processed / Math.max(1, bgTaskStatus.total)) * 100))}%`,
+              background: 'var(--c-brand)',
+              transition: 'width 0.4s ease'
+            }} />
+          </div>
+        </div>
+      )}
 
       {/* ── Status Banner for PDF Extraction ───────────────────────────── */}
       {extractProgress && (

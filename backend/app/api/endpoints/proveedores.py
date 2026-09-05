@@ -2057,17 +2057,147 @@ class ExtraerSpecsPdfRequest(BaseModel):
     pdf_url: Optional[str] = None
     categoria: Optional[str] = None
     descripcion: Optional[str] = None
+    extraer_todo_categoria: Optional[bool] = False
+    forzar: Optional[bool] = False
+
+
+_EXTRACTION_TASK: Dict[str, Any] = {
+    "status": "idle",
+    "categoria": None,
+    "total": 0,
+    "processed": 0,
+    "errors": 0,
+    "last_error": None
+}
+
+
+def _run_bulk_category_extraction(items: List[Dict[str, Any]], cat_name: str):
+    global _EXTRACTION_TASK
+    _EXTRACTION_TASK["status"] = "running"
+    _EXTRACTION_TASK["categoria"] = cat_name
+    _EXTRACTION_TASK["total"] = len(items)
+    _EXTRACTION_TASK["processed"] = 0
+    _EXTRACTION_TASK["errors"] = 0
+    _EXTRACTION_TASK["last_error"] = None
+
+    from app.db.database import SessionLocal
+    db_bg = SessionLocal()
+    try:
+        def _worker(it):
+            np = (it.get("nro_parte") or "").strip()
+            pdf = (it.get("pdf_url") or "").strip()
+            cat = it.get("categoria") or cat_name or "COMPUTADORA"
+            desc = it.get("descripcion_producto") or it.get("descripcion") or ""
+            if not pdf or pdf == "#":
+                return np, None
+            try:
+                specs = extraer_especificaciones_pdf(origen=pdf, categoria=cat, descripcion_fallback=desc)
+                return np, specs
+            except Exception:
+                return np, None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+            future_to_item = {executor.submit(_worker, it): it for it in items}
+            batch_count = 0
+            for fut in concurrent.futures.as_completed(future_to_item):
+                _EXTRACTION_TASK["processed"] += 1
+                try:
+                    np, specs = fut.result()
+                    if np and specs:
+                        db_bg.execute(text("""
+                            UPDATE ofertas_proveedor_history
+                            SET raw_json = jsonb_set(COALESCE(raw_json, '{}'::jsonb), '{specs_pdf}', :specs_json::jsonb)
+                            WHERE UPPER(TRIM(nro_parte)) = UPPER(TRIM(:np))
+                        """), {
+                            "np": np,
+                            "specs_json": json.dumps(specs, ensure_ascii=False)
+                        })
+                        batch_count += 1
+                        if batch_count >= 10:
+                            db_bg.commit()
+                            batch_count = 0
+                except Exception as ex:
+                    _EXTRACTION_TASK["errors"] += 1
+                    _EXTRACTION_TASK["last_error"] = str(ex)
+
+            db_bg.commit()
+        _EXTRACTION_TASK["status"] = "completed"
+    except Exception as e:
+        _EXTRACTION_TASK["status"] = "error"
+        _EXTRACTION_TASK["last_error"] = str(e)
+    finally:
+        db_bg.close()
+
+
+@router.get("/extraer-specs-status")
+def get_extraer_specs_status_endpoint():
+    """Retorna el estado en tiempo real de la extracción de especificaciones PDF."""
+    return _EXTRACTION_TASK
+
 
 @router.post("/extraer-specs-pdf")
 def extraer_specs_pdf_endpoint(
     req: ExtraerSpecsPdfRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
     Extrae especificaciones técnicas oficiales desde los PDFs de las fichas
     (GPU dedicada/integrada, Fuente de Poder Watts/80+, CPU, RAM, SSD/HDD, Monitor Hz/ms/brillo/panel, SO, etc.)
     y las persiste en la base de datos en raw_json->'specs_pdf'.
+    Permite extracción por página, individual o de toda la categoría en segundo plano.
     """
+    # 1. Extracción de toda la categoría en background
+    if req.extraer_todo_categoria:
+        cat = (req.categoria or "").strip()
+        is_all = not cat or cat.lower() == 'todos'
+
+        sql = """
+            SELECT DISTINCT ON (UPPER(TRIM(nro_parte)))
+                nro_parte, pdf_url, descripcion_producto, categoria
+            FROM ofertas_proveedor_history
+            WHERE pdf_url IS NOT NULL AND pdf_url != '#'
+        """
+        params: Dict[str, Any] = {}
+        if not is_all:
+            sql += " AND (UPPER(categoria) LIKE :cat OR UPPER(catalogo) LIKE :cat OR UPPER(descripcion_producto) LIKE :cat)"
+            params["cat"] = f"%{cat.upper()}%"
+
+        if not req.forzar:
+            sql += " AND (raw_json->'specs_pdf' IS NULL OR raw_json->'specs_pdf' = '{}'::jsonb)"
+
+        sql += " ORDER BY UPPER(TRIM(nro_parte)), id DESC"
+
+        rows = db.execute(text(sql), params).mappings().all()
+        items_to_process = [dict(r) for r in rows]
+
+        if not items_to_process:
+            return {
+                "success": True,
+                "message": "Todas las fichas técnicas con PDF de esta categoría ya fueron enriquecidas.",
+                "total": 0,
+                "processed": 0
+            }
+
+        if _EXTRACTION_TASK["status"] == "running":
+            return {
+                "success": True,
+                "already_running": True,
+                "task": _EXTRACTION_TASK,
+                "message": f"Ya hay una extracción en curso para {_EXTRACTION_TASK['categoria']} ({_EXTRACTION_TASK['processed']}/{_EXTRACTION_TASK['total']})."
+            }
+
+        cat_label = cat if not is_all else "Todas las categorías"
+        background_tasks.add_task(_run_bulk_category_extraction, items_to_process, cat_label)
+        return {
+            "success": True,
+            "started": True,
+            "total": len(items_to_process),
+            "categoria": cat_label,
+            "message": f"Iniciada la extracción en segundo plano de {len(items_to_process)} fichas técnicas de {cat_label}."
+        }
+
+    # 2. Extracción de un lote de ítems (ej. página actual)
     if req.items:
         results = {}
         def _process_item(it):
@@ -2083,7 +2213,7 @@ def extraer_specs_pdf_endpoint(
             except Exception:
                 return np, None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
             future_to_item = {executor.submit(_process_item, it): it for it in req.items if (it.get("nro_parte") or "").strip()}
             for fut in concurrent.futures.as_completed(future_to_item):
                 np, specs = fut.result()
@@ -2111,7 +2241,7 @@ def extraer_specs_pdf_endpoint(
             "specs_map": results
         }
 
-    # Procesamiento para un solo ítem
+    # 3. Procesamiento para un solo ítem individual
     url = (req.pdf_url or "").strip()
     np = (req.nro_parte or "").strip()
     cat = req.categoria or "COMPUTADORA"

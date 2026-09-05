@@ -56,14 +56,17 @@ def leer_bytes_pdf(origen: Union[str, Path, bytes, BytesIO]) -> Optional[bytes]:
 
 
 def extraer_texto_crudo(pdf_bytes: bytes) -> str:
-    """Extrae el texto completo de todas las páginas del PDF con pypdf."""
+    """Extrae el texto de todas las páginas del PDF preservando el layout de columnas."""
     if not pdf_bytes:
         return ""
     try:
         reader = PdfReader(BytesIO(pdf_bytes))
         paginas_texto = []
         for page in reader.pages:
-            txt = page.extract_text() or ""
+            try:
+                txt = page.extract_text(extraction_mode="layout") or ""
+            except Exception:
+                txt = page.extract_text() or ""
             paginas_texto.append(txt)
         return "\n".join(paginas_texto)
     except Exception:
@@ -98,54 +101,73 @@ def sanitizar_valor(valor: str) -> Optional[str]:
 TOKENS_PC_ORDENADOS = [
     ('chipset', ['Chipset', 'Placa Madre', 'Mainboard']),
     ('procesador', ['Procesador', 'CPU']),
-    ('ram', ['Memoria RAM', 'Memoria', 'RAM']),
-    ('almacenamiento', ['Almacenamiento', 'Disco Duro', 'Unidad de Almacenamiento']),
+    ('ram', ['Memoria RAM', 'RAM', 'Memoria']),
+    ('almacenamiento', ['Almacenamiento', 'Disco Duro', 'Unidad de Almacenamiento', 'Disco']),
     ('unidad_optica', ['Unidad Óptica', 'Unidad optica', 'Unidad de DVD', 'DVD']),
-    ('graficos', ['Unidad de video', 'Tarjeta de Video', 'Tarjeta Gráfica', 'Tarjeta Grafica', 'Controlador de video', 'Gráficos', 'Graficos', 'Video']),
-    ('conectividad', ['Conectividad Inalámbrica', 'Conectividad Inalambrica', 'Conectividad', 'Red']),
+    ('graficos', ['Controlador de Video', 'Tarjeta de Video', 'Tarjeta Gráfica', 'Tarjeta Grafica', 'Unidad de video', 'Gráficos', 'Graficos', 'Video']),
+    ('conectividad', ['Conectividad Inalámbrica', 'Conectividad Inalambrica', 'Conectividad', 'Red', 'LAN']),
+    ('fuente_poder', ['Fuente de Poder', 'Fuente Poder', 'Potencia Fuente', 'Fuente']),
+    ('sistema_operativo', ['Sistema Operativo', 'Sist. Oper', 'S.O.']),
+    ('suite_ofimatica', ['Software de Ofimatica', 'Software de Ofimática', 'Suite Ofimática', 'Suite Ofimatica', 'Office Pre-Instalado', 'Ofimática', 'Ofimatica', 'Office']),
+    ('formato', ['Factor de Forma', 'Factorde Forma', 'Formato de Case', 'Formato']),
+    ('teclado', ['Teclado']),
+    ('mouse', ['Mouse', 'Ratón']),
     ('panel_frontal', ['Panel frontal', 'Puertos frontales']),
     ('panel_posterior', ['Panel posterior', 'Puertos posteriores']),
     ('puertos_video', ['Puertos de Video', 'Salidas de Video', 'Conectores de Video']),
-    ('formato', ['Formato', 'Factor de Forma', 'Factorde Forma']),
-    ('fuente_poder', ['Fuente de poder', 'Potencia Fuente', 'Fuente']),
-    ('teclado', ['Teclado']),
-    ('mouse', ['Mouse', 'Ratón']),
-    ('sistema_operativo', ['Sistema Operativo', 'Sist. Oper', 'S.O.']),
-    ('suite_ofimatica', ['Office Pre-Instalado', 'Suite Ofimática', 'Suite Ofimatica', 'Office']),
-    ('garantia', ['Garantía de Fábrica', 'Garantía', 'Garantia', 'G. F']),
+    ('garantia', ['Garantía de Fábrica', 'Garantía del Fabricante', 'Garantía', 'Garantia', 'G. F']),
 ]
 
 
 def extraer_specs_pc(raw_text: str) -> Dict[str, str]:
-    """Segmenta el PDF de una PC localizando encabezados en inicio de línea."""
-    matches = []
-    for key, variants in TOKENS_PC_ORDENADOS:
-        for tok in variants:
-            # Buscar el token preferentemente al inicio de línea o tras un salto de línea
-            patron = rf'(?:^|\n)[ \t]*{re.escape(tok)}[:\s]+([^\n\r]*)'
-            for m in re.finditer(patron, raw_text, re.I):
-                matches.append((m.start(), key, tok, m.group(1).strip()))
-
-    if not matches:
-        return {}
-
-    # Ordenar por posición de aparición en el texto
-    matches.sort(key=lambda x: x[0])
+    """Extrae las especificaciones de una PC analizando líneas y columnas de forma robusta."""
     specs: Dict[str, str] = {}
+    lines = [l.rstrip() for l in raw_text.splitlines()]
 
-    for idx, (pos, key, tok, first_line) in enumerate(matches):
+    # Lista de etiquetas delimitadoras conocidas para no invadir otras columnas
+    etiquetas_corte = [
+        'Audio', 'Conectividad', 'Unidad', 'Fuente', 'Sistema', 'Suite', 'Software',
+        'Puertos', 'Slots', 'Teclado', 'Mouse', 'Dimensiones', 'Certificación', 'Certificacion',
+        'Empaque', 'Garantía', 'Garantia', 'Video', 'Gráficos', 'Graficos', 'Chipset', 'Memoria', 'RAM'
+    ]
+    re_corte = re.compile(rf'(?<=[^\s])\s{2,}(?:{"|".join(etiquetas_corte)})[:\s]', re.I)
+
+    for key, variants in TOKENS_PC_ORDENADOS:
         if key in specs:
             continue
-        # El límite del bloque es la posición del siguiente encabezado
-        end_pos = matches[idx + 1][0] if idx + 1 < len(matches) else pos + 400
-        chunk = raw_text[pos:end_pos].strip()
-        
-        # Eliminar el nombre del token del inicio
-        val = re.sub(rf'^[ \t]*{re.escape(tok)}[:\s]*', '', chunk, flags=re.I).strip()
-        val = re.sub(r'\s+', ' ', val)
-        val_limpio = sanitizar_valor(val)
-        if val_limpio:
-            specs[key] = val_limpio
+        # Ordenar variantes por longitud descendente para que 'Fuente de poder' coincida antes de 'Fuente'
+        sorted_vars = sorted(variants, key=len, reverse=True)
+        for tok in sorted_vars:
+            patron = rf'(?:^|\n)[ \t]*{re.escape(tok)}[:\s\t]+([^\n\r]*)'
+            m = re.search(patron, raw_text, re.I)
+            if m:
+                val = m.group(1).strip()
+                # Cortar si la misma línea contiene otra columna (ej. 'Video: ... Audio: ...')
+                corte_m = re_corte.search(val)
+                if corte_m:
+                    val = val[:corte_m.start()].strip()
+                
+                # Si la línea estaba vacía, buscar en la siguiente línea no vacía
+                if not val:
+                    for i, l in enumerate(lines):
+                        if re.match(rf'^[ \t]*{re.escape(tok)}[:\s\t]*$', l, re.I):
+                            if i + 1 < len(lines):
+                                next_l = lines[i + 1].strip()
+                                # Asegurar que la siguiente línea no sea otra etiqueta
+                                if not any(re.match(rf'^[ \t]*{re.escape(ot)}[:\s]', next_l, re.I) for _, ovs in TOKENS_PC_ORDENADOS for ot in ovs):
+                                    val = next_l
+                            break
+
+                val_limpio = sanitizar_valor(val)
+                if val_limpio:
+                    # Filtro de falsos positivos específicos
+                    val_u = val_limpio.upper()
+                    if key == 'graficos' and (val_u.startswith('AUDIO') or val_u == 'AUDIO'):
+                        continue
+                    if key == 'fuente_poder' and val_u in ('DE PODER', 'PODER', 'FUENTE'):
+                        continue
+                    specs[key] = val_limpio
+                    break
 
     return specs
 
@@ -287,7 +309,7 @@ def normalizar_campos_clave(raw_specs: Dict[str, Any], categoria: str = "") -> D
     # 1. Normalización de Tarjeta Gráfica (GPU)
     graf = raw_specs.get("graficos") or ""
     graf_u = graf.upper()
-    if graf:
+    if graf and not graf_u.startswith("AUDIO") and graf_u != "AUDIO":
         if any(w in graf_u for w in ["DEDICAD", "PCIE", "RTX", "GTX", "RADEON", "GEFORCE", "04 GB", "4 GB", "6 GB", "8 GB", "12 GB", "16 GB", "DISCRETA"]):
             out["gpu_tipo"] = "Dedicada"
         elif any(w in graf_u for w in ["INTEGRAD", "UHD", "IRIS", "RADEON GRAPHICS", "VEGA", "NO INCLUYE DEDICADA"]):
@@ -295,10 +317,13 @@ def normalizar_campos_clave(raw_specs: Dict[str, Any], categoria: str = "") -> D
         else:
             out["gpu_tipo"] = "Integrada" if "INTEGR" in graf_u else "Dedicada"
         out["gpu_resumen"] = graf[:50]
+    else:
+        out.pop("gpu_tipo", None)
+        out.pop("gpu_resumen", None)
 
     # 2. Normalización de Fuente de Poder
     fp = raw_specs.get("fuente_poder") or ""
-    if fp:
+    if fp and fp.upper() not in ("DE PODER", "PODER", "FUENTE"):
         m_watts = re.search(r'(\d+)\s*(?:Watts?|W\b)', fp, re.IGNORECASE)
         watts = f"{m_watts.group(1)}W" if m_watts else ""
         cert = ""
@@ -311,7 +336,38 @@ def normalizar_campos_clave(raw_specs: Dict[str, Any], categoria: str = "") -> D
         elif "80 PLUS" in fp_u or "80+" in fp_u: cert = "80+ White"
         
         parts = [p for p in [watts, cert] if p]
-        out["fuente_resumen"] = " • ".join(parts) if parts else fp[:40]
+        if parts:
+            out["fuente_resumen"] = " • ".join(parts)
+        elif any(k in fp_u for k in ["WATTS", "80 PLUS", "80+", "BRONZE", "GOLD", "TITANIUM", "PLATINUM"]):
+            out["fuente_resumen"] = fp[:40]
+        else:
+            out.pop("fuente_resumen", None)
+    else:
+        out.pop("fuente_resumen", None)
+
+    # 3. Normalización de Suite Ofimática
+    ofi = raw_specs.get("suite_ofimatica") or ""
+    ofi_u = ofi.upper()
+    if ofi:
+        if "LIBREOFFICE" in ofi_u or "LIBRE OFFICE" in ofi_u:
+            v_m = re.search(r'LIBRE\s*OFFICE\s*([\d\.]+)', ofi, re.I)
+            out["suite_ofimatica_resumen"] = f"LibreOffice {v_m.group(1)}" if v_m else "LibreOffice"
+        elif "OPENOFFICE" in ofi_u or "OPEN OFFICE" in ofi_u:
+            out["suite_ofimatica_resumen"] = "OpenOffice"
+        elif "2024" in ofi_u and "BUSINESS" in ofi_u:
+            out["suite_ofimatica_resumen"] = "Office H&B 2024"
+        elif "2021" in ofi_u and "BUSINESS" in ofi_u:
+            out["suite_ofimatica_resumen"] = "Office H&B 2021"
+        elif "BUSINESS" in ofi_u:
+            out["suite_ofimatica_resumen"] = "Office Home & Business"
+        elif "MICROSOFT 365" in ofi_u or "M365" in ofi_u:
+            out["suite_ofimatica_resumen"] = "Microsoft 365"
+        elif "PROFESIONAL" in ofi_u or "PROFESSIONAL" in ofi_u:
+            out["suite_ofimatica_resumen"] = "Office Pro"
+        elif any(w in ofi_u for w in ["NO INCLUYE", "NO CONTIENE", "NINGUNO", "NO", "SIN OFFICE", "NO TIENE"]):
+            out["suite_ofimatica_resumen"] = "Sin Office"
+        elif not ofi_u.startswith("PUERTOS"):
+            out["suite_ofimatica_resumen"] = ofi[:35]
 
     # 3. Normalización de Sistema Operativo
     so_raw = (raw_specs.get("sistema_operativo") or "").upper()

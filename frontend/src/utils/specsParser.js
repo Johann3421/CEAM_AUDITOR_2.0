@@ -197,10 +197,34 @@ export function parseProductSpecs(item) {
 
   // 13. Office y Garantía
   let office = null;
-  if (desc.includes('HOME & BUSINESS 2024') || desc.includes('HOME AND BUSINESS 2024')) office = 'Office H&B 2024';
-  else if (desc.includes('HOME & BUSINESS 2021') || desc.includes('HOME AND BUSINESS 2021')) office = 'Office H&B 2021';
-  else if (desc.includes('OFFICE HOME & BUSINESS') || desc.includes('OFFICE HOME AND BUSINESS')) office = 'Office Home & Business';
-  else if (desc.includes('SUITE OFIMATICA: NO') || desc.includes('SIN OFFICE')) office = 'Sin Office';
+  const officeMatch = desc.match(/(?:SUITE\s+OFIMATICA|SOFTWARE\s+DE\s+OFIMATICA|OFIMATICA|OFFICE):\s*([^;]+?)(?=\s+G\.\s*F:|\s+UNIDAD|\s+GARANTIA|\s+SIST|\s+TECLADO|\s+FORMATO|$)/i);
+  const rawOffice = officeMatch ? officeMatch[1].trim() : desc;
+
+  if (/LIBRE\s*OFFICE/i.test(rawOffice) || /LIBREOFFICE/i.test(desc)) {
+    const vMatch = (rawOffice + ' ' + desc).match(/LIBRE\s*OFFICE\s*([\d\.]+)/i);
+    office = vMatch ? `LibreOffice ${vMatch[1]}` : 'LibreOffice';
+  } else if (/OPEN\s*OFFICE/i.test(rawOffice) || /OPENOFFICE/i.test(desc)) {
+    office = 'OpenOffice';
+  } else if (/HOME\s*&\s*BUSINESS\s*2024/i.test(rawOffice) || /HOME\s+AND\s+BUSINESS\s*2024/i.test(rawOffice)) {
+    office = 'Office H&B 2024';
+  } else if (/HOME\s*&\s*BUSINESS\s*2021/i.test(rawOffice) || /HOME\s+AND\s+BUSINESS\s*2021/i.test(rawOffice)) {
+    office = 'Office H&B 2021';
+  } else if (/HOME\s*&\s*BUSINESS/i.test(rawOffice) || /HOME\s+AND\s+BUSINESS/i.test(rawOffice) || desc.includes('OFFICE HOME & BUSINESS')) {
+    office = 'Office Home & Business';
+  } else if (/PROFESSIONAL|PROFESIONAL/i.test(rawOffice)) {
+    office = 'Office Pro';
+  } else if (/MICROSOFT\s*365|M365/i.test(rawOffice)) {
+    office = 'Microsoft 365';
+  } else if (/STANDARD|ESTANDAR/i.test(rawOffice)) {
+    office = 'Office Estándar';
+  } else if (
+    /^(?:NO|NO\s+INCLUYE|NO\s+CONTIENE|NINGUNO|SIN\s+OFFICE|NO\s+TIENE)$/i.test(rawOffice) ||
+    desc.includes('SUITE OFIMATICA: NO') || desc.includes('SIN OFFICE') || desc.includes('SUITE OFIMATICA: NO INCLUYE')
+  ) {
+    office = 'Sin Office';
+  } else if (officeMatch && rawOffice.length > 2 && rawOffice.length < 30) {
+    office = rawOffice;
+  }
 
   let garantia = null;
   if (desc.includes('36 MESES ON-SITE')) garantia = '36m On-Site';
@@ -218,15 +242,28 @@ export function parseProductSpecs(item) {
   if (!os && pdfSpecs.so_resumen) os = pdfSpecs.so_resumen;
   if (!panel && pdfSpecs.panel) panel = pdfSpecs.panel;
   if (!resolution && pdfSpecs.resolucion) resolution = pdfSpecs.resolucion;
+  if (pdfSpecs.suite_ofimatica_resumen) {
+    office = pdfSpecs.suite_ofimatica_resumen;
+  } else if (!office && pdfSpecs.suite_ofimatica) {
+    const ofiPdf = String(pdfSpecs.suite_ofimatica).toUpperCase();
+    if (ofiPdf.includes('LIBREOFFICE') || ofiPdf.includes('LIBRE OFFICE')) office = 'LibreOffice';
+    else if (ofiPdf.includes('NO INCLUYE') || ofiPdf === 'NO') office = 'Sin Office';
+  }
 
   // 15. Tarjeta Gráfica (GPU dedicada/integrada)
   let gpuTipo = pdfSpecs.gpu_tipo || null;
   let gpuResumen = pdfSpecs.gpu_resumen || null;
 
+  // Filtrar si el PDF capturó audio por error
+  if (gpuResumen && (gpuResumen.toUpperCase().startsWith('AUDIO') || gpuResumen.toUpperCase() === 'AUDIO')) {
+    gpuResumen = null;
+    gpuTipo = null;
+  }
+
   if (!gpuResumen) {
-    const gpuMatch = desc.match(/(?:TARJETA DE VIDEO|VIDEO|GRAFICOS|GRAFICA):\s*([^;]+?)(?=\s+[A-Z0-9\s]+:|$)/i);
+    const gpuMatch = desc.match(/(?:TARJETA DE VIDEO|CONTROLADOR DE VIDEO|VIDEO|GRAFICOS|GRAFICA):\s*([^;]+?)(?=\s+[A-Z0-9\s]+:|$)/i);
     const rawGpu = gpuMatch ? gpuMatch[1].trim() : '';
-    if (rawGpu) {
+    if (rawGpu && !rawGpu.toUpperCase().startsWith('AUDIO')) {
       gpuResumen = rawGpu;
       if (/DEDICAD|PCIE|RTX|GTX|RADEON|GEFORCE|\b(?:0?4|6|8|12|16)\s*GB\b/i.test(rawGpu)) {
         gpuTipo = 'Dedicada';
@@ -244,10 +281,14 @@ export function parseProductSpecs(item) {
 
   // 16. Fuente de Poder (PSU: Watts y Certificación 80+)
   let fuenteResumen = pdfSpecs.fuente_resumen || null;
+  if (fuenteResumen && (fuenteResumen.toLowerCase() === 'de poder' || fuenteResumen.toLowerCase() === 'fuente')) {
+    fuenteResumen = null;
+  }
+
   if (!fuenteResumen) {
     const fuenteMatch = desc.match(/FUENTE(?:\s+DE\s+PODER)?:\s*([^;]+?)(?=\s+[A-Z0-9\s]+:|$)/i);
     const rawFuente = fuenteMatch ? fuenteMatch[1].trim() : '';
-    if (rawFuente) {
+    if (rawFuente && !/^(?:DE\s+PODER|PODER|FUENTE)$/i.test(rawFuente)) {
       fuenteResumen = rawFuente;
     } else {
       const wattsMatch = desc.match(/(\d+)\s*WATTS?/i);
