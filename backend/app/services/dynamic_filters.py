@@ -26,20 +26,28 @@ def normalizar_tarjeta_video(valor: str) -> str:
     if not valor:
         return ""
     v = str(valor).strip()
-    v = re.sub(r'[\ufffd\x7f\u00B9\u00B2\u00B3\u2070-\u2079\*\#]', '', v)
+    v = re.sub(r'[\ufffd\x7f\u00B9\u00B2\u00B3\u2070-\u2079\*\#\®\™]', '', v)
     v = re.sub(r'\b(dedicad[oa]s?|integrad[oa]s?)\b', '', v, flags=re.IGNORECASE)
     v = re.sub(r'\bConectividadº?\b', '', v, flags=re.IGNORECASE)
     v = re.sub(r'\s+', ' ', v).strip(" :;,-–—\t\r\n")
 
     vu = v.upper()
+    if vu in ("AUDIO", "N/A", "NO APLICA", "NO INCLUYE", "-", "VIDEO", "GRAFICOS", "GRÁFICOS", "INTEGRATED", "DISCRETOS") or len(v) < 3:
+        return ""
+    if any(p in vu for p in ["HDMI", "DISPLAYPORT"]) and not any(k in vu for k in ["RTX", "GTX", "RADEON", "GEFORCE", "GB"]):
+        return ""
+
     # Gráficos integrados comunes
-    if any(k in vu for k in ["INTEL UHD", "INTEL HD", "INTEL IRIS", "UHD GRAPHICS", "IRIS XE"]):
+    if "770" in vu and any(k in vu for k in ["UHD", "GRAPHICS", "INTEL"]):
+        return "Intel UHD Graphics 770"
+    if "730" in vu and any(k in vu for k in ["UHD", "GRAPHICS", "INTEL"]):
+        return "Intel UHD Graphics 730"
+    if any(k in vu for k in ["INTEL UHD", "INTEL HD", "INTEL IRIS", "UHD GRAPHICS", "IRIS XE", "INTEL GRAPHICS", "INTEGRATED INTEL"]):
         if "IRIS" in vu: return "Intel Iris Xe Graphics"
         return "Intel UHD Graphics"
     if any(k in vu for k in ["RADEON GRAPHICS", "RADEON VEGA", "VEGA 7", "VEGA 8", "RADEON 680M", "RADEON 780M"]):
+        if "780M" in vu: return "AMD Radeon 780M"
         return "AMD Radeon Graphics"
-    if vu in ("AUDIO", "N/A", "NO APLICA", "NO INCLUYE", "-"):
-        return ""
 
     # Tarjetas dedicadas: Caso con VRAM (ej. "NVIDIA GeForce RTX 4060 8GB OC Edition")
     m_vram = re.search(r'^(.*?\d+\s*GB(?:\s*G?DDR\d[X]?)?)', v, re.IGNORECASE)
@@ -65,6 +73,12 @@ def normalizar_tarjeta_video(valor: str) -> str:
     elif re.match(r'^(?:RX\s*\d|RADEON\s+RX)', v, re.IGNORECASE):
         v = re.sub(r'^RX', 'AMD Radeon RX', v, flags=re.IGNORECASE)
 
+    # Limpiar prefijos de fichas
+    v = re.sub(r'^(?:TARJETA\s+DE\s+VIDEO|T\.?V\.?|CONTROLADOR\s+DE\s+VIDEO)\s*[-:]*\s*', '', v, flags=re.IGNORECASE).strip()
+    if re.match(r'^(?:DE\s+)?\d+\s*GB', v, re.IGNORECASE):
+        clean_gb = re.search(r'(\d+\s*GB.*)', v, re.I).group(1)
+        v = f"Dedicada {clean_gb}"
+
     return v
 
 
@@ -73,10 +87,10 @@ def normalizar_fuente(valor: str) -> str:
     if not valor:
         return ""
     v = str(valor).strip()
-    v = re.sub(r'[\ufffd\x7f\u00B9\u00B2\u00B3\u2070-\u2079\*\#]', '', v)
+    v = re.sub(r'[\ufffd\x7f\u00B9\u00B2\u00B3\u2070-\u2079\*\#\®\™]', '', v)
     vu = v.upper()
 
-    if vu in ("DE PODER", "PODER", "FUENTE", "N/A", "NO APLICA", "-"):
+    if vu in ("DE PODER", "PODER", "FUENTE", "N/A", "NO APLICA", "-") or len(v) < 3:
         return ""
 
     m_w = re.search(r'(\d{2,4})\s*(?:WATTS?|W\b)', vu)
@@ -97,7 +111,7 @@ def normalizar_fuente(valor: str) -> str:
         return watts
     elif cert:
         return cert
-    return re.sub(r'\s+', ' ', v).strip()
+    return ""
 
 
 def normalizar_procesador(valor: str) -> str:
