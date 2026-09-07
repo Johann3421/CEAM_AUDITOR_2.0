@@ -440,7 +440,52 @@ def get_proveedor_fichas(
 
     if gpu_tipo and gpu_tipo != 'Todos':
         gt_l = gpu_tipo.lower()
-        if 'dedicad' in gt_l:
+        if 'nvidia' in gt_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%NVIDIA%'
+                OR UPPER(f.descripcion_producto) LIKE '%GEFORCE%'
+                OR UPPER(f.descripcion_producto) LIKE '%RTX%'
+                OR UPPER(f.descripcion_producto) LIKE '%GTX%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%NVIDIA%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%GEFORCE%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%RTX%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%GTX%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'graficos') LIKE '%NVIDIA%'
+            )""")
+        elif 'amd' in gt_l or 'radeon' in gt_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%RADEON%'
+                OR UPPER(f.descripcion_producto) LIKE '%AMD RADEON%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%RADEON%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'graficos') LIKE '%RADEON%'
+            )""")
+        elif '4gb' in gt_l or '4_gb' in gt_l or 'vram_4' in gt_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%4 GB%'
+                OR UPPER(f.descripcion_producto) LIKE '%4GB%'
+                OR UPPER(f.descripcion_producto) LIKE '%04 GB%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%4 GB%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%4GB%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'graficos') LIKE '%4 GB%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'graficos') LIKE '%4GB%'
+            )""")
+        elif '6gb_8gb' in gt_l or '6_8' in gt_l or 'vram_6' in gt_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%6 GB%' OR UPPER(f.descripcion_producto) LIKE '%6GB%'
+                OR UPPER(f.descripcion_producto) LIKE '%8 GB%' OR UPPER(f.descripcion_producto) LIKE '%8GB%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%6 GB%' OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%8 GB%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%6GB%' OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%8GB%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'graficos') LIKE '%6 GB%' OR UPPER(f.raw_json->'specs_pdf'->>'graficos') LIKE '%8 GB%'
+            )""")
+        elif '12gb' in gt_l or 'vram_12' in gt_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%12 GB%' OR UPPER(f.descripcion_producto) LIKE '%12GB%'
+                OR UPPER(f.descripcion_producto) LIKE '%16 GB%' OR UPPER(f.descripcion_producto) LIKE '%16GB%'
+                OR UPPER(f.descripcion_producto) LIKE '%24 GB%' OR UPPER(f.descripcion_producto) LIKE '%24GB%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%12 GB%' OR UPPER(f.raw_json->'specs_pdf'->>'gpu_resumen') LIKE '%16 GB%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'graficos') LIKE '%12 GB%' OR UPPER(f.raw_json->'specs_pdf'->>'graficos') LIKE '%16 GB%'
+            )""")
+        elif 'dedicad' in gt_l:
             where_clauses.append("""(
                 UPPER(f.descripcion_producto) LIKE '%DEDICAD%'
                 OR UPPER(f.descripcion_producto) LIKE '%PCIE%'
@@ -454,18 +499,110 @@ def get_proveedor_fichas(
             where_clauses.append("""(
                 (UPPER(f.descripcion_producto) NOT LIKE '%DEDICAD%'
                  AND UPPER(f.descripcion_producto) NOT LIKE '%RTX%'
-                 AND UPPER(f.descripcion_producto) NOT LIKE '%GTX%')
+                 AND UPPER(f.descripcion_producto) NOT LIKE '%GTX%'
+                 AND UPPER(f.descripcion_producto) NOT LIKE '%NVIDIA%'
+                 AND (f.raw_json->'specs_pdf'->>'gpu_tipo' IS NULL OR f.raw_json->'specs_pdf'->>'gpu_tipo' = 'Integrada'))
                 OR (f.raw_json->'specs_pdf'->>'gpu_tipo' = 'Integrada')
             )""")
 
     if fuente and fuente != 'Todos':
         fu_l = fuente.lower()
-        if '80' in fu_l or 'plus' in fu_l:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%80 PLUS%' OR UPPER(f.descripcion_producto) LIKE '%80+%' OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%80+%')")
-        elif '600' in fu_l:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%600 W%' OR UPPER(f.descripcion_producto) LIKE '%650 W%' OR UPPER(f.descripcion_producto) LIKE '%700 W%' OR UPPER(f.descripcion_producto) LIKE '%750 W%' OR UPPER(f.descripcion_producto) LIKE '%850 W%' OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%600W%' OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%650W%' OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%750W%')")
-        elif '500' in fu_l:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%500 W%' OR UPPER(f.descripcion_producto) LIKE '%550 W%' OR UPPER(f.descripcion_producto) LIKE '%600 W%' OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%500W%' OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%600W%')")
+        if 'bronze' in fu_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%BRONZE%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_resumen') LIKE '%BRONZE%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%BRONZE%'
+            )""")
+        elif 'gold' in fu_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%GOLD%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_resumen') LIKE '%GOLD%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%GOLD%'
+            )""")
+        elif '80plus' in fu_l or '80 plus' in fu_l or '80+' in fu_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%80 PLUS%'
+                OR UPPER(f.descripcion_producto) LIKE '%80+%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%80+%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%80 PLUS%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%80+%'
+            )""")
+        elif '180w' in fu_l or '250w' in fu_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%180 W%' OR UPPER(f.descripcion_producto) LIKE '%180W%'
+                OR UPPER(f.descripcion_producto) LIKE '%200 W%' OR UPPER(f.descripcion_producto) LIKE '%200W%'
+                OR UPPER(f.descripcion_producto) LIKE '%240 W%' OR UPPER(f.descripcion_producto) LIKE '%240W%'
+                OR UPPER(f.descripcion_producto) LIKE '%250 W%' OR UPPER(f.descripcion_producto) LIKE '%250W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%180W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%200W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%240W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%250W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%180 W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%200 W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%240 W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%250 W%'
+            )""")
+        elif '300w' in fu_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%300 W%' OR UPPER(f.descripcion_producto) LIKE '%300W%'
+                OR UPPER(f.descripcion_producto) LIKE '%310 W%' OR UPPER(f.descripcion_producto) LIKE '%350 W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%300W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%310W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%350W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%300W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%300 W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%300 WATTS%'
+            )""")
+        elif '400w' in fu_l or '450w' in fu_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%400 W%' OR UPPER(f.descripcion_producto) LIKE '%400W%'
+                OR UPPER(f.descripcion_producto) LIKE '%450 W%' OR UPPER(f.descripcion_producto) LIKE '%450W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%400W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%450W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%400W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%400 W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%450W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%450 W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%450 WATTS%'
+            )""")
+        elif '500w' in fu_l or '550w' in fu_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%500 W%' OR UPPER(f.descripcion_producto) LIKE '%500W%'
+                OR UPPER(f.descripcion_producto) LIKE '%550 W%' OR UPPER(f.descripcion_producto) LIKE '%550W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%500W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%550W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%500W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%500 W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%550W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%550 W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%500 WATTS%'
+            )""")
+        elif '600w' in fu_l or '650w' in fu_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%600 W%' OR UPPER(f.descripcion_producto) LIKE '%600W%'
+                OR UPPER(f.descripcion_producto) LIKE '%650 W%' OR UPPER(f.descripcion_producto) LIKE '%650W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%600W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%650W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%600W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%600 W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%650W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%650 W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%600 WATTS%'
+            )""")
+        elif '700w' in fu_l or 'plus' in fu_l:
+            where_clauses.append("""(
+                UPPER(f.descripcion_producto) LIKE '%700 W%' OR UPPER(f.descripcion_producto) LIKE '%700W%'
+                OR UPPER(f.descripcion_producto) LIKE '%750 W%' OR UPPER(f.descripcion_producto) LIKE '%750W%'
+                OR UPPER(f.descripcion_producto) LIKE '%800 W%' OR UPPER(f.descripcion_producto) LIKE '%850 W%'
+                OR UPPER(f.descripcion_producto) LIKE '%1000 W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%700W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%750W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%850W%'
+                OR f.raw_json->'specs_pdf'->>'fuente_resumen' LIKE '%1000W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%700W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%750W%'
+                OR UPPER(f.raw_json->'specs_pdf'->>'fuente_poder') LIKE '%850W%'
+            )""")
 
     if monitor_hz and monitor_hz != 'Todos':
         mhz_l = monitor_hz.lower()

@@ -64,9 +64,10 @@ def extraer_texto_crudo(pdf_bytes: bytes) -> str:
         paginas_texto = []
         for page in reader.pages:
             try:
-                txt = page.extract_text(extraction_mode="layout") or ""
-            except Exception:
+                # Usar extracción de texto estándar: extraction_mode="layout" corrompe el orden de tablas en PDFs de Perú Compras
                 txt = page.extract_text() or ""
+            except Exception:
+                txt = ""
             paginas_texto.append(txt)
         return "\n".join(paginas_texto)
     except Exception:
@@ -74,13 +75,14 @@ def extraer_texto_crudo(pdf_bytes: bytes) -> str:
 
 
 def sanitizar_valor(valor: str) -> Optional[str]:
-    """Limpia notas al pie, espacios y valores vacíos/nulos."""
+    """Limpia notas al pie, espacios, caracteres de control y valores vacíos/nulos."""
     if not valor:
         return None
         
     texto = str(valor).strip()
-    texto = re.sub(r"^[\u00B9\u00B2\u00B3\u2070-\u2079\*\#\s]+", "", texto)
-    texto = texto.strip(" :;,.-\t\r\n")
+    texto = re.sub(r"^[\u00B9\u00B2\u00B3\u2070-\u2079\*\#\s\x7f\ufffd]+", "", texto)
+    texto = texto.strip(" :;,.-\t\r\n\x7f\ufffd")
+    texto = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ufffd]", " ", texto)
     texto = re.sub(r"\s+", " ", texto)
     
     if not texto:
@@ -139,7 +141,8 @@ def extraer_specs_pc(raw_text: str) -> Dict[str, str]:
         # Ordenar variantes por longitud descendente para que 'Fuente de poder' coincida antes de 'Fuente'
         sorted_vars = sorted(variants, key=len, reverse=True)
         for tok in sorted_vars:
-            patron = rf'(?:^|\n)[ \t]*{re.escape(tok)}[:\s\t]+([^\n\r]*)'
+            # Soportar caracteres de nota al pie o separadores especiales entre token y contenido
+            patron = rf'(?:^|\n)[ \t]*{re.escape(tok)}[^a-zA-Z0-9\n\r]*?[:\s\t\-\ufffd\x7f\u00B9\u00B2\u00B3\u2070-\u2079\*\?\#]+([^\n\r]*)'
             m = re.search(patron, raw_text, re.I)
             if m:
                 val = m.group(1).strip()
@@ -175,15 +178,52 @@ def extraer_specs_pc(raw_text: str) -> Dict[str, str]:
                     specs[key] = val_limpio
                     break
 
-    # Fallback global para fuente si no se encontró con etiquetas estándar
+    # Fallbacks si no hubo etiqueta explícita (como en ALLWIYA, MADI-TEK, etc.)
+    # 1. Fuente de Poder:
     if 'fuente_poder' not in specs:
-        m_case = re.search(r'(?:Case|Gabinete|Chasis)[^\n\r:]*[:\t ]+([^\n\r]*(?:Fuente|\d+\s*W)[^\n\r]*)', raw_text, re.I)
-        if m_case:
-            specs['fuente_poder'] = sanitizar_valor(m_case.group(1))
+        # Buscar líneas que contengan watts o certificación 80 plus (ej. "300 watts 80 Plus bronze")
+        m_fuente = re.search(r'(?:^|\n)[ \t]*(\d{2,4}\s*(?:watts?|w\b)(?:[\s\-]+(?:80\s*plus[^\n\r]*|reales|certificad[^\n\r]*))?)', raw_text, re.I)
+        if m_fuente:
+            specs['fuente_poder'] = sanitizar_valor(m_fuente.group(1))
         else:
-            m_fb = re.search(r'(?:Fuente(?:\s+de\s+poder)?|Potencia)\s*[:\s\t]*(?:de\s+)?(\d+\s*W[^\n\r,]*)', raw_text, re.I)
-            if m_fb:
-                specs['fuente_poder'] = sanitizar_valor(m_fb.group(0))
+            # Buscar en case
+            m_case = re.search(r'(?:Case|Gabinete|Chasis)[^\n\r:]*[:\t ]+([^\n\r]*(?:Fuente|\d+\s*W)[^\n\r]*)', raw_text, re.I)
+            if m_case:
+                specs['fuente_poder'] = sanitizar_valor(m_case.group(1))
+            else:
+                m_fb = re.search(r'(?:Fuente(?:\s+de\s+poder)?|Potencia)\s*[:\s\t\-\x7f\ufffd]*(?:de\s+)?(\d+\s*W[^\n\r,]*)', raw_text, re.I)
+                if m_fb:
+                    specs['fuente_poder'] = sanitizar_valor(m_fb.group(0))
+
+    # 2. Tarjeta Gráfica (ej. "NVIDIA 4 GB", "AMD Radeon RX 6600"):
+    if 'graficos' not in specs:
+        m_gpu = re.search(r'(?:^|\n)[ \t]*((?:NVIDIA|AMD\s+RADEON|RADEON\s+RX|RADEON\s+VEGA|GEFORCE|RTX\s*\d{3,4}|GTX\s*\d{3,4}|INTEL\s+(?:UHD|ARC|IRIS))[^\n\r]*)', raw_text, re.I)
+        if m_gpu:
+            specs['graficos'] = sanitizar_valor(m_gpu.group(1))
+
+    # 3. Procesador:
+    if 'procesador' not in specs:
+        m_cpu = re.search(r'(?:^|\n)[ \t]*((?:Intel|AMD)\s+(?:Core|Ryzen|Xeon|Athlon|Celeron|Pentium)[^\n\r]*)', raw_text, re.I)
+        if m_cpu:
+            specs['procesador'] = sanitizar_valor(m_cpu.group(1))
+
+    # 4. RAM:
+    if 'ram' not in specs:
+        m_ram = re.search(r'(?:^|\n)[ \t]*(\d{1,3}\s*(?:GB\s*)?DDR[345][^\n\r]*)', raw_text, re.I)
+        if m_ram:
+            specs['ram'] = sanitizar_valor(m_ram.group(1))
+
+    # 5. Almacenamiento:
+    if 'almacenamiento' not in specs:
+        m_alm = re.search(r'(?:^|\n)[ \t]*(\d+\s*(?:GB|TB)\s*(?:SSD|HDD|M\.2|NVME)[^\n\r]*)', raw_text, re.I)
+        if m_alm:
+            specs['almacenamiento'] = sanitizar_valor(m_alm.group(1))
+
+    # 6. Formato:
+    if 'formato' not in specs:
+        m_form = re.search(r'(?:^|\n)[ \t]*((?:Mini\s*Tower|Mid\s*Tower|Full\s*Tower|Small\s*Form\s*Factor|SFF|All\s*in\s*One|Micro\s*ATX|Tower|Torre)\b[^\n\r]*)', raw_text, re.I)
+        if m_form:
+            specs['formato'] = sanitizar_valor(m_form.group(1))
 
     return specs
 
@@ -289,16 +329,21 @@ def fallback_descripcion(desc_raw: str, categoria: str = "") -> Dict[str, str]:
             specs["sistema_operativo"] = sanitizar_valor(so_m.group(1))
 
         # Detección de video y fuente en descripción
-        if "VIDEO: DEDICADO" in desc or "TARJETA DE VIDEO" in desc or "RTX" in desc or "GTX" in desc or "RADEON" in desc:
+        if "VIDEO: DEDICADO" in desc or "TARJETA DE VIDEO" in desc or "RTX" in desc or "GTX" in desc or "RADEON" in desc or "NVIDIA" in desc:
             m_gpu = re.search(r'(?:VIDEO|TARJETA DE VIDEO):\s*([^;]+?)(?=\s+[A-Z0-9\s]+:|$)', desc)
             if m_gpu:
                 specs["graficos"] = sanitizar_valor(m_gpu.group(1))
             else:
                 specs["graficos"] = "Tarjeta de Video Dedicada"
 
-        m_fp = re.search(r'(\d+)\s*WATTS?', desc)
+        m_fp = re.search(r'(\d{2,4})\s*(?:WATTS?|W\b)(?:[\s\-]+(80\s*PLUS[^\s,;]+|REALES))?', desc)
         if m_fp:
-            specs["fuente_poder"] = f"{m_fp.group(1)} Watts"
+            cert_part = f" {m_fp.group(2)}" if m_fp.group(2) else ""
+            specs["fuente_poder"] = f"{m_fp.group(1)}W{cert_part}"
+        elif "80 PLUS" in desc or "80+" in desc:
+            m_cert = re.search(r'(80\s*(?:PLUS|\+)\s*(?:BRONZE|GOLD|SILVER|PLATINUM|TITANIUM|WHITE)?)', desc)
+            if m_cert:
+                specs["fuente_poder"] = m_cert.group(1)
 
     return {k: v for k, v in specs.items() if v is not None}
 
@@ -326,7 +371,7 @@ def normalizar_campos_clave(raw_specs: Dict[str, Any], categoria: str = "") -> D
     graf = raw_specs.get("graficos") or ""
     graf_u = graf.upper()
     if graf and not graf_u.startswith("AUDIO") and graf_u != "AUDIO":
-        if any(w in graf_u for w in ["DEDICAD", "PCIE", "RTX", "GTX", "RADEON", "GEFORCE", "04 GB", "4 GB", "6 GB", "8 GB", "12 GB", "16 GB", "DISCRETA"]):
+        if any(w in graf_u for w in ["DEDICAD", "PCIE", "RTX", "GTX", "RADEON RX", "RADEON", "GEFORCE", "NVIDIA", "QUADRO", "ARC A", "04 GB", "4 GB", "6 GB", "8 GB", "12 GB", "16 GB", "DISCRETA"]):
             out["gpu_tipo"] = "Dedicada"
         elif any(w in graf_u for w in ["INTEGRAD", "UHD", "IRIS", "RADEON GRAPHICS", "VEGA", "NO INCLUYE DEDICADA"]):
             out["gpu_tipo"] = "Integrada"
@@ -344,12 +389,13 @@ def normalizar_campos_clave(raw_specs: Dict[str, Any], categoria: str = "") -> D
         watts = f"{m_watts.group(1)}W" if m_watts else ""
         cert = ""
         fp_u = fp.upper()
-        if "80 PLUS TITANIUM" in fp_u: cert = "80+ Titanium"
-        elif "80 PLUS PLATINUM" in fp_u: cert = "80+ Platinum"
-        elif "80 PLUS GOLD" in fp_u: cert = "80+ Gold"
-        elif "80 PLUS SILVER" in fp_u: cert = "80+ Silver"
-        elif "80 PLUS BRONZE" in fp_u: cert = "80+ Bronze"
-        elif "80 PLUS" in fp_u or "80+" in fp_u: cert = "80+ White"
+        if "80 PLUS TITANIUM" in fp_u or "80+ TITANIUM" in fp_u: cert = "80+ Titanium"
+        elif "80 PLUS PLATINUM" in fp_u or "80+ PLATINUM" in fp_u: cert = "80+ Platinum"
+        elif "80 PLUS GOLD" in fp_u or "80+ GOLD" in fp_u: cert = "80+ Gold"
+        elif "80 PLUS SILVER" in fp_u or "80+ SILVER" in fp_u: cert = "80+ Silver"
+        elif "80 PLUS BRONZE" in fp_u or "80+ BRONZE" in fp_u: cert = "80+ Bronze"
+        elif "80 PLUS WHITE" in fp_u or "80 PLUS STANDARD" in fp_u: cert = "80+ White"
+        elif "80 PLUS" in fp_u or "80+" in fp_u: cert = "80+ Bronze" if "BRONZE" in fp_u else ("80+ Gold" if "GOLD" in fp_u else "80+ White")
         
         parts = [p for p in [watts, cert] if p]
         if parts:

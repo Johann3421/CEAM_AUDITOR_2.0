@@ -260,16 +260,32 @@ export function parseProductSpecs(item) {
     gpuTipo = null;
   }
 
+  if (!gpuResumen && pdfSpecs.graficos) {
+    const rawG = String(pdfSpecs.graficos).trim();
+    if (rawG && !rawG.toUpperCase().startsWith('AUDIO')) {
+      gpuResumen = rawG.slice(0, 50);
+      if (/DEDICAD|PCIE|RTX|GTX|RADEON|GEFORCE|NVIDIA|\b(?:0?4|6|8|12|16)\s*GB\b/i.test(rawG)) {
+        gpuTipo = 'Dedicada';
+      } else {
+        gpuTipo = 'Integrada';
+      }
+    }
+  }
+
   if (!gpuResumen) {
     const gpuMatch = desc.match(/(?:TARJETA DE VIDEO|CONTROLADOR DE VIDEO|VIDEO|GRAFICOS|GRAFICA):\s*([^;]+?)(?=\s+[A-Z0-9\s]+:|$)/i);
     const rawGpu = gpuMatch ? gpuMatch[1].trim() : '';
     if (rawGpu && !rawGpu.toUpperCase().startsWith('AUDIO')) {
       gpuResumen = rawGpu;
-      if (/DEDICAD|PCIE|RTX|GTX|RADEON|GEFORCE|\b(?:0?4|6|8|12|16)\s*GB\b/i.test(rawGpu)) {
+      if (/DEDICAD|PCIE|RTX|GTX|RADEON|GEFORCE|NVIDIA|\b(?:0?4|6|8|12|16)\s*GB\b/i.test(rawGpu)) {
         gpuTipo = 'Dedicada';
       } else {
         gpuTipo = 'Integrada';
       }
+    } else if (desc.match(/\b(NVIDIA(?:\s+\d+\s*GB)?|RTX\s*\d{3,4}|GTX\s*\d{3,4}|RADEON\s+RX\s*\d{3,4})/i)) {
+      const gM = desc.match(/\b(NVIDIA(?:\s+\d+\s*GB)?|RTX\s*\d{3,4}|GTX\s*\d{3,4}|RADEON\s+RX\s*\d{3,4})/i);
+      gpuTipo = 'Dedicada';
+      gpuResumen = gM ? gM[1] : 'Tarjeta de Video Dedicada';
     } else if (desc.includes('VIDEO: DEDICADO') || desc.includes('TARJETA DE VIDEO') || desc.includes('RTX') || desc.includes('GTX')) {
       gpuTipo = 'Dedicada';
       gpuResumen = 'Video Dedicado';
@@ -283,6 +299,23 @@ export function parseProductSpecs(item) {
   let fuenteResumen = pdfSpecs.fuente_resumen || null;
   if (fuenteResumen && (fuenteResumen.toLowerCase() === 'de poder' || fuenteResumen.toLowerCase() === 'fuente')) {
     fuenteResumen = null;
+  }
+
+  if (!fuenteResumen && pdfSpecs.fuente_poder) {
+    const fpRaw = String(pdfSpecs.fuente_poder);
+    const wM = fpRaw.match(/(\d{2,4})\s*(?:Watts?|W\b)/i);
+    if (wM) {
+      let cert = '';
+      if (/80\s*PLUS\s*TITANIUM|80\+\s*TITANIUM/i.test(fpRaw)) cert = ' • 80+ Titanium';
+      else if (/80\s*PLUS\s*PLATINUM|80\+\s*PLATINUM/i.test(fpRaw)) cert = ' • 80+ Platinum';
+      else if (/80\s*PLUS\s*GOLD|80\+\s*GOLD/i.test(fpRaw)) cert = ' • 80+ Gold';
+      else if (/80\s*PLUS\s*SILVER|80\+\s*SILVER/i.test(fpRaw)) cert = ' • 80+ Silver';
+      else if (/80\s*PLUS\s*BRONZE|80\+\s*BRONZE/i.test(fpRaw)) cert = ' • 80+ Bronze';
+      else if (/80\s*PLUS|80\+/i.test(fpRaw)) cert = ' • 80+ White';
+      fuenteResumen = `${wM[1]}W${cert}`;
+    } else if (!/^(?:DE\s+PODER|PODER|FUENTE)$/i.test(fpRaw.trim())) {
+      fuenteResumen = fpRaw.trim().slice(0, 35);
+    }
   }
 
   if (!fuenteResumen) {

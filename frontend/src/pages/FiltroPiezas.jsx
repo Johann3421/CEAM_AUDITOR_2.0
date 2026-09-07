@@ -1120,8 +1120,13 @@ const FiltroPiezas = () => {
                 onChange={(e) => { setFilter('gpu_tipo', e.target.value); setPage(1); }}
               >
                 <option value="Todos">Todos</option>
-                <option value="Dedicada">Con Tarjeta Dedicada (RTX/GTX/PCIe)</option>
-                <option value="Integrada">Gráficos Integrados</option>
+                <option value="Integrada">Solo Gráficos Integrados (Intel UHD / Iris / Radeon)</option>
+                <option value="Dedicada">Con Tarjeta Dedicada (Cualquiera)</option>
+                <option value="nvidia">NVIDIA GeForce / RTX / GTX</option>
+                <option value="amd">AMD Radeon RX</option>
+                <option value="vram_4gb">VRAM: 4 GB</option>
+                <option value="vram_6gb_8gb">VRAM: 6 GB a 8 GB</option>
+                <option value="vram_12gb_plus">VRAM: 12 GB o más</option>
               </select>
             </div>
           )}
@@ -1140,9 +1145,15 @@ const FiltroPiezas = () => {
                 onChange={(e) => { setFilter('fuente', e.target.value); setPage(1); }}
               >
                 <option value="Todos">Todos</option>
-                <option value="80plus">Certificación 80 Plus (Bronze/Gold)</option>
-                <option value="600w">600 Watts o superior</option>
-                <option value="500w">500 Watts o superior</option>
+                <option value="180w_250w">180W a 250W (SFF / Mini PC)</option>
+                <option value="300w">300 Watts</option>
+                <option value="400w_450w">400W a 450W</option>
+                <option value="500w">500W a 550W</option>
+                <option value="600w_650w">600W a 650W</option>
+                <option value="700w_plus">700W o superior</option>
+                <option value="80plus">Certificación 80 Plus (Cualquiera)</option>
+                <option value="80plus_bronze">Certificación 80 Plus Bronze</option>
+                <option value="80plus_gold">Certificación 80 Plus Gold</option>
               </select>
             </div>
           )}
