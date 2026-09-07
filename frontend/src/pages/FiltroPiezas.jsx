@@ -167,8 +167,8 @@ const FiltroPiezas = () => {
 
   // Opciones de filtro 100% dinámicas desde la BD (sin hardcodeo)
   const [filterOptions, setFilterOptions] = useState({
-    marcas: [], cpus: [], cpu_gens: [], rams: [], ram_techs: [],
-    storages: [], disco_tipos: [], oss: [], displays: [], panels: [], resolutions: [],
+    marcas: [], gpus: [], fuentes: [], cpus: [], cpu_gens: [], rams: [], ram_techs: [],
+    storages: [], disco_tipos: [], oss: [], displays: [], panels: [], resolutions: [], monitor_hz: [],
   });
   const [filterOptionsLoading, setFilterOptionsLoading] = useState(false);
 
@@ -1111,7 +1111,7 @@ const FiltroPiezas = () => {
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Layers size={12} style={{ color: '#16a34a' }} />
-                Tarjeta Gráfica
+                Tarjeta Gráfica {filterOptions.gpus?.length > 0 && `(${filterOptions.gpus.length})`}
               </label>
               <select
                 className="form-select"
@@ -1119,14 +1119,18 @@ const FiltroPiezas = () => {
                 value={filters.gpu_tipo}
                 onChange={(e) => { setFilter('gpu_tipo', e.target.value); setPage(1); }}
               >
-                <option value="Todos">Todos</option>
-                <option value="Integrada">Solo Gráficos Integrados (Intel UHD / Iris / Radeon)</option>
-                <option value="Dedicada">Con Tarjeta Dedicada (Cualquiera)</option>
-                <option value="nvidia">NVIDIA GeForce / RTX / GTX</option>
-                <option value="amd">AMD Radeon RX</option>
-                <option value="vram_4gb">VRAM: 4 GB</option>
-                <option value="vram_6gb_8gb">VRAM: 6 GB a 8 GB</option>
-                <option value="vram_12gb_plus">VRAM: 12 GB o más</option>
+                <option value="Todos">Todas las Gráficas</option>
+                <optgroup label="Tipos Generales">
+                  <option value="Integrada">Solo Gráficos Integrados (Intel UHD / Iris / Radeon)</option>
+                  <option value="Dedicada">Con Tarjeta Dedicada (Cualquiera)</option>
+                </optgroup>
+                {filterOptions.gpus && filterOptions.gpus.length > 0 && (
+                  <optgroup label="Modelos Disponibles en BD">
+                    {filterOptions.gpus.map(g => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
           )}
@@ -1136,7 +1140,7 @@ const FiltroPiezas = () => {
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Sparkles size={12} style={{ color: '#ea580c' }} />
-                Fuente de Poder
+                Fuente de Poder {filterOptions.fuentes?.length > 0 && `(${filterOptions.fuentes.length})`}
               </label>
               <select
                 className="form-select"
@@ -1144,16 +1148,19 @@ const FiltroPiezas = () => {
                 value={filters.fuente}
                 onChange={(e) => { setFilter('fuente', e.target.value); setPage(1); }}
               >
-                <option value="Todos">Todos</option>
-                <option value="180w_250w">180W a 250W (SFF / Mini PC)</option>
-                <option value="300w">300 Watts</option>
-                <option value="400w_450w">400W a 450W</option>
-                <option value="500w">500W a 550W</option>
-                <option value="600w_650w">600W a 650W</option>
-                <option value="700w_plus">700W o superior</option>
-                <option value="80plus">Certificación 80 Plus (Cualquiera)</option>
-                <option value="80plus_bronze">Certificación 80 Plus Bronze</option>
-                <option value="80plus_gold">Certificación 80 Plus Gold</option>
+                <option value="Todos">Todas las Fuentes</option>
+                <optgroup label="Certificaciones Generales">
+                  <option value="80plus">Certificación 80 Plus (Cualquiera)</option>
+                  <option value="80plus_bronze">Certificación 80 Plus Bronze</option>
+                  <option value="80plus_gold">Certificación 80 Plus Gold</option>
+                </optgroup>
+                {filterOptions.fuentes && filterOptions.fuentes.length > 0 && (
+                  <optgroup label="Fuentes Disponibles en BD">
+                    {filterOptions.fuentes.map(fp => (
+                      <option key={fp} value={fp}>{fp}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
           )}
