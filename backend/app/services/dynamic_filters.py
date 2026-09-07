@@ -36,50 +36,46 @@ def normalizar_tarjeta_video(valor: str) -> str:
         return ""
     if any(p in vu for p in ["HDMI", "DISPLAYPORT"]) and not any(k in vu for k in ["RTX", "GTX", "RADEON", "GEFORCE", "GB"]):
         return ""
+    if 'DISEÑO' in vu or 'DISENO' in vu:
+        return ""
 
     # Gráficos integrados comunes
     if "770" in vu and any(k in vu for k in ["UHD", "GRAPHICS", "INTEL"]):
         return "Intel UHD Graphics 770"
     if "730" in vu and any(k in vu for k in ["UHD", "GRAPHICS", "INTEL"]):
         return "Intel UHD Graphics 730"
-    if any(k in vu for k in ["INTEL UHD", "INTEL HD", "INTEL IRIS", "UHD GRAPHICS", "IRIS XE", "INTEL GRAPHICS", "INTEGRATED INTEL"]):
+    if any(k in vu for k in ["INTEL UHD", "INTEL HD", "INTEL IRIS", "UHD GRAPHICS", "IRIS XE", "INTEL GRAPHICS", "INTEGRATED INTEL", "TIPO UHD"]):
         if "IRIS" in vu: return "Intel Iris Xe Graphics"
         return "Intel UHD Graphics"
     if any(k in vu for k in ["RADEON GRAPHICS", "RADEON VEGA", "VEGA 7", "VEGA 8", "RADEON 680M", "RADEON 780M"]):
         if "780M" in vu: return "AMD Radeon 780M"
         return "AMD Radeon Graphics"
 
-    # Tarjetas dedicadas: Caso con VRAM (ej. "NVIDIA GeForce RTX 4060 8GB OC Edition")
-    m_vram = re.search(r'^(.*?\d+\s*GB(?:\s*G?DDR\d[X]?)?)', v, re.IGNORECASE)
+    # Modelos NVIDIA específicos
+    if re.search(r'\bGTX\s*1650\b', vu):
+        return "NVIDIA GeForce GTX 1650 4 GB"
+    if re.search(r'\bRTX\s*4060\b', vu):
+        return "NVIDIA GeForce RTX 4060 8 GB"
+    if re.search(r'\bRTX\s*3060\b', vu):
+        return "NVIDIA GeForce RTX 3060 12 GB"
+    if re.search(r'\bRTX\s*4070\b', vu):
+        return "NVIDIA GeForce RTX 4070 12 GB"
+    if re.search(r'\bRTX\s*3050\b', vu):
+        return "NVIDIA GeForce RTX 3050 6 GB"
+    if re.search(r'RADEON\s+RX.*16\s*GB', vu):
+        return "AMD Radeon RX 16 GB"
+
+    # Tarjetas dedicadas genéricas por VRAM
+    m_vram = re.search(r'(\d+)\s*GB(?:\s*G?DDR\d[X]?)?', vu)
     if m_vram:
-        v = m_vram.group(1).strip()
-    else:
-        # Caso sin VRAM pero con sufijos de marketing conocidos
-        v = re.sub(
-            r'\s+(OC|GAMING|EDITION|PLUS|SUPER|BOOST|EX|AERO|EAGLE|VISION|'
-            r'WINDFORCE|PULSE|MECH|TWIN|TUF|ROG|STRIX|NITRO|PHANTOM|'
-            r'REBEL|TRIPLE|DUAL|FAN|GDDR\d+|DDR\d+|V\d+|VR|READY)\b.*',
-            '', v, flags=re.IGNORECASE
-        ).strip()
+        cap_vram = int(m_vram.group(1))
+        if "RTX" in vu or "NVIDIA" in vu:
+            return f"NVIDIA GeForce RTX {cap_vram} GB"
+        if "RADEON" in vu or "RX" in vu:
+            return f"AMD Radeon RX {cap_vram} GB"
+        return f"Dedicada {cap_vram} GB"
 
-    # Normalizar espaciado VRAM
-    v = re.sub(r'(\d+)\s*GB', r'\1 GB', v, flags=re.IGNORECASE)
-    v = re.sub(r'GB\s*(G?DDR\d[X]?)', r'GB \1', v, flags=re.IGNORECASE)
-    v = v.lstrip('- ').strip()
-
-    # Si empieza con RTX o GTX agregar NVIDIA GeForce
-    if re.match(r'^(?:RTX|GTX)\s*\d', v, re.IGNORECASE):
-        v = f"NVIDIA GeForce {v}"
-    elif re.match(r'^(?:RX\s*\d|RADEON\s+RX)', v, re.IGNORECASE):
-        v = re.sub(r'^RX', 'AMD Radeon RX', v, flags=re.IGNORECASE)
-
-    # Limpiar prefijos de fichas
-    v = re.sub(r'^(?:TARJETA\s+DE\s+VIDEO|T\.?V\.?|CONTROLADOR\s+DE\s+VIDEO)\s*[-:]*\s*', '', v, flags=re.IGNORECASE).strip()
-    if re.match(r'^(?:DE\s+)?\d+\s*GB', v, re.IGNORECASE):
-        clean_gb = re.search(r'(\d+\s*GB.*)', v, re.I).group(1)
-        v = f"Dedicada {clean_gb}"
-
-    return v
+    return ""
 
 
 def normalizar_fuente(valor: str) -> str:
@@ -115,63 +111,92 @@ def normalizar_fuente(valor: str) -> str:
 
 
 def normalizar_procesador(valor: str) -> str:
-    """Elimina velocidades de reloj variables, núcleos y ruidos para consolidar modelo de CPU."""
+    """Consolida el modelo exacto de CPU a formato canónico limpio, descartando ruido."""
     if not valor:
         return ""
     v = str(valor).strip()
-    v = re.sub(r'[\ufffd\x7f\u00B9\u00B2\u00B3\u2070-\u2079\*\#]', '', v)
-    # Quitar paréntesis de frecuencias ej: (de 1.60 GHz hasta 4.90 GHz) o (2.10 GHz...)
-    v = re.sub(r'\(.*?\bGHZ.*?\)', '', v, flags=re.IGNORECASE)
-    v = re.sub(r'\s+\d+(\.\d+)?\s*GHZ.*$', '', v, flags=re.IGNORECASE)
-    # Quitar nucleos / subprocesos
-    v = re.sub(r';\s*\d+\s*nucleos.*$', '', v, flags=re.IGNORECASE)
+    v = re.sub(r'[\ufffd\x7f\u00B9\u00B2\u00B3\u2070-\u2079\*\#\®\™]', '', v)
     v = re.sub(r'\s+', ' ', v).strip(" :;,-–—\t\r\n")
+    vu = v.upper()
 
-    # Mapeo estructurado para Intel
-    m_intel = re.search(r'INTEL.*?(CORE\s*I[3579])[\s\-]*(\d{4,5}[A-Z]?)', v, re.I)
+    # Descartar ruido evidente de texto de fichas
+    if any(k in vu for k in ['CACH', 'L2', 'L3', 'TURBO', 'FRECUENCIA', 'GENERACI', 'P-CORE', 'E-CORE', 'ARQUITECTURA', 'MAX TURBO']) and not any(k in vu for k in ['CORE I', 'RYZEN', 'ULTRA', 'CELERON', 'XEON', 'PENTIUM']):
+        return ""
+    if vu in ['AMD', 'INTEL', 'INTEL CORE', 'CORE', 'PROCESADOR', 'CPU', 'PROCESSOR'] or len(v) < 4:
+        return ""
+
+    # Intel Core i3 / i5 / i7 / i9
+    m_intel = re.search(r'(?:INTEL\s*)?(?:C\s*ORE|CORE)?\s*(I[3579])[\s\-]*(\d{2}\s*\d{2,3}[A-Z]*)', v, re.I)
     if m_intel:
-        family = m_intel.group(1).title().replace('I', 'i')
-        num = m_intel.group(2).upper()
-        return f"Intel {family}-{num}"
-    
-    # Mapeo estructurado para AMD Ryzen
-    m_ryzen = re.search(r'(?:AMD\s*)?(RYZEN\s*[3579])[\s\-]*(\d{4}[A-Z]?)', v, re.I)
-    if m_ryzen:
-        return f"AMD {m_ryzen.group(1).title()} {m_ryzen.group(2).upper()}"
+        fam = m_intel.group(1).lower()
+        num = m_intel.group(2).replace(' ', '').upper()
+        return f"Intel Core {fam}-{num}"
 
-    # Limpiar sufijos genéricos
-    v = re.sub(r'\b(PROCESADOR|CPU|PROCESSOR)\b[:\s]*', '', v, flags=re.IGNORECASE).strip()
-    return v[:40]
+    # Intel Core Ultra 3 / 5 / 7 / 9
+    m_ultra = re.search(r'(?:INTEL\s*)?(?:CORE\s*)?ULTRA\s*([3579])[\s\-]*(\d{3,4}[A-Z]*)', v, re.I)
+    if m_ultra:
+        fam = m_ultra.group(1)
+        num = m_ultra.group(2).upper()
+        return f"Intel Core Ultra {fam} {num}"
+
+    # AMD Ryzen 3 / 5 / 7 / 9 (incluyendo PRO)
+    m_ryzen = re.search(r'(?:AMD\s*)?RYZEN\s*(?:PRO\s*)?([3579])(?:[\s\-]*PRO)?[\s\-]*(\d{4}[A-Z]*)', v, re.I)
+    if m_ryzen:
+        fam = m_ryzen.group(1)
+        num = m_ryzen.group(2).upper()
+        return f"AMD Ryzen {fam} {num}"
+
+    # Xeon / Celeron / Pentium
+    if 'XEON' in vu:
+        m_x = re.search(r'XEON\s*([A-Z0-9\-]+)', vu)
+        return f"Intel Xeon {m_x.group(1)}" if m_x else "Intel Xeon"
+    if 'CELERON' in vu:
+        m_c = re.search(r'CELERON\s*([A-Z0-9\-]+)', vu)
+        return f"Intel Celeron {m_c.group(1)}" if m_c else "Intel Celeron"
+    if 'PENTIUM' in vu:
+        m_p = re.search(r'PENTIUM\s*([A-Z0-9\-]+)', vu)
+        return f"Intel Pentium {m_p.group(1)}" if m_p else "Intel Pentium"
+
+    return ""
 
 
 def normalizar_ram(valor: str) -> str:
-    """Consolida RAM a 'X GB DDRY' o 'X GB DDRY ZZZZ MHz'."""
+    """Consolida RAM a 'X GB DDRY ZZZZ MHz' o 'X GB', descartando basura."""
     if not valor:
         return ""
     v = str(valor).strip()
-    v = re.sub(r'[\ufffd\x7f\u00B9\u00B2\u00B3\u2070-\u2079\*\#]', '', v)
+    v = re.sub(r'[\ufffd\x7f\u00B9\u00B2\u00B3\u2070-\u2079\*\#\®\™]', '', v)
     vu = v.upper()
 
-    m_cap = re.search(r'\b(\d{1,3})\s*(?:GB|GIGAS|GIB)?\s*(DDR[345]|LPDDR[45]X?)\b', vu)
-    if m_cap:
-        cap = m_cap.group(1)
-        tech = m_cap.group(2)
-        m_hz = re.search(r'\b(\d{3,4})\s*(?:MHZ|MT/S)?\b', vu)
-        hz_part = f" {m_hz.group(1)} MHz" if m_hz and int(m_hz.group(1)) >= 1600 else ""
-        return f"{cap} GB {tech}{hz_part}"
+    if not re.search(r'\b\d+\s*GB\b', vu) and not re.search(r'\bDDR[345]\b', vu) and not re.search(r'\bLPDDR\b', vu):
+        return ""
+    if 'ARQUITECTURA' in vu or 'CHANNEL' in vu or len(vu) < 4:
+        return ""
 
-    m_simple = re.search(r'\b(\d{1,3})\s*GB\b', vu)
-    if m_simple:
-        return f"{m_simple.group(1)} GB"
+    m_cap = re.search(r'\b0?(\d{1,3})\s*(?:GB|GIGAS|GIB)?\b', vu)
+    if not m_cap:
+        return ""
+    cap = int(m_cap.group(1))
+    if cap not in (4, 8, 12, 16, 24, 32, 48, 64, 96, 128):
+        return ""
 
-    return re.sub(r'\s+', ' ', v).strip()
+    m_tech = re.search(r'\b(LPDDR5X?|LPDDR4X?|DDR5|DDR4|DDR3)\b', vu)
+    tech = m_tech.group(1) if m_tech else ""
+
+    m_hz = re.search(r'\b(2400|2666|2933|3200|4400|4800|5200|5600|6000|6400|7200)\s*(?:MHZ|MT/S)?\b', vu)
+    hz = f" {m_hz.group(1)} MHz" if m_hz else ""
+
+    if tech:
+        return f"{cap} GB {tech}{hz}"
+    return f"{cap} GB"
 
 
 def normalizar_almacenamiento(valor: str) -> str:
-    """Consolida disco a capacidades y tipos canónicos."""
+    """Consolida disco a capacidades y tipos canónicos limpios."""
     if not valor:
         return ""
     v = str(valor).strip()
+    v = re.sub(r'[\ufffd\x7f\u00B9\u00B2\u00B3\u2070-\u2079\*\#\®\™]', '', v)
     vu = v.upper()
 
     # Detección combinada SSD + HDD
@@ -188,7 +213,7 @@ def normalizar_almacenamiento(valor: str) -> str:
         tipo = "HDD" if "HDD" in vu and "SSD" not in vu else "SSD"
         return f"{size_str} {tipo}"
 
-    return v[:30]
+    return ""
 
 
 def normalizar_so(valor: str) -> str:
@@ -276,12 +301,37 @@ def obtener_filtros_dinamicos_fichas(
             where_clauses.append("(UPPER(categoria) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%')")
         elif cat_l in ("monitor", "monitores"):
             where_clauses.append("(UPPER(categoria) LIKE '%MONITOR%' OR UPPER(descripcion_producto) LIKE 'MONITOR%' OR UPPER(descripcion_producto) LIKE '%MONITOR LED%')")
-        elif cat_l in ("workstation", "workstation_portatil", "estacion"):
-            where_clauses.append("(UPPER(categoria) LIKE '%ESTACION%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')")
-        elif "almacenamiento" in cat_l:
-            where_clauses.append("(UPPER(categoria) LIKE '%ALMACENAMIENTO%' OR UPPER(catalogo) LIKE '%ALMACENAMIENTO%')")
-        elif "pantalla" in cat_l:
-            where_clauses.append("(UPPER(categoria) LIKE '%PANTALLA%' OR UPPER(descripcion_producto) LIKE '%PANTALLA%')")
+        elif cat_l in ("workstation_portatil", "estacion de trabajo portatil"):
+            where_clauses.append("""(
+                (UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')
+                AND (UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%')
+            )""")
+        elif cat_l in ("workstation", "estacion de trabajo", "estacion"):
+            where_clauses.append("""(
+                (UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')
+                AND UPPER(categoria) NOT LIKE '%PORTATIL%'
+                AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
+                AND UPPER(descripcion_producto) NOT LIKE '%LAPTOP%'
+            )""")
+        elif cat_l in ("tableta", "tablet"):
+            where_clauses.append("(UPPER(categoria) LIKE '%TABLET%' OR UPPER(descripcion_producto) LIKE '%TABLET%')")
+        elif cat_l in ("pantalla_pub", "pantalla publicitaria"):
+            where_clauses.append("(UPPER(categoria) LIKE '%PUBLICITARIA%' OR UPPER(descripcion_producto) LIKE '%PUBLICITARIA%')")
+        elif cat_l in ("pantalla_int", "pantalla interactiva"):
+            where_clauses.append("(UPPER(categoria) LIKE '%INTERACTIVA%' OR UPPER(descripcion_producto) LIKE '%INTERACTIVA%')")
+        elif cat_l in ("almacenamiento_int", "almacenamiento interno"):
+            where_clauses.append("""(
+                UPPER(categoria) LIKE '%INTERNO%'
+                OR (UPPER(catalogo) LIKE '%ALMACENAMIENTO%' AND UPPER(descripcion_producto) NOT LIKE '%EXTERNO%')
+            )""")
+        elif cat_l in ("almacenamiento_ext", "almacenamiento externo"):
+            where_clauses.append("(UPPER(categoria) LIKE '%EXTERNO%' OR UPPER(descripcion_producto) LIKE '%EXTERNO%')")
+        elif cat_l in ("escaner_docs", "escaner de documentos"):
+            where_clauses.append("(UPPER(categoria) LIKE '%DOCUMENTOS%' OR (UPPER(catalogo) LIKE '%ESCANER%' AND UPPER(descripcion_producto) NOT LIKE '%PLANO%'))")
+        elif cat_l in ("escaner_planos", "escaner de planos"):
+            where_clauses.append("(UPPER(categoria) LIKE '%PLANO%' OR UPPER(descripcion_producto) LIKE '%PLANO%')")
+        elif cat_l in ("escaner_libros", "escaner de libros"):
+            where_clauses.append("(UPPER(categoria) LIKE '%LIBRO%' OR UPPER(descripcion_producto) LIKE '%LIBRO%')")
         else:
             where_clauses.append("(UPPER(categoria) LIKE UPPER(:cat) OR UPPER(catalogo) LIKE UPPER(:cat) OR UPPER(descripcion_producto) LIKE UPPER(:cat))")
             params["cat"] = f"%{categoria}%"
@@ -602,4 +652,10 @@ def obtener_crudos_para_canonico(
     ctx_key = _build_context_key(categoria, proveedor)
     cached_map = _REVERSE_MAP_CACHE.get(ctx_key, {})
     group_map = cached_map.get(grupo, {})
-    return group_map.get(valor_canonico, [valor_canonico])
+    if valor_canonico in group_map:
+        return group_map[valor_canonico]
+    val_lower = valor_canonico.lower().strip()
+    for k, v in group_map.items():
+        if k.lower().strip() == val_lower:
+            return v
+    return [valor_canonico]

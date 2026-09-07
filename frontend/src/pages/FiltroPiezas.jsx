@@ -468,12 +468,15 @@ const FiltroPiezas = () => {
   }, [selectedCategory]);
 
   const catType = activeCategoryConfig.type || 'all';
-  const showCpuRamStorage = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'all';
-  const showGpuPsu = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'all';
+  const showCpu = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'all';
+  const showRam = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'tablet' || catType === 'all';
+  const showStorage = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'storage' || catType === 'tablet' || catType === 'all';
+  const showGpu = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'all';
+  const showPsu = catType === 'desktop' || catType === 'all';
   const showDisplay = catType === 'laptop' || catType === 'aio' || catType === 'monitor' || catType === 'display' || catType === 'tablet' || catType === 'all';
   const showMonitorSpecs = catType === 'monitor' || catType === 'display' || catType === 'all';
-  const showPanelResolution = catType === 'monitor' || catType === 'display' || catType === 'all';
-  const showOs = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'all';
+  const showPanelResolution = catType === 'monitor' || catType === 'display' || catType === 'laptop' || catType === 'aio' || catType === 'all';
+  const showOs = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'tablet' || catType === 'all';
   const showPorts = catType === 'desktop' || catType === 'laptop' || catType === 'aio' || catType === 'monitor' || catType === 'all';
   const showPeripherals = catType === 'desktop' || catType === 'aio' || catType === 'laptop' || catType === 'all';
 
@@ -993,7 +996,7 @@ const FiltroPiezas = () => {
           </div>
 
           {/* CPU Familia */}
-          {showCpuRamStorage && (
+          {showCpu && (
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Cpu size={12} style={{ color: 'var(--c-brand)' }} />
@@ -1006,13 +1009,29 @@ const FiltroPiezas = () => {
                 onChange={(e) => { setFilter('cpu', e.target.value); setPage(1); }}
               >
                 <option value="Todos">Todos</option>
-                {filterOptions.cpus.map(c => <option key={c} value={c}>{c}</option>)}
+                <optgroup label="Familias Principales">
+                  <option value="Core Ultra">Intel Core Ultra</option>
+                  <option value="Core i9">Intel Core i9</option>
+                  <option value="Core i7">Intel Core i7</option>
+                  <option value="Core i5">Intel Core i5</option>
+                  <option value="Core i3">Intel Core i3</option>
+                  <option value="Ryzen 9">AMD Ryzen 9</option>
+                  <option value="Ryzen 7">AMD Ryzen 7</option>
+                  <option value="Ryzen 5">AMD Ryzen 5</option>
+                  <option value="Ryzen 3">AMD Ryzen 3</option>
+                  <option value="Xeon">Intel Xeon</option>
+                </optgroup>
+                {filterOptions.cpus && filterOptions.cpus.length > 0 && (
+                  <optgroup label="Modelos Disponibles en BD">
+                    {filterOptions.cpus.map(c => <option key={c} value={c}>{c}</option>)}
+                  </optgroup>
+                )}
               </select>
             </div>
           )}
 
           {/* CPU Generación / Modelo */}
-          {showCpuRamStorage && (
+          {showCpu && (
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Cpu size={12} style={{ color: '#0284c7' }} />
@@ -1031,7 +1050,7 @@ const FiltroPiezas = () => {
           )}
 
           {/* Memoria RAM Capacidad */}
-          {showCpuRamStorage && (
+          {showRam && (
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Layers size={12} style={{ color: 'var(--c-success)' }} />
@@ -1050,7 +1069,7 @@ const FiltroPiezas = () => {
           )}
 
           {/* Tecnología RAM */}
-          {showCpuRamStorage && (
+          {showCpu && (
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Layers size={12} style={{ color: '#059669' }} />
@@ -1069,7 +1088,7 @@ const FiltroPiezas = () => {
           )}
 
           {/* Almacenamiento */}
-          {(showCpuRamStorage || catType === 'storage') && (
+          {showStorage && (
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <HardDrive size={12} style={{ color: 'var(--c-warning)' }} />
@@ -1088,7 +1107,7 @@ const FiltroPiezas = () => {
           )}
 
           {/* Tipo de Disco */}
-          {(showCpuRamStorage || catType === 'storage') && (
+          {showStorage && (
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <HardDrive size={12} style={{ color: '#d97706' }} />
@@ -1106,8 +1125,85 @@ const FiltroPiezas = () => {
             </div>
           )}
 
+          {/* Pantalla (Pulgadas) en Fila Principal para Laptops, AIO, Tablets y Monitores */}
+          {showDisplay && (catType === 'laptop' || catType === 'aio' || catType === 'monitor' || catType === 'display' || catType === 'tablet') && (
+            <div>
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Monitor size={12} style={{ color: '#7c3aed' }} />
+                Pantalla (Pulgadas)
+              </label>
+              <select
+                className="form-select"
+                style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
+                value={filters.display}
+                onChange={(e) => { setFilter('display', e.target.value); setPage(1); }}
+              >
+                <option value="Todos">Todos</option>
+                {filterOptions.displays.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Tipo de Panel para Monitores y Pantallas */}
+          {(catType === 'monitor' || catType === 'display') && (
+            <div>
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'block' }}>
+                Tipo de Panel
+              </label>
+              <select
+                className="form-select"
+                style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
+                value={filters.panel}
+                onChange={(e) => { setFilter('panel', e.target.value); setPage(1); }}
+              >
+                <option value="Todos">Todos</option>
+                {filterOptions.panels.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Resolución para Monitores y Pantallas */}
+          {(catType === 'monitor' || catType === 'display') && (
+            <div>
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'block' }}>
+                Resolución
+              </label>
+              <select
+                className="form-select"
+                style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
+                value={filters.resolution}
+                onChange={(e) => { setFilter('resolution', e.target.value); setPage(1); }}
+              >
+                <option value="Todos">Todos</option>
+                {filterOptions.resolutions.map(res => <option key={res} value={res}>{res}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Tasa de Refresco (Monitores) */}
+          {showMonitorSpecs && (
+            <div>
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Tv size={12} style={{ color: 'var(--c-brand)' }} />
+                Tasa de Refresco (Hz)
+              </label>
+              <select
+                className="form-select"
+                style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
+                value={filters.monitor_hz}
+                onChange={(e) => { setFilter('monitor_hz', e.target.value); setPage(1); }}
+              >
+                <option value="Todos">Todos</option>
+                <option value="144">144 Hz o superior (Gaming / Pro)</option>
+                <option value="100">100 Hz o superior</option>
+                <option value="75">75 Hz</option>
+                <option value="60">60 Hz</option>
+              </select>
+            </div>
+          )}
+
           {/* Tarjeta Gráfica */}
-          {showGpuPsu && (
+          {showGpu && (
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Layers size={12} style={{ color: '#16a34a' }} />
@@ -1135,8 +1231,8 @@ const FiltroPiezas = () => {
             </div>
           )}
 
-          {/* Fuente de Poder */}
-          {showGpuPsu && (
+          {/* Fuente de Poder (Solo PCs de Escritorio / Workstations Torre / All) */}
+          {showPsu && (
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Sparkles size={12} style={{ color: '#ea580c' }} />
@@ -1161,28 +1257,6 @@ const FiltroPiezas = () => {
                     ))}
                   </optgroup>
                 )}
-              </select>
-            </div>
-          )}
-
-          {/* Tasa de Refresco (Monitores) */}
-          {showMonitorSpecs && (
-            <div>
-              <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Tv size={12} style={{ color: 'var(--c-brand)' }} />
-                Tasa de Refresco (Hz)
-              </label>
-              <select
-                className="form-select"
-                style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
-                value={filters.monitor_hz}
-                onChange={(e) => { setFilter('monitor_hz', e.target.value); setPage(1); }}
-              >
-                <option value="Todos">Todos</option>
-                <option value="144">144 Hz o superior (Gaming / Pro)</option>
-                <option value="100">100 Hz o superior</option>
-                <option value="75">75 Hz</option>
-                <option value="60">60 Hz</option>
               </select>
             </div>
           )}
@@ -1225,8 +1299,8 @@ const FiltroPiezas = () => {
               <span>Pantalla, Software y Garantía Oficial:</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
-              {/* Pantalla Pulgadas */}
-              {showDisplay && (
+              {/* Pantalla Pulgadas (Solo en sección secundaria para vista global 'all') */}
+              {showDisplay && catType === 'all' && (
                 <div>
                   <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <Monitor size={12} style={{ color: '#7c3aed' }} />
@@ -1244,8 +1318,8 @@ const FiltroPiezas = () => {
                 </div>
               )}
 
-              {/* Tipo de Panel */}
-              {showPanelResolution && (
+              {/* Tipo de Panel (Para laptops/AIO/all en extras) */}
+              {showPanelResolution && catType !== 'monitor' && catType !== 'display' && (
                 <div>
                   <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'block' }}>
                     Tipo de Panel
@@ -1262,8 +1336,8 @@ const FiltroPiezas = () => {
                 </div>
               )}
 
-              {/* Resolución */}
-              {showPanelResolution && (
+              {/* Resolución (Para laptops/AIO/all en extras) */}
+              {showPanelResolution && catType !== 'monitor' && catType !== 'display' && (
                 <div>
                   <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'block' }}>
                     Resolución

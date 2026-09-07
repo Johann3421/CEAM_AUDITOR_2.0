@@ -219,83 +219,160 @@ def get_proveedor_fichas(
 
     # ── Filtros de Características Técnicas por Componente ───────────────
     if cpu and cpu != 'Todos':
+        raws_cpu = obtener_crudos_para_canonico('cpus', cpu, categoria, proveedor)
+        cpu_sub = []
         cpu_u = cpu.upper().strip()
-        if 'ULTRA' in cpu_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%CORE ULTRA%' OR UPPER(f.descripcion_producto) LIKE '%ULTRA %')")
-        elif 'I9' in cpu_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%I9%' OR UPPER(f.descripcion_producto) LIKE '%CORE I9%')")
-        elif 'I7' in cpu_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%I7%' OR UPPER(f.descripcion_producto) LIKE '%CORE I7%')")
-        elif 'I5' in cpu_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%I5%' OR UPPER(f.descripcion_producto) LIKE '%CORE I5%')")
-        elif 'I3' in cpu_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%I3%' OR UPPER(f.descripcion_producto) LIKE '%CORE I3%')")
-        elif 'RYZEN 9' in cpu_u:
-            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%RYZEN 9%'")
-        elif 'RYZEN 7' in cpu_u:
-            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%RYZEN 7%'")
-        elif 'RYZEN 5' in cpu_u:
-            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%RYZEN 5%'")
-        elif 'RYZEN 3' in cpu_u:
-            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%RYZEN 3%'")
-        elif 'CELERON' in cpu_u:
-            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%CELERON%'")
-        elif 'XEON' in cpu_u:
-            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%XEON%'")
-        elif 'PENTIUM' in cpu_u:
-            where_clauses.append("UPPER(f.descripcion_producto) LIKE '%PENTIUM%'")
+
+        # 1. Reverse lookup: si tenemos valores crudos en BD, machear exactamente
+        for idx, r_val in enumerate(raws_cpu[:15]):
+            p_k = f"cpu_r_{idx}"
+            cpu_sub.append(f"UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE UPPER(:{p_k})")
+            cpu_sub.append(f"UPPER(f.descripcion_producto) LIKE UPPER(:{p_k})")
+            params[p_k] = f"%{r_val.strip()}%"
+
+        # 2. Detección de modelo específico (ej. "14500", "14700", "5600G", "225", "8700G")
+        m_num = re.search(r'\b(\d{4,5}[A-Z]?|\d{3}[A-Z]?)\b', cpu)
+        if m_num:
+            num_code = m_num.group(1).upper()
+            p_num = f"cpu_num_{num_code}"
+            params[p_num] = f"%{num_code}%"
+            
+            cond_num = f"(UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE :{p_num} OR (UPPER(f.descripcion_producto) LIKE :cpu_tag_{num_code} OR UPPER(f.descripcion_producto) LIKE :cpu_m_{num_code}))"
+            params[f"cpu_tag_{num_code}"] = f"%PROCESADOR%{num_code}%"
+            params[f"cpu_m_{num_code}"] = f"%-{num_code}%"
+
+            if 'I5' in cpu_u:
+                cpu_sub.append(f"({cond_num} AND (f.raw_json->'specs_pdf'->>'procesador' IS NULL OR UPPER(f.raw_json->'specs_pdf'->>'procesador') NOT LIKE '%I7%'))")
+            elif 'I7' in cpu_u:
+                cpu_sub.append(f"({cond_num} AND (f.raw_json->'specs_pdf'->>'procesador' IS NULL OR UPPER(f.raw_json->'specs_pdf'->>'procesador') NOT LIKE '%I5%'))")
+            else:
+                cpu_sub.append(cond_num)
         else:
-            where_clauses.append("UPPER(f.descripcion_producto) LIKE :cpu_filter")
-            params["cpu_filter"] = f"%{cpu}%"
+            # 3. Familia genérica
+            if 'ULTRA' in cpu_u:
+                cpu_sub.append("(UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%ULTRA%' OR UPPER(f.descripcion_producto) LIKE '%CORE ULTRA%' OR UPPER(f.descripcion_producto) LIKE '%ULTRA %')")
+            elif 'I9' in cpu_u:
+                cpu_sub.append("(UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%I9%' OR UPPER(f.descripcion_producto) LIKE '%CORE I9%' OR UPPER(f.descripcion_producto) LIKE '%I9-%')")
+            elif 'I7' in cpu_u:
+                cpu_sub.append("""(
+                    (UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%I7%' AND UPPER(f.raw_json->'specs_pdf'->>'procesador') NOT LIKE '%I5%')
+                    OR (
+                        (UPPER(f.descripcion_producto) LIKE '%CORE I7%' OR UPPER(f.descripcion_producto) LIKE '%I7-%' OR UPPER(f.descripcion_producto) LIKE '%PROCESADOR%I7%')
+                        AND UPPER(f.descripcion_producto) NOT LIKE '%CORE I5%'
+                        AND (f.raw_json->'specs_pdf'->>'procesador' IS NULL OR UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%I7%')
+                    )
+                )""")
+            elif 'I5' in cpu_u:
+                cpu_sub.append("""(
+                    (UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%I5%' AND UPPER(f.raw_json->'specs_pdf'->>'procesador') NOT LIKE '%I7%')
+                    OR (
+                        (UPPER(f.descripcion_producto) LIKE '%CORE I5%' OR UPPER(f.descripcion_producto) LIKE '%I5-%' OR UPPER(f.descripcion_producto) LIKE '%PROCESADOR%I5%')
+                        AND UPPER(f.descripcion_producto) NOT LIKE '%CORE I7%'
+                        AND (f.raw_json->'specs_pdf'->>'procesador' IS NULL OR UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%I5%')
+                    )
+                )""")
+            elif 'I3' in cpu_u:
+                cpu_sub.append("(UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%I3%' OR UPPER(f.descripcion_producto) LIKE '%CORE I3%' OR UPPER(f.descripcion_producto) LIKE '%I3-%')")
+            elif 'RYZEN 9' in cpu_u:
+                cpu_sub.append("(UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%RYZEN 9%' OR UPPER(f.descripcion_producto) LIKE '%RYZEN 9%')")
+            elif 'RYZEN 7' in cpu_u:
+                cpu_sub.append("(UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%RYZEN 7%' OR UPPER(f.descripcion_producto) LIKE '%RYZEN 7%')")
+            elif 'RYZEN 5' in cpu_u:
+                cpu_sub.append("(UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%RYZEN 5%' OR UPPER(f.descripcion_producto) LIKE '%RYZEN 5%')")
+            elif 'RYZEN 3' in cpu_u:
+                cpu_sub.append("(UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%RYZEN 3%' OR UPPER(f.descripcion_producto) LIKE '%RYZEN 3%')")
+            elif 'CELERON' in cpu_u:
+                cpu_sub.append("(UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%CELERON%' OR UPPER(f.descripcion_producto) LIKE '%CELERON%')")
+            elif 'XEON' in cpu_u:
+                cpu_sub.append("(UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%XEON%' OR UPPER(f.descripcion_producto) LIKE '%XEON%')")
+            elif 'PENTIUM' in cpu_u:
+                cpu_sub.append("(UPPER(f.raw_json->'specs_pdf'->>'procesador') LIKE '%PENTIUM%' OR UPPER(f.descripcion_producto) LIKE '%PENTIUM%')")
+            else:
+                cpu_sub.append("UPPER(f.descripcion_producto) LIKE :cpu_filter")
+                params["cpu_filter"] = f"%{cpu}%"
+
+        where_clauses.append(f"({' OR '.join(cpu_sub)})")
 
     if ram and ram != 'Todos':
+        raws_ram = obtener_crudos_para_canonico('rams', ram, categoria, proveedor)
+        ram_sub = []
+        for idx, r_val in enumerate(raws_ram[:15]):
+            p_k = f"ram_r_{idx}"
+            ram_sub.append(f"UPPER(f.raw_json->'specs_pdf'->>'ram') LIKE UPPER(:{p_k})")
+            ram_sub.append(f"UPPER(f.descripcion_producto) LIKE UPPER(:{p_k})")
+            params[p_k] = f"%{r_val.strip()}%"
+
         m_ram = re.search(r'\b(\d+)\s*GB\b', ram, re.I)
         if m_ram:
             val = m_ram.group(1)
-            where_clauses.append(f"(UPPER(f.descripcion_producto) LIKE '%{val} GB%' OR UPPER(f.descripcion_producto) LIKE '%{val}GB%')")
-        else:
-            where_clauses.append("UPPER(f.descripcion_producto) LIKE :ram_filter")
-            params["ram_filter"] = f"%{ram}%"
+            ram_sub.append(f"f.raw_json->'specs_pdf'->>'ram' LIKE '%{val} GB%' OR f.raw_json->'specs_pdf'->>'ram' LIKE '%{val}GB%'")
+            ram_sub.append(f"(UPPER(f.descripcion_producto) LIKE '%RAM:%{val} GB%' OR UPPER(f.descripcion_producto) LIKE '%MEMORIA:%{val} GB%' OR UPPER(f.descripcion_producto) LIKE '% {val} GB %' OR UPPER(f.descripcion_producto) LIKE '% {val}GB %')")
+
+        if 'DDR5' in ram.upper():
+            ram_sub.append("(UPPER(f.descripcion_producto) LIKE '%DDR5%' OR UPPER(f.raw_json->'specs_pdf'->>'ram') LIKE '%DDR5%')")
+        elif 'DDR4' in ram.upper():
+            ram_sub.append("(UPPER(f.descripcion_producto) LIKE '%DDR4%' OR UPPER(f.raw_json->'specs_pdf'->>'ram') LIKE '%DDR4%')")
+
+        where_clauses.append(f"({' OR '.join(ram_sub)})")
 
     if disco and disco != 'Todos':
+        raws_st = obtener_crudos_para_canonico('storages', disco, categoria, proveedor)
+        disco_sub = []
+        for idx, r_val in enumerate(raws_st[:15]):
+            p_k = f"st_r_{idx}"
+            disco_sub.append(f"UPPER(f.raw_json->'specs_pdf'->>'almacenamiento') LIKE UPPER(:{p_k})")
+            disco_sub.append(f"UPPER(f.raw_json->'specs_pdf'->>'storage_resumen') LIKE UPPER(:{p_k})")
+            disco_sub.append(f"UPPER(f.descripcion_producto) LIKE UPPER(:{p_k})")
+            params[p_k] = f"%{r_val.strip()}%"
+
         disco_u = disco.upper().strip()
         if '128' in disco_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%128%GB%' OR UPPER(f.descripcion_producto) LIKE '%128GB%')")
+            disco_sub.append("(UPPER(f.descripcion_producto) LIKE '%128%GB%' OR UPPER(f.descripcion_producto) LIKE '%128GB%' OR f.raw_json->'specs_pdf'->>'storage_resumen' LIKE '%128%')")
         elif '256' in disco_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%256%GB%' OR UPPER(f.descripcion_producto) LIKE '%256GB%')")
+            disco_sub.append("(UPPER(f.descripcion_producto) LIKE '%256%GB%' OR UPPER(f.descripcion_producto) LIKE '%256GB%' OR f.raw_json->'specs_pdf'->>'storage_resumen' LIKE '%256%')")
         elif '512' in disco_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%512%GB%' OR UPPER(f.descripcion_producto) LIKE '%512GB%')")
+            disco_sub.append("(UPPER(f.descripcion_producto) LIKE '%512%GB%' OR UPPER(f.descripcion_producto) LIKE '%512GB%' OR f.raw_json->'specs_pdf'->>'storage_resumen' LIKE '%512%')")
         elif '1 TB' in disco_u or '1TB' in disco_u:
             if 'HDD' in disco_u:
-                where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%1%TB%' AND UPPER(f.descripcion_producto) LIKE '%HDD%')")
+                disco_sub.append("(UPPER(f.descripcion_producto) LIKE '%1%TB%' AND UPPER(f.descripcion_producto) LIKE '%HDD%')")
             else:
-                where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%1%TB%' AND UPPER(f.descripcion_producto) NOT LIKE '%HDD%')")
+                disco_sub.append("(UPPER(f.descripcion_producto) LIKE '%1%TB%' OR f.raw_json->'specs_pdf'->>'storage_resumen' LIKE '%1 TB%')")
         elif '2 TB' in disco_u or '2TB' in disco_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%2%TB%')")
-        else:
-            where_clauses.append("UPPER(f.descripcion_producto) LIKE :disco_filter")
-            params["disco_filter"] = f"%{disco}%"
+            disco_sub.append("(UPPER(f.descripcion_producto) LIKE '%2%TB%' OR f.raw_json->'specs_pdf'->>'storage_resumen' LIKE '%2 TB%')")
+
+        where_clauses.append(f"({' OR '.join(disco_sub)})")
 
     if pantalla and pantalla != 'Todos':
         m_pan = re.search(r'(\d+(?:\.\d+)?)', pantalla)
         if m_pan:
             val = m_pan.group(1)
-            where_clauses.append(f"(UPPER(f.descripcion_producto) LIKE '%{val}\"%' OR UPPER(f.descripcion_producto) LIKE '%{val} PULG%' OR UPPER(f.descripcion_producto) LIKE '%{val}PULG%' OR UPPER(f.descripcion_producto) LIKE '%{val} %')")
+            where_clauses.append(f"(UPPER(f.descripcion_producto) LIKE '%{val}\"%' OR UPPER(f.descripcion_producto) LIKE '%{val} PULG%' OR UPPER(f.descripcion_producto) LIKE '%{val}PULG%' OR UPPER(f.descripcion_producto) LIKE '% {val} %' OR f.raw_json->'specs_pdf'->>'tamano_pantalla' LIKE '%{val}%')")
         elif pantalla == 'Sin pantalla':
             where_clauses.append("UPPER(f.descripcion_producto) NOT LIKE '%PANTALLA%'")
 
     if so and so != 'Todos':
+        raws_so = obtener_crudos_para_canonico('oss', so, categoria, proveedor)
+        so_sub = []
+        for idx, r_val in enumerate(raws_so[:15]):
+            p_k = f"so_r_{idx}"
+            so_sub.append(f"UPPER(f.raw_json->'specs_pdf'->>'sistema_operativo') LIKE UPPER(:{p_k})")
+            so_sub.append(f"UPPER(f.raw_json->'specs_pdf'->>'so_resumen') LIKE UPPER(:{p_k})")
+            so_sub.append(f"UPPER(f.descripcion_producto) LIKE UPPER(:{p_k})")
+            params[p_k] = f"%{r_val.strip()}%"
+
         so_u = so.upper()
         if '11 PRO' in so_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%W11 PRO%' OR UPPER(f.descripcion_producto) LIKE '%W11P%' OR UPPER(f.descripcion_producto) LIKE '%WIN 11 PRO%' OR UPPER(f.descripcion_producto) LIKE '%WINDOWS 11 PRO%')")
+            so_sub.append("(UPPER(f.descripcion_producto) LIKE '%W11 PRO%' OR UPPER(f.descripcion_producto) LIKE '%WIN 11 PRO%' OR UPPER(f.descripcion_producto) LIKE '%WINDOWS 11 PRO%' OR f.raw_json->'specs_pdf'->>'so_resumen' = 'Windows 11 Pro')")
         elif '11 HOME' in so_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%W11 HOME%' OR UPPER(f.descripcion_producto) LIKE '%W11H%' OR UPPER(f.descripcion_producto) LIKE '%WIN 11 HOME%' OR UPPER(f.descripcion_producto) LIKE '%WINDOWS 11 HOME%')")
+            so_sub.append("(UPPER(f.descripcion_producto) LIKE '%W11 HOME%' OR UPPER(f.descripcion_producto) LIKE '%WIN 11 HOME%' OR UPPER(f.descripcion_producto) LIKE '%WINDOWS 11 HOME%' OR f.raw_json->'specs_pdf'->>'so_resumen' = 'Windows 11 Home')")
         elif '10' in so_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%W10%' OR UPPER(f.descripcion_producto) LIKE '%WINDOWS 10%')")
+            so_sub.append("(UPPER(f.descripcion_producto) LIKE '%W10%' OR UPPER(f.descripcion_producto) LIKE '%WINDOWS 10%' OR f.raw_json->'specs_pdf'->>'so_resumen' LIKE '%Windows 10%')")
         elif 'FREE' in so_u or 'DOS' in so_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%FREEDOS%' OR UPPER(f.descripcion_producto) LIKE '%FREE DOS%' OR UPPER(f.descripcion_producto) LIKE '%NO TIENE%')")
+            so_sub.append("(UPPER(f.descripcion_producto) LIKE '%FREEDOS%' OR UPPER(f.descripcion_producto) LIKE '%FREE DOS%' OR UPPER(f.descripcion_producto) LIKE '%NO TIENE%' OR f.raw_json->'specs_pdf'->>'so_resumen' LIKE '%FreeDOS%')")
         elif 'LINUX' in so_u or 'UBUNTU' in so_u:
-            where_clauses.append("(UPPER(f.descripcion_producto) LIKE '%UBUNTU%' OR UPPER(f.descripcion_producto) LIKE '%LINUX%')")
+            so_sub.append("(UPPER(f.descripcion_producto) LIKE '%UBUNTU%' OR UPPER(f.descripcion_producto) LIKE '%LINUX%' OR f.raw_json->'specs_pdf'->>'so_resumen' LIKE '%Linux%')")
+
+        where_clauses.append(f"({' OR '.join(so_sub)})")
 
     if panel and panel != 'Todos':
         panel_u = panel.upper().strip()
