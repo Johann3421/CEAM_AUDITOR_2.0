@@ -37,6 +37,8 @@ try:
                 CREATE INDEX IF NOT EXISTS ix_oph_ruc_cat ON ofertas_proveedor_history (ruc_proveedor, categoria);
                 CREATE INDEX IF NOT EXISTS ix_oph_nro_parte_trim ON ofertas_proveedor_history (UPPER(TRIM(nro_parte)));
                 CREATE INDEX IF NOT EXISTS ix_oph_categoria ON ofertas_proveedor_history (categoria);
+                CREATE INDEX IF NOT EXISTS ix_po_nro_parte_trim ON purchase_orders (UPPER(TRIM(nro_parte)));
+                CREATE INDEX IF NOT EXISTS ix_fp_nro_parte_trim ON fichas_producto (UPPER(TRIM("nro_parte_o_cdigo_nico_de_identificacin")));
             """))
         except Exception:
             pass
