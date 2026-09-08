@@ -473,6 +473,8 @@ const FiltroPiezas = () => {
   const showStorage = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'storage' || catType === 'tablet' || catType === 'all';
   const showGpu = catType === 'laptop' || catType === 'desktop' || catType === 'aio' || catType === 'all';
   const showPsu = catType === 'desktop' || catType === 'all';
+  const showCpuRamStorage = showCpu; // Alias backward-compat
+  const showGpuPsu = showGpu; // Alias backward-compat
   const showDisplay = catType === 'laptop' || catType === 'aio' || catType === 'monitor' || catType === 'display' || catType === 'tablet' || catType === 'all';
   const showMonitorSpecs = catType === 'monitor' || catType === 'display' || catType === 'all';
   const showPanelResolution = catType === 'monitor' || catType === 'display' || catType === 'laptop' || catType === 'aio' || catType === 'all';
@@ -1973,11 +1975,11 @@ const FiltroPiezas = () => {
                     />
                   </th>
                   <th>Categoría</th>
-                  {showCpuRamStorage && <th>CPU / Gen</th>}
-                  {showCpuRamStorage && <th>RAM / Tipo</th>}
-                  {(showCpuRamStorage || catType === 'storage') && <th>Disco / Tipo</th>}
-                  {showGpuPsu && <th>Tarjeta Gráfica</th>}
-                  {showGpuPsu && <th>Fuente de Poder</th>}
+                  {showCpu && <th>CPU / Gen</th>}
+                  {showRam && <th>RAM / Tipo</th>}
+                  {showStorage && <th>Disco / Tipo</th>}
+                  {showGpu && <th>Tarjeta Gráfica</th>}
+                  {showPsu && <th>Fuente de Poder</th>}
                   {showMonitorSpecs && <th>Hz / Refresco</th>}
                   {showMonitorSpecs && <th>Ms / Resp.</th>}
                   {showMonitorSpecs && <th>Brillo / Contraste</th>}
@@ -2018,11 +2020,11 @@ const FiltroPiezas = () => {
                       <td><div className="skeleton" style={{ height: 16, width: 120 }} /></td>
                       <td><div className="skeleton" style={{ height: 16, width: 60 }} /></td>
                       <td><div className="skeleton" style={{ height: 16, width: 90 }} /></td>
-                      {showCpuRamStorage && <td><div className="skeleton" style={{ height: 16, width: 100 }} /></td>}
-                      {showCpuRamStorage && <td><div className="skeleton" style={{ height: 16, width: 60 }} /></td>}
-                      {(showCpuRamStorage || catType === 'storage') && <td><div className="skeleton" style={{ height: 16, width: 80 }} /></td>}
-                      {showGpuPsu && <td><div className="skeleton" style={{ height: 16, width: 90 }} /></td>}
-                      {showGpuPsu && <td><div className="skeleton" style={{ height: 16, width: 70 }} /></td>}
+                      {showCpu && <td><div className="skeleton" style={{ height: 16, width: 100 }} /></td>}
+                      {showRam && <td><div className="skeleton" style={{ height: 16, width: 60 }} /></td>}
+                      {showStorage && <td><div className="skeleton" style={{ height: 16, width: 80 }} /></td>}
+                      {showGpu && <td><div className="skeleton" style={{ height: 16, width: 90 }} /></td>}
+                      {showPsu && <td><div className="skeleton" style={{ height: 16, width: 70 }} /></td>}
                       {showMonitorSpecs && <td><div className="skeleton" style={{ height: 16, width: 50 }} /></td>}
                       {showMonitorSpecs && <td><div className="skeleton" style={{ height: 16, width: 40 }} /></td>}
                       {showMonitorSpecs && <td><div className="skeleton" style={{ height: 16, width: 80 }} /></td>}
@@ -2067,25 +2069,25 @@ const FiltroPiezas = () => {
                         </td>
                         <td style={{ fontSize: 12, fontWeight: 600 }}>{item.marca || '—'}</td>
                         <td style={{ fontSize: 11, color: 'var(--c-text-secondary)' }}>{item.categoria || item.catalogo || sp.formFactor}</td>
-                        {showCpuRamStorage && (
+                        {showCpu && (
                           <td style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-brand)' }}>
                             {sp.cpuFull || sp.cpu || '—'}
                             {sp.cpuGen && <span style={{ fontSize: 10, color: '#64748b', display: 'block' }}>{sp.cpuGen}</span>}
                           </td>
                         )}
-                        {showCpuRamStorage && (
+                        {showRam && (
                           <td style={{ fontSize: 11 }}>
                             {sp.ram || '—'}
                             {sp.ramTech && <span style={{ fontSize: 10, color: '#059669', display: 'block', fontWeight: 600 }}>{sp.ramTech}</span>}
                           </td>
                         )}
-                        {(showCpuRamStorage || catType === 'storage') && (
+                        {showStorage && (
                           <td style={{ fontSize: 11 }}>
                             {sp.storage || '—'}
                             {sp.discoTipo && <span style={{ fontSize: 10, color: '#d97706', display: 'block' }}>{sp.discoTipo}</span>}
                           </td>
                         )}
-                        {showGpuPsu && (
+                        {showGpu && (
                           <td style={{ fontSize: 11 }}>
                             {sp.gpuResumen ? (
                               <div>
@@ -2108,7 +2110,7 @@ const FiltroPiezas = () => {
                             ) : '—'}
                           </td>
                         )}
-                        {showGpuPsu && (
+                        {showPsu && (
                           <td style={{ fontSize: 11, color: sp.fuenteResumen ? '#334155' : 'inherit', fontWeight: sp.fuenteResumen ? 600 : 'normal' }}>
                             {sp.fuenteResumen || '—'}
                           </td>
