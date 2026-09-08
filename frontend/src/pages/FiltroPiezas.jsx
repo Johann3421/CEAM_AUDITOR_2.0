@@ -1032,26 +1032,7 @@ const FiltroPiezas = () => {
             </div>
           )}
 
-          {/* CPU Generación / Modelo */}
-          {showCpu && (
-            <div>
-              <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Cpu size={12} style={{ color: '#0284c7' }} />
-                CPU Generación
-              </label>
-              <select
-                className="form-select"
-                style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
-                value={filters.cpu_gen}
-                onChange={(e) => { setFilter('cpu_gen', e.target.value); setPage(1); }}
-              >
-                <option value="Todos">Todos</option>
-                {filterOptions.cpu_gens.map(cg => <option key={cg} value={cg}>{cg}</option>)}
-              </select>
-            </div>
-          )}
-
-          {/* Memoria RAM Capacidad */}
+          {/* Memoria RAM Capacidad y Tipo */}
           {showRam && (
             <div>
               <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1066,25 +1047,6 @@ const FiltroPiezas = () => {
               >
                 <option value="Todos">Todos</option>
                 {filterOptions.rams.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </div>
-          )}
-
-          {/* Tecnología RAM */}
-          {showCpu && (
-            <div>
-              <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Layers size={12} style={{ color: '#059669' }} />
-                Tecnología RAM
-              </label>
-              <select
-                className="form-select"
-                style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
-                value={filters.ram_tech}
-                onChange={(e) => { setFilter('ram_tech', e.target.value); setPage(1); }}
-              >
-                <option value="Todos">Todos</option>
-                {filterOptions.ram_techs.map(rt => <option key={rt} value={rt}>{rt}</option>)}
               </select>
             </div>
           )}
@@ -1104,25 +1066,6 @@ const FiltroPiezas = () => {
               >
                 <option value="Todos">Todos</option>
                 {filterOptions.storages.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-          )}
-
-          {/* Tipo de Disco */}
-          {showStorage && (
-            <div>
-              <label className="form-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <HardDrive size={12} style={{ color: '#d97706' }} />
-                Tipo de Disco
-              </label>
-              <select
-                className="form-select"
-                style={{ width: '100%', fontSize: 12, padding: '6px 10px' }}
-                value={filters.disco_tipo}
-                onChange={(e) => { setFilter('disco_tipo', e.target.value); setPage(1); }}
-              >
-                <option value="Todos">Todos</option>
-                {filterOptions.disco_tipos.map(dt => <option key={dt} value={dt}>{dt}</option>)}
               </select>
             </div>
           )}
