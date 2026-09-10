@@ -50,11 +50,15 @@ def _clean_nro(k) -> str:
 
 def _get_candidate_keys(k: str) -> list[str]:
     """
-    Generate normalized candidate keys for matching part numbers:
+    Generate normalized candidate keys for exact matching of part numbers:
     1. Exact cleaned key (e.g. 'A28NWLS#ABM-OH4')
-    2. Stripped of trailing noise/dots
-    3. Stripped of bundle suffix -M
-    4. Base model without office/bundle suffix (e.g. 'A28NWLS#ABM')
+    2. Without internal whitespace (e.g. 'A28NWLS # ABM - OH4' -> 'A28NWLS#ABM-OH4')
+    3. Stripped of accidental trailing noise/punctuation (*#.,;-_/ )
+
+    IMPORTANT: Never strip commercial model/bundle suffixes (such as -OH4, -OH3, -OH, -HF, -24, -M, etc.).
+    Those suffixes indicate bundles with software licenses (e.g. Office Home & Business)
+    or distinct hardware specs, which have significantly different market prices.
+    Matching must only occur between 100% equivalent part numbers.
     """
     if not k:
         return []
@@ -64,21 +68,14 @@ def _get_candidate_keys(k: str) -> list[str]:
         return []
     candidates.append(norm)
 
+    # Remove internal spaces (e.g. 'A28NWLS # ABM' -> 'A28NWLS#ABM')
+    no_spaces = re.sub(r'\s+', '', norm)
+    if no_spaces and no_spaces not in candidates:
+        candidates.append(no_spaces)
+
     stripped = norm.rstrip('*#.,;-_/ ')
     if stripped and stripped not in candidates:
         candidates.append(stripped)
-
-    # If it ends in M (e.g. bundle indicator)
-    if norm.endswith('M') and len(norm) > 4:
-        without_m = norm[:-1].rstrip('-_./ ')
-        if without_m and without_m not in candidates:
-            candidates.append(without_m)
-
-    # Base model without bundle / software suffix
-    base = re.sub(r'-(?:OH4M|OH4|OH3|OHM|OH|24|HF2|HF|M)$', '', stripped or norm)
-    base_clean = base.rstrip('*#.,;-_/ ')
-    if base_clean and base_clean not in candidates:
-        candidates.append(base_clean)
 
     return candidates
 
