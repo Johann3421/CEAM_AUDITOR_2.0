@@ -1134,64 +1134,6 @@ def get_precio_stats(db: Session = Depends(get_db)):
         return {"total": 0, "con_precio": 0, "sin_precio": 0, "coverage_pct": 0.0, "enriquecido_at": None, "volatilidad": {"baja": 0, "media": 0, "alta": 0}}
 
 
-@router.get("/audit-unmatched")
-def audit_unmatched(db: Session = Depends(get_db)):
-    """Diagnostic endpoint to double-check unmatched fichas against purchase orders."""
-    cols = _safe_col(db)
-    nro_col = next((c for c in cols if c.startswith("nro_parte")), None)
-    if not nro_col:
-        return {"error": "No nro_parte column found"}
-
-    cat_col = next((c for c in ("categoría", "categora", "categoria") if c in cols), "marca")
-
-    # 1. Any ficha with precio_referencia IS NULL that has a valid positive order?
-    exact_missed = db.execute(text(f"""
-        WITH po_parts AS (
-            SELECT DISTINCT UPPER(TRIM(elem->>'nro_parte')) AS nro
-            FROM purchase_orders
-            CROSS JOIN LATERAL jsonb_array_elements(
-                CASE WHEN nro_parte IS NOT NULL AND nro_parte LIKE '[%' THEN nro_parte::jsonb ELSE '[]'::jsonb END
-            ) AS elem
-            WHERE elem->>'nro_parte' IS NOT NULL AND elem->>'nro_parte' <> ''
-              AND (COALESCE((elem->>'precio_unitario')::numeric, 0) > 0 OR COALESCE(purchase_orders.precio_unitario, 0) > 0)
-            
-            UNION
-            
-            SELECT DISTINCT UPPER(TRIM(nro_parte)) AS nro
-            FROM purchase_orders
-            WHERE nro_parte IS NOT NULL AND nro_parte NOT LIKE '[%' AND nro_parte NOT IN ('', 'null', '[]')
-              AND (COALESCE(precio_unitario, 0) > 0 OR COALESCE(sub_total, 0) > 0 OR COALESCE(monto_total, 0) > 0)
-        )
-        SELECT f."{nro_col}" AS nro_ficha, COUNT(*) OVER() AS total_count
-        FROM {_TABLE} f
-        JOIN po_parts p ON UPPER(TRIM(f."{nro_col}")) = p.nro
-        WHERE f.precio_referencia IS NULL
-        LIMIT 20
-    """)).fetchall()
-
-    # 2. Total fichas sin precio
-    total_sin_precio = db.execute(text(f"SELECT COUNT(*) FROM {_TABLE} WHERE precio_referencia IS NULL")).scalar() or 0
-
-    # 3. Muestra de fichas sin precio para verificar sus números de parte
-    muestra = db.execute(text(f"""
-        SELECT f."{nro_col}", f.marca, f."{cat_col}"
-        FROM {_TABLE} f
-        WHERE f.precio_referencia IS NULL AND f."{nro_col}" IS NOT NULL AND f."{nro_col}" != ''
-        LIMIT 10
-    """)).fetchall()
-
-    return {
-        "total_fichas_sin_precio": total_sin_precio,
-        "fichas_sin_precio_con_orden_valida_omitida": {
-            "total": exact_missed[0][1] if exact_missed else 0,
-            "muestra": [r[0] for r in exact_missed]
-        },
-        "muestra_fichas_sin_precio": [
-            {"nro_parte": r[0], "marca": r[1], "categoria": r[2]} for r in muestra
-        ]
-    }
-
-
 @router.post("/enrich-precios")
 def enrich_precios(db: Session = Depends(get_db)):
     """
