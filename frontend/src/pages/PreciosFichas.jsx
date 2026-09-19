@@ -4,7 +4,8 @@ import { preciosFichasApi, fichasProductoApi } from '../services/api';
 import {
   DollarSign, Zap, TrendingUp, AlertTriangle, CheckCircle,
   Loader2, RefreshCw, ChevronLeft, ChevronRight, Info, Search,
-  ArrowUp, ArrowDown, ChevronsUpDown, Filter, FileDown
+  ArrowUp, ArrowDown, ChevronsUpDown, Filter, FileDown, Calendar,
+  SlidersHorizontal, X
 } from 'lucide-react';
 import HeaderFilter from '../components/HeaderFilter';
 
@@ -16,6 +17,18 @@ const VolBadge = ({ vol }) => {
   if (v < 20) return <span className="badge badge-success">Baja {v.toFixed(1)}%</span>;
   if (v <= 50) return <span className="badge badge-warning">Media {v.toFixed(1)}%</span>;
   return <span className="badge badge-error">Alta {v.toFixed(1)}%</span>;
+};
+
+const formatDatePE = (dateStr) => {
+  if (!dateStr) return '—';
+  try {
+    const s = String(dateStr).slice(0, 10);
+    const parts = s.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+  } catch (_) {}
+  return dateStr;
 };
 
 const formatMesOrden = (fechaStr, ordenStr) => {
@@ -100,7 +113,8 @@ const PreciosFichas = () => {
   const [filters, setFilters] = useState({ 
     marca: '', acuerdo_marco: '', categoria: '', nro_parte: '',
     precio_referencia: '', precio_min: '', precio_max: '',
-    volatilidad: '', ordenes: ''
+    volatilidad: '', ordenes: '', antiguedad: '',
+    fecha_orden_desde: '', fecha_orden_hasta: ''
   });
   const limit = 50;
 
@@ -131,6 +145,9 @@ const PreciosFichas = () => {
       if (filters.precio_min) addParam('precio_min', filters.precio_min);
       if (filters.precio_max) addParam('precio_max', filters.precio_max);
       if (filters.volatilidad) addParam('volatilidad', filters.volatilidad);
+      if (filters.antiguedad) addParam('antiguedad', filters.antiguedad);
+      if (filters.fecha_orden_desde) addParam('fecha_orden_desde', filters.fecha_orden_desde);
+      if (filters.fecha_orden_hasta) addParam('fecha_orden_hasta', filters.fecha_orden_hasta);
 
       const [fichasRes, summaryRes] = await Promise.all([
         fichasProductoApi.getAll(params),
@@ -193,6 +210,9 @@ const PreciosFichas = () => {
       if (filters.precio_min) params.precio_min = filters.precio_min;
       if (filters.precio_max) params.precio_max = filters.precio_max;
       if (filters.volatilidad) params.volatilidad = filters.volatilidad;
+      if (filters.antiguedad) params.antiguedad = filters.antiguedad;
+      if (filters.fecha_orden_desde) params.fecha_orden_desde = filters.fecha_orden_desde;
+      if (filters.fecha_orden_hasta) params.fecha_orden_hasta = filters.fecha_orden_hasta;
 
       const res = await preciosFichasApi.exportJson(params);
       const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
@@ -276,6 +296,54 @@ const PreciosFichas = () => {
             {enriching ? 'Calculando...' : 'Enriquecer Precios'}
           </button>
         </div>
+      </div>
+
+      {/* Extraction Date Range Banner */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
+        padding: '12px 18px', marginBottom: 16,
+        background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.2)',
+        borderRadius: 'var(--radius)', fontSize: 13,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: 'var(--c-surface)', padding: '5px 12px', borderRadius: 6,
+            border: '1px solid var(--c-border)', fontWeight: 600, color: 'var(--c-text)', fontSize: 12
+          }}>
+            <Calendar size={14} style={{ color: 'var(--c-brand)' }} />
+            Período de órdenes extraídas en BD:
+            <strong style={{ color: 'var(--c-brand)' }}>
+              {stats?.rango_ordenes?.min ? `${formatDatePE(stats.rango_ordenes.min)} — ${formatDatePE(stats.rango_ordenes.max)}` : '28/12/2022 — 01/09/2026'}
+            </strong>
+          </span>
+
+          {stats?.rango_fichas_precios?.min && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'rgba(34,197,94,0.08)', padding: '5px 12px', borderRadius: 6,
+              border: '1px solid rgba(34,197,94,0.25)', fontWeight: 500, color: '#15803d', fontSize: 12
+            }}>
+              🎯 Precios vinculados a compras entre: <strong>{formatDatePE(stats.rango_fichas_precios.min)} y {formatDatePE(stats.rango_fichas_precios.max)}</strong>
+            </span>
+          )}
+
+          {displayStats?.rango_fechas?.min && hasFilters && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'rgba(234,179,8,0.1)', padding: '5px 12px', borderRadius: 6,
+              border: '1px solid rgba(234,179,8,0.3)', fontWeight: 600, color: '#a16207', fontSize: 12
+            }}>
+              Rango filtrado: {formatDatePE(displayStats.rango_fechas.min)} al {formatDatePE(displayStats.rango_fechas.max)}
+            </span>
+          )}
+        </div>
+
+        {stats?.enriquecido_at && (
+          <span style={{ color: 'var(--c-text-tertiary)', fontSize: 11, marginLeft: 'auto' }}>
+            Último enriquecimiento: {new Date(stats.enriquecido_at).toLocaleString('es-PE', { timeZone: 'America/Lima' })}
+          </span>
+        )}
       </div>
 
       {/* Info banner */}
@@ -365,9 +433,78 @@ const PreciosFichas = () => {
         </div>
       )}
 
+      {/* Active filters bar */}
+      {hasFilters && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <span style={{ fontSize: 12, color: 'var(--c-text-tertiary)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <SlidersHorizontal size={13} /> Filtros activos:
+          </span>
+          {soloConPrecio && (
+            <span className="filter-chip">
+              <strong>Con precio:</strong>&nbsp;Sí
+              <button onClick={() => setSoloConPrecio(false)}><X size={11} /></button>
+            </span>
+          )}
+          {currentSearch && (
+            <span className="filter-chip">
+              <strong>Búsqueda:</strong>&nbsp;{currentSearch}
+              <button onClick={() => { setCurrentSearch(''); setSearchTerm(''); }}><X size={11} /></button>
+            </span>
+          )}
+          {filters.marca && (
+            <span className="filter-chip">
+              <strong>Marca:</strong>&nbsp;{filters.marca}
+              <button onClick={() => setFilters(p => ({ ...p, marca: '' }))}><X size={11} /></button>
+            </span>
+          )}
+          {filters.categoria && (
+            <span className="filter-chip">
+              <strong>Categoría:</strong>&nbsp;{filters.categoria}
+              <button onClick={() => setFilters(p => ({ ...p, categoria: '' }))}><X size={11} /></button>
+            </span>
+          )}
+          {filters.acuerdo_marco && (
+            <span className="filter-chip">
+              <strong>Acuerdo:</strong>&nbsp;{filters.acuerdo_marco}
+              <button onClick={() => setFilters(p => ({ ...p, acuerdo_marco: '' }))}><X size={11} /></button>
+            </span>
+          )}
+          {filters.nro_parte && (
+            <span className="filter-chip">
+              <strong>Nro Parte:</strong>&nbsp;{filters.nro_parte}
+              <button onClick={() => setFilters(p => ({ ...p, nro_parte: '' }))}><X size={11} /></button>
+            </span>
+          )}
+          {filters.antiguedad && (
+            <span className="filter-chip">
+              <strong>Antigüedad:</strong>&nbsp;{filters.antiguedad === 'reciente' ? 'Recientes (≤ 3m)' : filters.antiguedad === '12m' ? 'Último año (≤ 12m)' : 'Antiguas (> 1a)'}
+              <button onClick={() => setFilters(p => ({ ...p, antiguedad: '' }))}><X size={11} /></button>
+            </span>
+          )}
+          <button
+            className="btn btn-sm"
+            onClick={() => {
+              setSoloConPrecio(false);
+              setCurrentSearch('');
+              setSearchTerm('');
+              setFilters({
+                marca: '', acuerdo_marco: '', categoria: '', nro_parte: '',
+                precio_referencia: '', precio_min: '', precio_max: '',
+                volatilidad: '', ordenes: '', antiguedad: '',
+                fecha_orden_desde: '', fecha_orden_hasta: ''
+              });
+              setPage(0);
+            }}
+            style={{ marginLeft: 4 }}
+          >
+            <X size={12} /> Limpiar filtros
+          </button>
+        </div>
+      )}
+
       {/* Toolbar */}
-      <div className="toolbar" style={{ marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <form onSubmit={handleSearch} style={{ display: 'flex', gap: 8, flex: 1, minWidth: 250 }}>
+      <div className="toolbar" style={{ marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <form onSubmit={handleSearch} style={{ display: 'flex', gap: 8, flex: 1, minWidth: 240 }}>
           <div className="search-input" style={{ flex: 1, position: 'relative' }}>
             <Search size={16} style={{ position: 'absolute', left: 12, top: 10, color: 'var(--c-text-tertiary)' }} />
             <input
@@ -380,6 +517,30 @@ const PreciosFichas = () => {
           </div>
           <button type="submit" className="btn btn-primary" style={{ padding: '8px 16px' }}>Buscar</button>
         </form>
+
+        <select
+          className="form-select"
+          value={filters.antiguedad}
+          onChange={(e) => {
+            setFilters(prev => ({ ...prev, antiguedad: e.target.value }));
+            setPage(0);
+          }}
+          title="Filtrar por frescura / antigüedad de órdenes asociadas"
+          style={{
+            padding: '7px 12px',
+            borderRadius: 'var(--radius)',
+            border: '1px solid var(--c-border)',
+            fontSize: 13,
+            background: filters.antiguedad ? 'rgba(37,99,235,0.08)' : 'var(--c-surface)',
+            color: filters.antiguedad ? 'var(--c-brand)' : 'var(--c-text)',
+            fontWeight: filters.antiguedad ? 600 : 400,
+          }}
+        >
+          <option value="">Todas las antigüedades</option>
+          <option value="reciente">🟢 Recientes (≤ 3 meses)</option>
+          <option value="12m">🔵 Último año (≤ 12 meses)</option>
+          <option value="antigua">🟠 Antiguas (&gt; 1 año)</option>
+        </select>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer',
           padding: '7px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--c-border)',

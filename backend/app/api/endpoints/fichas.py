@@ -139,6 +139,9 @@ def _build_fichas_where(
     precio_min=None,
     precio_max=None,
     volatilidad=None,
+    antiguedad=None,
+    fecha_orden_desde=None,
+    fecha_orden_hasta=None,
 ) -> tuple:
     """Build WHERE clause and params dict for fichas_producto queries."""
     filters: list[str] = []
@@ -197,6 +200,23 @@ def _build_fichas_where(
         elif "alta" in v_low:
             filters.append('"precio_volatilidad" > 50')
 
+    has_date_cols = "fecha_orden_min" in col_set or "fecha_orden_max" in col_set
+    if has_date_cols:
+        if fecha_orden_desde:
+            filters.append('COALESCE("fecha_orden_max", "fecha_orden_min") >= :f_desde')
+            params["f_desde"] = fecha_orden_desde
+        if fecha_orden_hasta:
+            filters.append('COALESCE("fecha_orden_min", "fecha_orden_max") <= :f_hasta')
+            params["f_hasta"] = fecha_orden_hasta
+        if antiguedad:
+            ant = str(antiguedad).lower().strip()
+            if ant in ("reciente", "recientes", "3m"):
+                filters.append('COALESCE("fecha_orden_max", "fecha_orden_min") >= CURRENT_DATE - INTERVAL \'90 days\'')
+            elif ant in ("12m", "1_ano", "ano"):
+                filters.append('COALESCE("fecha_orden_max", "fecha_orden_min") >= CURRENT_DATE - INTERVAL \'365 days\' AND COALESCE("fecha_orden_max", "fecha_orden_min") < CURRENT_DATE - INTERVAL \'90 days\'')
+            elif ant in ("antigua", "antiguas"):
+                filters.append('COALESCE("fecha_orden_max", "fecha_orden_min") < CURRENT_DATE - INTERVAL \'365 days\'')
+
     if search:
         search_cols = []
         for c in ("descripción_fichaproducto", "nro_parte_o_código_único_de_identificación",
@@ -226,6 +246,9 @@ def list_fichas(
     precio_min: Optional[float] = Query(None),
     precio_max: Optional[float] = Query(None),
     volatilidad: Optional[str] = Query(None),
+    antiguedad: Optional[str] = Query(None),
+    fecha_orden_desde: Optional[str] = Query(None),
+    fecha_orden_hasta: Optional[str] = Query(None),
     sort_by: Optional[str] = Query(None),
     sort_dir: Optional[str] = Query("desc"),
     db: Session = Depends(get_db),
@@ -239,6 +262,7 @@ def list_fichas(
     _, params, where_clause = _build_fichas_where(
         col_set, acuerdo_marco, catalogo, categoria, marca, estado, search, con_precio,
         nro_parte=nro_parte, precio_min=precio_min, precio_max=precio_max, volatilidad=volatilidad,
+        antiguedad=antiguedad, fecha_orden_desde=fecha_orden_desde, fecha_orden_hasta=fecha_orden_hasta,
     )
     params["skip"] = skip
     params["limit"] = limit
@@ -611,6 +635,9 @@ def export_fichas_json(
     precio_min: Optional[float] = Query(None),
     precio_max: Optional[float] = Query(None),
     volatilidad: Optional[str] = Query(None),
+    antiguedad: Optional[str] = Query(None),
+    fecha_orden_desde: Optional[str] = Query(None),
+    fecha_orden_hasta: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     """Export fichas producto as a JSON file respecting active filters."""
@@ -622,6 +649,7 @@ def export_fichas_json(
     _, params, where_clause = _build_fichas_where(
         col_set, acuerdo_marco, catalogo, categoria, marca, estado, search, con_precio,
         nro_parte=nro_parte, precio_min=precio_min, precio_max=precio_max, volatilidad=volatilidad,
+        antiguedad=antiguedad, fecha_orden_desde=fecha_orden_desde, fecha_orden_hasta=fecha_orden_hasta,
     )
     params["limit"] = 100_000
     params["skip"] = 0
@@ -983,18 +1011,36 @@ def fichas_summary(
     precio_min: Optional[float] = Query(None),
     precio_max: Optional[float] = Query(None),
     volatilidad: Optional[str] = Query(None),
+    antiguedad: Optional[str] = Query(None),
+    fecha_orden_desde: Optional[str] = Query(None),
+    fecha_orden_hasta: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
-    """Filtered aggregate stats for KPI cards (total, con_precio, sin_precio, volatility)."""
+    """Filtered aggregate stats for KPI cards (total, con_precio, sin_precio, volatility, and order date range)."""
     cols = _safe_col(db)
     col_set = set(cols)
     _, params, where_clause = _build_fichas_where(
         col_set, acuerdo_marco, catalogo, categoria, marca, estado, search, con_precio,
         nro_parte=nro_parte, precio_min=precio_min, precio_max=precio_max, volatilidad=volatilidad,
+        antiguedad=antiguedad, fecha_orden_desde=fecha_orden_desde, fecha_orden_hasta=fecha_orden_hasta,
     )
     has_ref = "precio_referencia" in col_set
     has_vol = "precio_volatilidad" in col_set
+    has_dates = "fecha_orden_min" in col_set and "fecha_orden_max" in col_set
     try:
+        rango_min = None
+        rango_max = None
+        if has_dates:
+            dt_where = f"{where_clause} AND precio_referencia IS NOT NULL" if where_clause else "WHERE precio_referencia IS NOT NULL"
+            dt_row = db.execute(text(
+                f"SELECT MIN(LEAST(fecha_orden_min, fecha_orden_max)), "
+                f"MAX(GREATEST(fecha_orden_min, fecha_orden_max)) "
+                f"FROM {_TABLE} {dt_where}"
+            ), params).fetchone()
+            if dt_row:
+                rango_min = str(dt_row[0]) if dt_row[0] else None
+                rango_max = str(dt_row[1]) if dt_row[1] else None
+
         if has_ref and has_vol:
             row = db.execute(text(
                 f"SELECT COUNT(*) as total, "
@@ -1020,11 +1066,13 @@ def fichas_summary(
             "sin_precio": total - con_p,
             "coverage_pct": round(con_p / total * 100, 1) if total > 0 else 0.0,
             "volatilidad": {"baja": v_baja, "media": v_media, "alta": v_alta},
+            "rango_fechas": {"min": rango_min, "max": rango_max},
         }
     except Exception:
         return {
             "total": 0, "con_precio": 0, "sin_precio": 0, "coverage_pct": 0.0,
             "volatilidad": {"baja": 0, "media": 0, "alta": 0},
+            "rango_fechas": {"min": None, "max": None},
         }
 
 
@@ -1122,6 +1170,28 @@ def get_precio_stats(db: Session = Depends(get_db)):
             f"COUNT(*) FILTER (WHERE precio_volatilidad > 50) as alta "
             f"FROM {_TABLE} WHERE precio_referencia IS NOT NULL"
         )).fetchone()
+        # Global purchase_orders extraction date range
+        po_dates = None
+        try:
+            po_dates = db.execute(text(
+                "SELECT MIN(COALESCE(fecha_publicacion, fecha_aceptacion)), "
+                "MAX(COALESCE(fecha_publicacion, fecha_aceptacion)) FROM purchase_orders"
+            )).fetchone()
+        except Exception:
+            pass
+
+        # Fichas-producto matched order date range
+        fichas_dates = None
+        if "fecha_orden_min" in cols and "fecha_orden_max" in cols:
+            try:
+                fichas_dates = db.execute(text(
+                    f"SELECT MIN(LEAST(fecha_orden_min, fecha_orden_max)), "
+                    f"MAX(GREATEST(fecha_orden_min, fecha_orden_max)) "
+                    f"FROM {_TABLE} WHERE precio_referencia IS NOT NULL"
+                )).fetchone()
+            except Exception:
+                pass
+
         return {
             "total": total,
             "con_precio": con_precio,
@@ -1129,9 +1199,22 @@ def get_precio_stats(db: Session = Depends(get_db)):
             "coverage_pct": round(con_precio / total * 100, 1) if total > 0 else 0.0,
             "enriquecido_at": str(last_upd) if last_upd else None,
             "volatilidad": {"baja": vol[0] or 0, "media": vol[1] or 0, "alta": vol[2] or 0},
+            "rango_ordenes": {
+                "min": str(po_dates[0]) if po_dates and po_dates[0] else None,
+                "max": str(po_dates[1]) if po_dates and po_dates[1] else None,
+            },
+            "rango_fichas_precios": {
+                "min": str(fichas_dates[0]) if fichas_dates and fichas_dates[0] else None,
+                "max": str(fichas_dates[1]) if fichas_dates and fichas_dates[1] else None,
+            },
         }
     except Exception:
-        return {"total": 0, "con_precio": 0, "sin_precio": 0, "coverage_pct": 0.0, "enriquecido_at": None, "volatilidad": {"baja": 0, "media": 0, "alta": 0}}
+        return {
+            "total": 0, "con_precio": 0, "sin_precio": 0, "coverage_pct": 0.0,
+            "enriquecido_at": None, "volatilidad": {"baja": 0, "media": 0, "alta": 0},
+            "rango_ordenes": {"min": None, "max": None},
+            "rango_fichas_precios": {"min": None, "max": None},
+        }
 
 
 @router.post("/enrich-precios")

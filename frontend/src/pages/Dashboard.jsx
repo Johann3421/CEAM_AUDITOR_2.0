@@ -3,10 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { purchaseOrdersApi, fichasProductoApi } from '../services/api';
 import StatCard from '../components/dashboard/StatCard';
 import { CatalogBarChart, CategoryPieChart } from '../components/dashboard/Charts';
-import { RefreshCw, TrendingUp, Building2, BookOpen, ExternalLink } from 'lucide-react';
+import { RefreshCw, TrendingUp, Building2, BookOpen, ExternalLink, Calendar } from 'lucide-react';
 
-const fmt = (date) =>
-  new Date(date).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+const fmt = (date) => {
+  if (!date) return '—';
+  try {
+    const s = String(date).slice(0, 10);
+    const parts = s.split('-');
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  } catch (_) {}
+  return String(date);
+};
 
 const Dashboard = () => {
   const [stats, setStats] = useState(null);
@@ -101,7 +108,18 @@ const Dashboard = () => {
       </div>
 
       {/* ── Órdenes KPIs ─────────────────────────────────── */}
-      <div className="section-label">Órdenes de Compra</div>
+      <div className="section-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <span>Órdenes de Compra</span>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          fontSize: 12, fontWeight: 500, color: 'var(--c-brand)',
+          background: 'rgba(37,99,235,0.08)', padding: '3px 10px', borderRadius: 6,
+          border: '1px solid rgba(37,99,235,0.2)'
+        }}>
+          <Calendar size={13} />
+          Período de órdenes extraídas: <strong>{stats?.fecha_orden_min ? `${fmt(stats.fecha_orden_min)} al ${fmt(stats.fecha_orden_max)}` : '28/12/2022 al 01/09/2026'}</strong>
+        </span>
+      </div>
       <div className="stats-grid">
         <StatCard
           label="Total Órdenes"

@@ -21,6 +21,8 @@ def list_orders(
     entidad: Optional[str] = Query(None),
     proveedor: Optional[str] = Query(None),
     marca: Optional[str] = Query(None),
+    fecha_inicio: Optional[str] = Query(None),
+    fecha_fin: Optional[str] = Query(None),
     sort_by: Optional[str] = Query(None),
     sort_dir: Optional[str] = Query("desc"),
     db: Session = Depends(get_db),
@@ -37,6 +39,8 @@ def list_orders(
         entidad=entidad,
         proveedor=proveedor,
         marca=marca,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
@@ -50,6 +54,8 @@ def get_orders_summary(
     search: Optional[str] = Query(None),
     entidad: Optional[str] = Query(None),
     proveedor: Optional[str] = Query(None),
+    fecha_inicio: Optional[str] = Query(None),
+    fecha_fin: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     """Return total count of purchase orders matching the provided filters."""
@@ -61,6 +67,8 @@ def get_orders_summary(
         search=search,
         entidad=entidad,
         proveedor=proveedor,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
     )
     return {"total": total}
 
@@ -321,6 +329,8 @@ def export_orders_excel(
     search: Optional[str] = Query(None),
     entidad: Optional[str] = Query(None),
     proveedor: Optional[str] = Query(None),
+    fecha_inicio: Optional[str] = Query(None),
+    fecha_fin: Optional[str] = Query(None),
     sort_by: Optional[str] = Query(None),
     sort_dir: Optional[str] = Query("desc"),
     db: Session = Depends(get_db),
@@ -339,6 +349,7 @@ def export_orders_excel(
         catalogo=catalogo, categoria=categoria,
         estado_orden=estado_orden, search=search,
         entidad=entidad, proveedor=proveedor,
+        fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
         sort_by=sort_by, sort_dir=sort_dir,
     )
 
@@ -462,6 +473,9 @@ def export_orders_excel(
     buf.seek(0)
 
     parts = [x[:20].replace(" ", "_") for x in [proveedor, entidad] if x]
+    if fecha_inicio or fecha_fin:
+        dr_part = f"{fecha_inicio or 'inicio'}_a_{fecha_fin or 'hoy'}".replace("-", "")
+        parts.append(dr_part)
     slug  = "_".join(parts) if parts else "todas"
     fname = f"ordenes_{slug}_{datetime.now().strftime('%Y%m%d')}.xlsx"
 

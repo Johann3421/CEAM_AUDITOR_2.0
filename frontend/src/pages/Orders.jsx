@@ -2,7 +2,19 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { purchaseOrdersApi } from '../services/api';
 import OrderTable from '../components/orders/OrderTable';
-import { Search, ChevronLeft, ChevronRight, X, Trash2, SlidersHorizontal, FileDown } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, X, Trash2, SlidersHorizontal, FileDown, Calendar } from 'lucide-react';
+
+const formatDatePE = (dateStr) => {
+  if (!dateStr) return '—';
+  try {
+    const s = String(dateStr).slice(0, 10);
+    const parts = s.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+  } catch (_) {}
+  return dateStr;
+};
 
 const Orders = () => {
   const location = useLocation();
@@ -12,6 +24,8 @@ const Orders = () => {
   const initialEntidad   = queryParams.get('entidad')   || '';
   const initialEstado    = queryParams.get('estado_orden') || '';
   const initialCatalogo  = queryParams.get('catalogo')  || '';
+  const initialFechaInicio = queryParams.get('fecha_inicio') || '';
+  const initialFechaFin    = queryParams.get('fecha_fin') || '';
 
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +46,9 @@ const Orders = () => {
   const [estadoOrden, setEstadoOrden] = useState(initialEstado);
   const [entidad, setEntidad] = useState(initialEntidad);
   const [proveedor, setProveedor] = useState(initialProveedor);
+  const [fechaInicio, setFechaInicio] = useState(initialFechaInicio);
+  const [fechaFin, setFechaFin] = useState(initialFechaFin);
+  const [orderStats, setOrderStats] = useState(null);
 
   // Load distinct catalogo values from the DB
   useEffect(() => {
@@ -44,6 +61,13 @@ const Orders = () => {
   useEffect(() => {
     purchaseOrdersApi.getColumnFilter('estado')
       .then((res) => setEstadoOptions(res.data.values || []))
+      .catch(() => {});
+  }, []);
+
+  // Load global order stats (min/max date)
+  useEffect(() => {
+    purchaseOrdersApi.getStats()
+      .then((res) => setOrderStats(res.data))
       .catch(() => {});
   }, []);
 
@@ -64,6 +88,12 @@ const Orders = () => {
     
     const catParam = queryParams.get('catalogo') || '';
     setCatalogo(catParam);
+
+    const fiParam = queryParams.get('fecha_inicio') || '';
+    setFechaInicio(fiParam);
+
+    const ffParam = queryParams.get('fecha_fin') || '';
+    setFechaFin(ffParam);
     
     setPage(0);
   }, [location.search]);
@@ -79,6 +109,8 @@ const Orders = () => {
         estado_orden: estadoOrden || undefined,
         entidad: entidad || undefined,
         proveedor: proveedor || undefined,
+        fecha_inicio: fechaInicio || undefined,
+        fecha_fin: fechaFin || undefined,
         sort_by: sort.col || undefined,
         sort_dir: sort.dir,
       };
@@ -110,7 +142,7 @@ const Orders = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, catalogo, search, estadoOrden, entidad, proveedor, sort]);
+  }, [page, limit, catalogo, search, estadoOrden, entidad, proveedor, fechaInicio, fechaFin, sort]);
 
   useEffect(() => {
     fetchOrders();
@@ -128,6 +160,8 @@ const Orders = () => {
     setEstadoOrden('');
     setEntidad('');
     setProveedor('');
+    setFechaInicio('');
+    setFechaFin('');
     setPage(0);
   };
 
@@ -140,6 +174,8 @@ const Orders = () => {
         estado_orden: estadoOrden  || undefined,
         entidad:      entidad      || undefined,
         proveedor:    proveedor    || undefined,
+        fecha_inicio: fechaInicio  || undefined,
+        fecha_fin:    fechaFin     || undefined,
         sort_by:      sort.col     || undefined,
         sort_dir:     sort.dir,
       });
@@ -147,6 +183,9 @@ const Orders = () => {
       const a   = document.createElement('a');
       a.href    = url;
       const parts = [proveedor, entidad, catalogo].filter(Boolean).map(v => v.slice(0, 18).replace(/\s+/g, '_'));
+      if (fechaInicio || fechaFin) {
+        parts.push(`${fechaInicio || 'inicio'}_a_${fechaFin || 'hoy'}`.replace(/-/g, ''));
+      }
       a.download = `ordenes_${parts.length ? parts.join('_') : 'todas'}_${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a);
       a.click();
@@ -193,13 +232,18 @@ const Orders = () => {
     }
   };
 
-  const hasFilters = search || catalogo || estadoOrden || entidad || proveedor;
+  const hasFilters = search || catalogo || estadoOrden || entidad || proveedor || fechaInicio || fechaFin;
 
   const activeFilters = [
     catalogo && { key: 'catalogo', label: 'Catálogo', value: catalogo },
     estadoOrden && { key: 'estado', label: 'Estado', value: estadoOrden },
     entidad && { key: 'entidad', label: 'Entidad', value: entidad },
     proveedor && { key: 'proveedor', label: 'Proveedor', value: proveedor },
+    (fechaInicio || fechaFin) && {
+      key: 'fecha',
+      label: 'Fecha',
+      value: `${fechaInicio ? formatDatePE(fechaInicio) : 'Inicio'} al ${fechaFin ? formatDatePE(fechaFin) : 'Hoy'}`
+    },
     search && { key: 'search', label: 'Búsqueda', value: search },
   ].filter(Boolean);
 
@@ -208,6 +252,7 @@ const Orders = () => {
     if (key === 'estado') setEstadoOrden('');
     if (key === 'entidad') setEntidad('');
     if (key === 'proveedor') setProveedor('');
+    if (key === 'fecha') { setFechaInicio(''); setFechaFin(''); }
     if (key === 'search') setSearch('');
     setPage(0);
   };
@@ -237,6 +282,16 @@ const Orders = () => {
           <p>
             Historial completo de adquisiciones · <strong>{countLabel}</strong>
           </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 6 }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.2)',
+              padding: '4px 12px', borderRadius: 6, fontSize: 12, color: 'var(--c-text-secondary)'
+            }}>
+              <Calendar size={13} style={{ color: 'var(--c-brand)' }} />
+              Período de órdenes extraídas en BD: <strong style={{ color: 'var(--c-brand)' }}>{orderStats?.fecha_orden_min ? `${formatDatePE(orderStats.fecha_orden_min)} al ${formatDatePE(orderStats.fecha_orden_max)}` : '28/12/2022 al 01/09/2026'}</strong>
+            </span>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
           <button
@@ -373,6 +428,28 @@ const Orders = () => {
             <option key={e} value={e}>{e}</option>
           ))}
         </select>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--c-surface)', padding: '2px 8px', borderRadius: 'var(--radius)', border: '1px solid var(--c-border)' }}>
+          <label style={{ fontSize: 11, color: 'var(--c-text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Desde:</label>
+          <input
+            type="date"
+            className="form-input"
+            value={fechaInicio}
+            onChange={(e) => { setFechaInicio(e.target.value); setPage(0); }}
+            style={{ padding: '4px 8px', fontSize: 12, border: 'none', background: 'transparent' }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--c-surface)', padding: '2px 8px', borderRadius: 'var(--radius)', border: '1px solid var(--c-border)' }}>
+          <label style={{ fontSize: 11, color: 'var(--c-text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Hasta:</label>
+          <input
+            type="date"
+            className="form-input"
+            value={fechaFin}
+            onChange={(e) => { setFechaFin(e.target.value); setPage(0); }}
+            style={{ padding: '4px 8px', fontSize: 12, border: 'none', background: 'transparent' }}
+          />
+        </div>
 
         {hasFilters && (
           <button onClick={resetFilters} className="btn" title="Limpiar filtros">

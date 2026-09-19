@@ -32,6 +32,8 @@ def get_orders(
     entidad: Optional[str] = None,
     proveedor: Optional[str] = None,
     marca: Optional[str] = None,
+    fecha_inicio: Optional[str] = None,
+    fecha_fin: Optional[str] = None,
     sort_by: Optional[str] = None,
     sort_dir: Optional[str] = "desc",
 ) -> List[PurchaseOrder]:
@@ -49,6 +51,12 @@ def get_orders(
         q = q.filter(PurchaseOrder.nombre_proveedor == proveedor)
     if marca:
         q = q.filter(PurchaseOrder.marca == marca)
+    if fecha_inicio:
+        order_date = func.coalesce(PurchaseOrder.fecha_publicacion, PurchaseOrder.fecha_aceptacion)
+        q = q.filter(order_date >= fecha_inicio)
+    if fecha_fin:
+        order_date = func.coalesce(PurchaseOrder.fecha_publicacion, PurchaseOrder.fecha_aceptacion)
+        q = q.filter(order_date <= fecha_fin)
     if search:
         q = q.filter(
             or_(
@@ -96,6 +104,8 @@ def count_orders_filtered(
     search: Optional[str] = None,
     entidad: Optional[str] = None,
     proveedor: Optional[str] = None,
+    fecha_inicio: Optional[str] = None,
+    fecha_fin: Optional[str] = None,
 ) -> int:
     """Return the total number of orders matching optional filters."""
     from sqlalchemy import or_
@@ -111,6 +121,12 @@ def count_orders_filtered(
         q = q.filter(PurchaseOrder.nombre_entidad == entidad)
     if proveedor:
         q = q.filter(PurchaseOrder.nombre_proveedor == proveedor)
+    if fecha_inicio:
+        order_date = func.coalesce(PurchaseOrder.fecha_publicacion, PurchaseOrder.fecha_aceptacion)
+        q = q.filter(order_date >= fecha_inicio)
+    if fecha_fin:
+        order_date = func.coalesce(PurchaseOrder.fecha_publicacion, PurchaseOrder.fecha_aceptacion)
+        q = q.filter(order_date <= fecha_fin)
     if search:
         q = q.filter(
             or_(
@@ -205,6 +221,21 @@ def get_stats(db: Session) -> dict:
     except Exception:
         success_rate = None
 
+    # Order date range: min and max across all purchase orders
+    fecha_orden_min = None
+    fecha_orden_max = None
+    try:
+        order_date_expr = func.coalesce(PurchaseOrder.fecha_publicacion, PurchaseOrder.fecha_aceptacion)
+        date_range = db.query(
+            func.min(order_date_expr),
+            func.max(order_date_expr),
+        ).first()
+        if date_range:
+            fecha_orden_min = date_range[0].isoformat() if date_range[0] else None
+            fecha_orden_max = date_range[1].isoformat() if date_range[1] else None
+    except Exception:
+        pass
+
     # Last update: from purchase_orders fecha_publicacion
     try:
         last_orders_update = db.query(
@@ -221,12 +252,14 @@ def get_stats(db: Session) -> dict:
     except Exception:
         last_fichas_update = None
 
-    # Choose the most recent source
+    # Choose the most recent source safely
     last_update_date = None
     last_update_source = None
     try:
         if last_fichas_update and last_orders_update:
-            if last_fichas_update > last_orders_update:
+            f_date = last_fichas_update.date() if hasattr(last_fichas_update, 'date') else last_fichas_update
+            o_date = last_orders_update.date() if hasattr(last_orders_update, 'date') else last_orders_update
+            if f_date >= o_date:
                 last_update_date = last_fichas_update
                 last_update_source = "fichas"
             else:
@@ -239,7 +272,12 @@ def get_stats(db: Session) -> dict:
             last_update_date = last_orders_update
             last_update_source = "orders"
     except Exception:
-        pass
+        if last_fichas_update:
+            last_update_date = last_fichas_update
+            last_update_source = "fichas"
+        elif last_orders_update:
+            last_update_date = last_orders_update
+            last_update_source = "orders"
 
     return {
         "total_orders": total_orders,
@@ -252,6 +290,8 @@ def get_stats(db: Session) -> dict:
             {"nombre_proveedor": r[0], "total": float(r[1] or 0)}
             for r in top_providers
         ],
+        "fecha_orden_min": fecha_orden_min,
+        "fecha_orden_max": fecha_orden_max,
         "last_orders_update": last_orders_update.isoformat() if last_orders_update else None,
         "last_fichas_update": last_fichas_update.isoformat() if last_fichas_update else None,
         "last_update": last_update_date.isoformat() if last_update_date else None,
