@@ -173,6 +173,7 @@ const FiltroPiezas = () => {
   const [filterOptionsLoading, setFilterOptionsLoading] = useState(false);
 
   const [copiedPart, setCopiedPart] = useState(null);
+  const [copiedDescId, setCopiedDescId] = useState(null);
 
   // ── Carga reactiva de opciones de filtro desde BD al cambiar categoría/proveedor ─
   useEffect(() => {
@@ -494,6 +495,13 @@ const FiltroPiezas = () => {
     navigator.clipboard.writeText(text);
     setCopiedPart(text);
     setTimeout(() => setCopiedPart(null), 2000);
+  };
+
+  const copyDescription = (text, id) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedDescId(id);
+    setTimeout(() => setCopiedDescId(null), 2000);
   };
 
   return (
@@ -1512,22 +1520,44 @@ const FiltroPiezas = () => {
                       </div>
                     </div>
 
-                    {/* Description */}
-                    <div
-                      style={{
-                        fontSize: 12,
-                        color: 'var(--c-text-secondary)',
-                        marginBottom: 10,
-                        lineHeight: 1.45,
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                        height: 35
-                      }}
-                      title={desc}
-                    >
-                      {desc}
+                    {/* Description & Copy Specs Button */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 10 }}>
+                      <div
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          fontSize: 12,
+                          color: 'var(--c-text-secondary)',
+                          lineHeight: 1.45,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          height: 35
+                        }}
+                        title={desc}
+                      >
+                        {desc}
+                      </div>
+                      <button
+                        onClick={() => copyDescription(desc, item.id || idx)}
+                        style={{
+                          flexShrink: 0,
+                          border: 'none',
+                          background: 'transparent',
+                          cursor: 'pointer',
+                          color: copiedDescId === (item.id || idx) ? 'var(--c-success)' : 'var(--c-text-tertiary)',
+                          padding: '2px 4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          borderRadius: 4,
+                          transition: 'color 0.15s, background 0.15s'
+                        }}
+                        title={copiedDescId === (item.id || idx) ? '¡Copiado!' : 'Copiar Características'}
+                        aria-label="Copiar Características"
+                      >
+                        {copiedDescId === (item.id || idx) ? <Check size={13} /> : <Copy size={13} />}
+                      </button>
                     </div>
 
                     {/* Main Specification Chips */}
