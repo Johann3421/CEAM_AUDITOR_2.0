@@ -5,6 +5,7 @@ Bóveda de conocimiento y memoria técnica persistente del sistema **CEAM AUDITO
 ---
 
 ## Historial de Cambios y Sesiones
+- [[notes/cambios/2026-10-03-informe-arquitectura-modulos-ceam|2026-10-03 — Informe Técnico: Arquitectura de Módulos, Funcionalidades y Guía de Implementación Externa]]
 - [[notes/cambios/2026-09-21-boton-copiar-caracteristicas-filtro-piezas|2026-09-21 — Botón de Copiar Características en Filtro por Piezas]]
 - [[notes/cambios/2026-09-19-rango-fechas-ordenes|2026-09-19 — Visualización de Rango de Fechas de Extracción de Órdenes y Filtros de Fecha/Antigüedad]]
 
