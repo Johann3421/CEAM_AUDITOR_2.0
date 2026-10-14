@@ -2185,6 +2185,19 @@ def extraer_specs_pdf_endpoint(
                         AND UPPER(categoria) NOT LIKE '%TODO EN UNO%'
                         AND UPPER(categoria) NOT LIKE '%ESTACION%'
                     )"""
+                elif cat_l in ("workstation_portatil", "estacion de trabajo portatil", "estacion_portatil", "workstations_portatiles"):
+                    sql += """ AND (
+                        (UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')
+                        AND (UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTÁTIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%')
+                    )"""
+                elif cat_l in ("workstation", "estacion de trabajo", "estacion", "workstations"):
+                    sql += """ AND (
+                        (UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')
+                        AND UPPER(categoria) NOT LIKE '%PORTATIL%'
+                        AND UPPER(categoria) NOT LIKE '%PORTÁTIL%'
+                        AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
+                        AND UPPER(descripcion_producto) NOT LIKE '%LAPTOP%'
+                    )"""
                 elif cat_l in ("aio", "todo en uno", "all in one", "computadora todo en uno"):
                     sql += """ AND (
                         UPPER(categoria) LIKE '%TODO EN UNO%'

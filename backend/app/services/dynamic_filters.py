@@ -27,17 +27,20 @@ def normalizar_tarjeta_video(valor: str) -> str:
         return ""
     v = str(valor).strip()
     v = re.sub(r'[\ufffd\x7f\u00B9\u00B2\u00B3\u2070-\u2079\*\#\®\™]', '', v)
-    v = re.sub(r'\b(dedicad[oa]s?|integrad[oa]s?)\b', '', v, flags=re.IGNORECASE)
     v = re.sub(r'\bConectividadº?\b', '', v, flags=re.IGNORECASE)
     v = re.sub(r'\s+', ' ', v).strip(" :;,-–—\t\r\n")
 
     vu = v.upper()
-    if vu in ("AUDIO", "N/A", "NO APLICA", "NO INCLUYE", "-", "VIDEO", "GRAFICOS", "GRÁFICOS", "INTEGRATED", "DISCRETOS") or len(v) < 3:
+    if vu in ("AUDIO", "N/A", "NO APLICA", "NO INCLUYE", "-", "VIDEO", "GRAFICOS", "GRÁFICOS") or len(v) < 3:
         return ""
-    if any(p in vu for p in ["HDMI", "DISPLAYPORT"]) and not any(k in vu for k in ["RTX", "GTX", "RADEON", "GEFORCE", "GB"]):
+    if any(p in vu for p in ["HDMI", "DISPLAYPORT"]) and not any(k in vu for k in ["RTX", "GTX", "RADEON", "GEFORCE", "GB", "DISCRET"]):
         return ""
     if 'DISEÑO' in vu or 'DISENO' in vu:
         return ""
+
+    # Gráficos Intel Arc
+    if "ARC" in vu and any(k in vu for k in ["INTEL", "GRAPHICS"]):
+        return "Intel Arc Graphics"
 
     # Gráficos integrados comunes
     if "770" in vu and any(k in vu for k in ["UHD", "GRAPHICS", "INTEL"]):
@@ -51,7 +54,21 @@ def normalizar_tarjeta_video(valor: str) -> str:
         if "780M" in vu: return "AMD Radeon 780M"
         return "AMD Radeon Graphics"
 
-    # Modelos NVIDIA específicos
+    # Workstation GPUs específicas (RTX Ada, Quadro, RTX Ax00, T-series)
+    m_ada = re.search(r'RTX\s*(\d{3,4})\s*ADA', vu)
+    if m_ada:
+        return f"NVIDIA RTX {m_ada.group(1)} Ada"
+    m_a = re.search(r'\bRTX\s*(A\d{3,4})\b', vu)
+    if m_a:
+        return f"NVIDIA RTX {m_a.group(1)}"
+    m_t = re.search(r'\b(T(?:500|550|600|1000|1200))\b', vu)
+    if m_t:
+        return f"NVIDIA {m_t.group(1)}"
+    if "QUADRO" in vu:
+        m_q = re.search(r'QUADRO\s*([A-Z0-9]+)', vu)
+        return f"NVIDIA Quadro {m_q.group(1)}" if m_q else "NVIDIA Quadro"
+
+    # Modelos NVIDIA gaming específicos
     if re.search(r'\bGTX\s*1650\b', vu):
         return "NVIDIA GeForce GTX 1650 4 GB"
     if re.search(r'\bRTX\s*4060\b', vu):
@@ -66,14 +83,26 @@ def normalizar_tarjeta_video(valor: str) -> str:
         return "AMD Radeon RX 16 GB"
 
     # Tarjetas dedicadas genéricas por VRAM
-    m_vram = re.search(r'(\d+)\s*GB(?:\s*G?DDR\d[X]?)?', vu)
+    m_vram = re.search(r'(\d+)\s*GB(?:\s*(?:G?DDR[567][X]?|DE MEMORIA))?', vu)
     if m_vram:
         cap_vram = int(m_vram.group(1))
-        if "RTX" in vu or "NVIDIA" in vu:
-            return f"NVIDIA GeForce RTX {cap_vram} GB"
+        has_gddr = re.search(r'(GDDR[567]|DDR7)', vu)
+        gddr_str = f" {has_gddr.group(1)}" if has_gddr else ""
+        if "RTX" in vu:
+            return f"NVIDIA RTX {cap_vram} GB{gddr_str}"
+        if "NVIDIA" in vu:
+            return f"NVIDIA {cap_vram} GB{gddr_str}"
         if "RADEON" in vu or "RX" in vu:
             return f"AMD Radeon RX {cap_vram} GB"
-        return f"Dedicada {cap_vram} GB"
+        if "DISCRET" in vu:
+            return f"Discreta {cap_vram} GB{gddr_str}"
+        return f"Dedicada {cap_vram} GB{gddr_str}"
+
+    # Fallbacks genéricos para clasificar
+    if any(k in vu for k in ["INTEGRAD", "INTEGRATED"]):
+        return "Gráficos Integrados"
+    if any(k in vu for k in ["DISCRET", "DEDICAD"]):
+        return "Gráficos Dedicados"
 
     return ""
 

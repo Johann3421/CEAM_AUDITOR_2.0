@@ -260,11 +260,13 @@ export function parseProductSpecs(item) {
     gpuTipo = null;
   }
 
+  const DEDICATED_GPU_REGEX = /DEDICAD|DISCRET|PCIE|RTX|GTX|RADEON|GEFORCE|NVIDIA|QUADRO|ADA\b|GDDR|VRAM|\b(?:0?[4-9]|1[26]|24)\s*GB\b/i;
+
   if (!gpuResumen && pdfSpecs.graficos) {
     const rawG = String(pdfSpecs.graficos).trim();
     if (rawG && !rawG.toUpperCase().startsWith('AUDIO')) {
       gpuResumen = rawG.slice(0, 50);
-      if (/DEDICAD|PCIE|RTX|GTX|RADEON|GEFORCE|NVIDIA|\b(?:0?4|6|8|12|16)\s*GB\b/i.test(rawG)) {
+      if (DEDICATED_GPU_REGEX.test(rawG)) {
         gpuTipo = 'Dedicada';
       } else {
         gpuTipo = 'Integrada';
@@ -277,20 +279,37 @@ export function parseProductSpecs(item) {
     const rawGpu = gpuMatch ? gpuMatch[1].trim() : '';
     if (rawGpu && !rawGpu.toUpperCase().startsWith('AUDIO')) {
       gpuResumen = rawGpu;
-      if (/DEDICAD|PCIE|RTX|GTX|RADEON|GEFORCE|NVIDIA|\b(?:0?4|6|8|12|16)\s*GB\b/i.test(rawGpu)) {
+      if (DEDICATED_GPU_REGEX.test(rawGpu)) {
         gpuTipo = 'Dedicada';
       } else {
         gpuTipo = 'Integrada';
       }
-    } else if (desc.match(/\b(NVIDIA(?:\s+\d+\s*GB)?|RTX\s*\d{3,4}|GTX\s*\d{3,4}|RADEON\s+RX\s*\d{3,4})/i)) {
-      const gM = desc.match(/\b(NVIDIA(?:\s+\d+\s*GB)?|RTX\s*\d{3,4}|GTX\s*\d{3,4}|RADEON\s+RX\s*\d{3,4})/i);
+    } else if (desc.match(/\b(NVIDIA(?:\s+[A-Z0-9]+|\s+\d+\s*GB)?|RTX\s*[A-Z0-9]+|GTX\s*\d{3,4}|RADEON\s+RX\s*\d{3,4}|QUADRO\s*[A-Z0-9]+|DISCRET[OA]S?,\s*\d+\s*GB(?:[\s\w]+)?)\b/i)) {
+      const gM = desc.match(/\b(NVIDIA(?:\s+[A-Z0-9]+|\s+\d+\s*GB)?|RTX\s*[A-Z0-9]+|GTX\s*\d{3,4}|RADEON\s+RX\s*\d{3,4}|QUADRO\s*[A-Z0-9]+|DISCRET[OA]S?,\s*\d+\s*GB(?:[\s\w]+)?)\b/i);
       gpuTipo = 'Dedicada';
       gpuResumen = gM ? gM[1] : 'Tarjeta de Video Dedicada';
-    } else if (desc.includes('VIDEO: DEDICADO') || desc.includes('TARJETA DE VIDEO') || desc.includes('RTX') || desc.includes('GTX')) {
+    } else if (desc.includes('VIDEO: DEDICADO') || desc.includes('TARJETA DE VIDEO') || desc.includes('RTX') || desc.includes('GTX') || desc.includes('DISCRETO') || desc.includes('DISCRETOS')) {
+      gpuTipo = 'Dedicada';
+      gpuResumen = 'Video Dedicado';
+    } else if (formFactor && formFactor.toLowerCase().includes('workstation')) {
       gpuTipo = 'Dedicada';
       gpuResumen = 'Video Dedicado';
     } else if (family === 'computadoras') {
       gpuTipo = 'Integrada';
+      gpuResumen = 'Gráficos Integrados';
+    }
+  }
+
+  // Enriquecer visualmente gráficos integrados si se conoce el procesador
+  if (gpuResumen && (/^INTEGRAD[OA]S?$/i.test(gpuResumen) || /^GR[AÁ]FICOS INTEGRADOS$/i.test(gpuResumen))) {
+    const procCheck = ((pdfSpecs.procesador || '') + ' ' + (cpu || '')).toUpperCase();
+    if (procCheck.includes('ULTRA') || procCheck.includes('ARC')) {
+      gpuResumen = 'Intel Arc Graphics (Integrados)';
+    } else if (procCheck.includes('IRIS') || ((procCheck.includes('11') || procCheck.includes('12') || procCheck.includes('13') || procCheck.includes('14')) && (procCheck.includes('I5') || procCheck.includes('I7')))) {
+      gpuResumen = 'Intel Iris Xe Graphics (Integrados)';
+    } else if (procCheck.includes('RYZEN') || procCheck.includes('AMD')) {
+      gpuResumen = 'AMD Radeon Graphics (Integrados)';
+    } else {
       gpuResumen = 'Gráficos Integrados';
     }
   }

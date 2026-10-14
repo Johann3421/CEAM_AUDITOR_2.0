@@ -106,7 +106,7 @@ TOKENS_PC_ORDENADOS = [
     ('ram', ['Memoria RAM', 'RAM', 'Memoria']),
     ('almacenamiento', ['Almacenamiento', 'Disco Duro', 'Unidad de Almacenamiento', 'Disco']),
     ('unidad_optica', ['Unidad Óptica', 'Unidad optica', 'Unidad de DVD', 'DVD']),
-    ('graficos', ['Controlador de Video', 'Tarjeta de Video', 'Tarjeta Gráfica', 'Tarjeta Grafica', 'Unidad de video', 'Gráficos', 'Graficos', 'Video']),
+    ('graficos', ['Controlador de Video', 'Tarjeta de Video', 'Tarjeta Gráfica', 'Tarjeta Grafica', 'Unidad de video', 'Gráficos Discretos', 'Graficos Discretos', 'Controlador Gráfico', 'Controlador Grafico', 'Acelerador Gráfico', 'Acelerador Grafico', 'Video / Gráficos', 'Gráficos', 'Graficos', 'Video']),
     ('conectividad', ['Conectividad Inalámbrica', 'Conectividad Inalambrica', 'Conectividad', 'Red', 'LAN']),
     ('fuente_poder', ['Fuente de Poder', 'Fuente Poder', 'Potencia Fuente', 'Fuente']),
     ('case_fuente', ['Case / Fuente', 'Gabinete / Fuente', 'Chasis / Fuente', 'Case', 'Gabinete', 'Chasis']),
@@ -329,10 +329,13 @@ def fallback_descripcion(desc_raw: str, categoria: str = "") -> Dict[str, str]:
             specs["sistema_operativo"] = sanitizar_valor(so_m.group(1))
 
         # Detección de video y fuente en descripción
-        if "VIDEO: DEDICADO" in desc or "TARJETA DE VIDEO" in desc or "RTX" in desc or "GTX" in desc or "RADEON" in desc or "NVIDIA" in desc:
-            m_gpu = re.search(r'(?:VIDEO|TARJETA DE VIDEO):\s*([^;]+?)(?=\s+[A-Z0-9\s]+:|$)', desc)
-            if m_gpu:
-                specs["graficos"] = sanitizar_valor(m_gpu.group(1))
+        m_gpu = re.search(r'(?:TARJETA DE VIDEO|CONTROLADOR DE VIDEO|VIDEO|GR[AÁ]FICOS?):\s*([^;]+?)(?=\s+[A-Z0-9\s]+:|$)', desc)
+        if m_gpu:
+            specs["graficos"] = sanitizar_valor(m_gpu.group(1))
+        elif any(w in desc for w in ["RTX", "GTX", "RADEON RX", "NVIDIA", "QUADRO", "DISCRETO", "DISCRETOS"]):
+            m_direct = re.search(r'\b(NVIDIA(?:\s+\d+\s*GB)?|RTX\s*\d{3,4}|GTX\s*\d{3,4}|RADEON\s+RX\s*\d{3,4}|DISCRET[OA]S?,\s*\d+\s*GB(?:[\s\w]+)?)\b', desc)
+            if m_direct:
+                specs["graficos"] = sanitizar_valor(m_direct.group(1))
             else:
                 specs["graficos"] = "Tarjeta de Video Dedicada"
 
@@ -356,7 +359,7 @@ def normalizar_campos_clave(raw_specs: Dict[str, Any], categoria: str = "") -> D
     """
     Transforma y limpia los valores del PDF o descripción en métricas estándar para UI:
     - gpu_tipo: 'Dedicada' / 'Integrada'
-    - gpu_resumen: 'NVIDIA RTX 4060 8GB' / 'Dedicado 4GB PCIe' / 'Intel UHD Graphics'
+    - gpu_resumen: 'NVIDIA RTX 4060 8GB' / 'Discretos, 8 GB GDDR7' / 'Intel Arc Graphics'
     - fuente_resumen: '600W • 80+ Bronze' / '500W'
     - so_resumen: 'Windows 11 Pro' / 'Sin SO (No incluido)' / 'Linux'
     - storage_resumen: '1 TB SSD' / '500 GB SSD' / '1 TB HDD'
@@ -370,14 +373,41 @@ def normalizar_campos_clave(raw_specs: Dict[str, Any], categoria: str = "") -> D
     # 1. Normalización de Tarjeta Gráfica (GPU)
     graf = raw_specs.get("graficos") or ""
     graf_u = graf.upper()
+    proc = raw_specs.get("procesador") or ""
+    proc_u = proc.upper()
+
     if graf and not graf_u.startswith("AUDIO") and graf_u != "AUDIO":
-        if any(w in graf_u for w in ["DEDICAD", "PCIE", "RTX", "GTX", "RADEON RX", "RADEON", "GEFORCE", "NVIDIA", "QUADRO", "ARC A", "04 GB", "4 GB", "6 GB", "8 GB", "12 GB", "16 GB", "DISCRETA"]):
+        is_dedicada = any(w in graf_u for w in [
+            "DEDICAD", "DISCRET", "PCIE", "RTX", "GTX", "RADEON RX", "RADEON",
+            "GEFORCE", "NVIDIA", "QUADRO", "ARC A", "GDDR", "VRAM", "04 GB", "4 GB",
+            "6 GB", "8 GB", "12 GB", "16 GB", "24 GB"
+        ]) or bool(re.search(r'\b\d+\s*GB\b', graf_u))
+
+        is_integrada = any(w in graf_u for w in [
+            "INTEGRAD", "UHD", "IRIS", "RADEON GRAPHICS", "VEGA", "NO INCLUYE DEDICADA"
+        ])
+
+        if is_dedicada:
             out["gpu_tipo"] = "Dedicada"
-        elif any(w in graf_u for w in ["INTEGRAD", "UHD", "IRIS", "RADEON GRAPHICS", "VEGA", "NO INCLUYE DEDICADA"]):
+            out["gpu_resumen"] = graf[:60].strip()
+        elif is_integrada:
             out["gpu_tipo"] = "Integrada"
+            if graf_u in ("INTEGRADOS", "INTEGRADO", "GRÁFICOS INTEGRADOS", "GRAFICOS INTEGRADOS"):
+                if "ULTRA" in proc_u or "ARC" in proc_u:
+                    out["gpu_resumen"] = "Intel Arc Graphics (Integrados)"
+                elif "IRIS" in proc_u or (any(g in proc_u for g in ["11", "12", "13", "14"]) and ("I5" in proc_u or "I7" in proc_u)):
+                    out["gpu_resumen"] = "Intel Iris Xe Graphics (Integrados)"
+                elif "RYZEN" in proc_u or "AMD" in proc_u:
+                    out["gpu_resumen"] = "AMD Radeon Graphics (Integrados)"
+                elif "I3" in proc_u or "I5" in proc_u or "I7" in proc_u or "I9" in proc_u:
+                    out["gpu_resumen"] = "Intel UHD Graphics (Integrados)"
+                else:
+                    out["gpu_resumen"] = "Gráficos Integrados"
+            else:
+                out["gpu_resumen"] = graf[:60].strip()
         else:
             out["gpu_tipo"] = "Integrada" if "INTEGR" in graf_u else "Dedicada"
-        out["gpu_resumen"] = graf[:50]
+            out["gpu_resumen"] = graf[:60].strip()
     else:
         out.pop("gpu_tipo", None)
         out.pop("gpu_resumen", None)
@@ -526,7 +556,7 @@ def extraer_especificaciones_pdf(
     else:
         specs = extraer_specs_pc(texto)
         # Si faltaron campos clave en el PDF y hay fallback de texto, complementar
-        if (not specs.get("procesador") or not specs.get("almacenamiento") or not specs.get("sistema_operativo")) and descripcion_fallback:
+        if (not specs.get("procesador") or not specs.get("almacenamiento") or not specs.get("sistema_operativo") or not specs.get("graficos")) and descripcion_fallback:
             fb = fallback_descripcion(descripcion_fallback, categoria)
             for k, v in fb.items():
                 if k not in specs:
