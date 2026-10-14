@@ -17,13 +17,21 @@ FROM nginx:stable-alpine as production-stage
 
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 
-# Custom nginx config to handle React Router (SPA)
+# Custom nginx config to handle React Router (SPA) & anti-cache for index.html
 RUN printf 'server {\n\
     listen 80;\n\
     location / {\n\
         root /usr/share/nginx/html;\n\
         index index.html index.htm;\n\
         try_files $uri $uri/ /index.html;\n\
+        add_header Cache-Control "no-cache, no-store, must-revalidate";\n\
+        add_header Pragma "no-cache";\n\
+        add_header Expires "0";\n\
+    }\n\
+    location /assets/ {\n\
+        root /usr/share/nginx/html;\n\
+        expires 1y;\n\
+        add_header Cache-Control "public, max-age=31536000, immutable";\n\
     }\n\
 }' > /etc/nginx/conf.d/default.conf
 
