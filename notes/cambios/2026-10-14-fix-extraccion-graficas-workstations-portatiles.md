@@ -52,5 +52,9 @@ En la vista de Precios Fichas y Filtro por Piezas, las **Workstations Portátile
 
 ---
 
-## 4. Próximos Pasos
-- Ejecutar la extracción masiva de Workstations Portátiles desde la UI o endpoint `/extraer-specs-pdf`.
+## 4. Re-extracción Masiva y Verificación en Producción
+- **Ejecución en vivo:** Se invocó `/api/v1/proveedores/extraer-specs-pdf` para la categoría `workstation_portatil` con `forzar: True`.
+- **Resultado:** **374 fichas técnicas procesadas al 100% con 0 errores** (`status: completed`).
+- **Verificación en Filtro por Piezas (`https://auditor.sekaitech.com.pe/filtro-piezas`):**
+  - Dropdown **Tarjeta Gráfica (26)**: Reconoce dinámicamente 26 opciones de GPUs (ej. `NVIDIA RTX 500/1000/2000 Ada`, `NVIDIA 16 GB GDDR6`, `Dedicada 8 GB GDDR7`, `Intel Arc Graphics`, etc.).
+  - Tarjetas de producto: Renderizan las GPUs correctamente diferenciadas entre dedicadas (con su capacidad y tipo de memoria GDDR) e integradas con el procesador correspondiente.
