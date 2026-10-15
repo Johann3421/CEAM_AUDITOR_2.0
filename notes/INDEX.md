@@ -5,6 +5,7 @@ Bóveda de conocimiento y memoria técnica persistente del sistema **CEAM AUDITO
 ---
 
 ## Historial de Cambios y Sesiones
+- [[notes/cambios/2026-10-14-fix-separacion-workstations-torre-portatiles-y-extraccion-automatica|2026-10-14 — Separación Estricta de Workstations Torre vs Portátiles y Automatización de Extracción de Gráficas]]
 - [[notes/cambios/2026-10-14-fix-extraccion-graficas-workstations-portatiles|2026-10-14 — Corrección de Extracción de Tarjetas Gráficas en Workstations Portátiles]]
 - [[notes/cambios/2026-10-06-fix-psycopg-driver-database-celery-flower|2026-10-06 — Bugfix: Corrección de Driver PostgreSQL (psycopg / psycopg2) en Contenedores Celery, Flower y API]]
 - [[notes/cambios/2026-10-05-api-b2b-integracion-kenya|2026-10-05 — Implementación de API B2B Server-to-Server e Integración con Ensamblador KENYA]]
