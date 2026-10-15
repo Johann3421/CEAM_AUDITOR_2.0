@@ -1746,9 +1746,23 @@ def get_categories_count(
 
     try:
         sql = f"""
+            WITH base AS (
+                SELECT 
+                    CASE 
+                        WHEN UPPER(TRIM(COALESCE(nro_parte, ''))) IN ('', '-', 'S/N', 'SN', 'COLECTIVO', 'VARIOS', '0', 'NO TIENE', 'SIN NUMERO', 'SIN NUMERO DE PARTE', 'NO APLICA') 
+                        THEN CONCAT(COALESCE(NULLIF(TRIM(nro_parte), ''), 'S/N'), '::', MD5(COALESCE(descripcion_producto, id::text)))
+                        ELSE UPPER(TRIM(nro_parte))
+                    END AS group_key,
+                    categoria,
+                    descripcion_producto,
+                    catalogo
+                FROM ofertas_proveedor_history
+                WHERE (estado_ficha_producto IS NULL OR TRIM(estado_ficha_producto) = '' OR UPPER(estado_ficha_producto) NOT LIKE 'EXCLU%')
+                {prov_where}
+            )
             SELECT 
-                COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE (
+                COUNT(DISTINCT group_key) AS total,
+                COUNT(DISTINCT group_key) FILTER (WHERE (
                     UPPER(categoria) = 'COMPUTADORA DE ESCRITORIO'
                     OR (
                         (UPPER(categoria) LIKE '%ESCRITORIO%' OR UPPER(descripcion_producto) LIKE '%ESCRITORIO%')
@@ -1759,12 +1773,12 @@ def get_categories_count(
                         AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%'
                     )
                 )) AS escritorio,
-                COUNT(*) FILTER (WHERE (
+                COUNT(DISTINCT group_key) FILTER (WHERE (
                     UPPER(categoria) LIKE '%TODO EN UNO%' 
                     OR UPPER(descripcion_producto) LIKE '%TODO EN UNO%' 
                     OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%'
                 )) AS aio,
-                COUNT(*) FILTER (WHERE (
+                COUNT(DISTINCT group_key) FILTER (WHERE (
                     (UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')
                     AND UPPER(categoria) NOT LIKE '%PORTATIL%'
                     AND UPPER(categoria) NOT LIKE '%PORTÁTIL%'
@@ -1772,23 +1786,23 @@ def get_categories_count(
                     AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%'
                     AND UPPER(descripcion_producto) NOT LIKE '%LAPTOP%'
                 )) AS workstation,
-                COUNT(*) FILTER (WHERE (
+                COUNT(DISTINCT group_key) FILTER (WHERE (
                     UPPER(categoria) = 'MONITOR' 
                     OR (UPPER(descripcion_producto) LIKE 'MONITOR%' AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%')
                 )) AS monitor,
-                COUNT(*) FILTER (WHERE UPPER(categoria) LIKE '%PANTALLA PUBLICITARIA%') AS pantalla_pub,
-                COUNT(*) FILTER (WHERE UPPER(categoria) LIKE '%PANTALLA INTERACTIVA%') AS pantalla_int,
-                COUNT(*) FILTER (WHERE UPPER(categoria) LIKE '%ALMACENAMIENTO INTERNO%') AS almacenamiento_int,
-                COUNT(*) FILTER (WHERE UPPER(categoria) LIKE '%ALMACENAMIENTO EXTERNO%') AS almacenamiento_ext,
-                COUNT(*) FILTER (WHERE (
+                COUNT(DISTINCT group_key) FILTER (WHERE UPPER(categoria) LIKE '%PANTALLA PUBLICITARIA%') AS pantalla_pub,
+                COUNT(DISTINCT group_key) FILTER (WHERE UPPER(categoria) LIKE '%PANTALLA INTERACTIVA%') AS pantalla_int,
+                COUNT(DISTINCT group_key) FILTER (WHERE UPPER(categoria) LIKE '%ALMACENAMIENTO INTERNO%') AS almacenamiento_int,
+                COUNT(DISTINCT group_key) FILTER (WHERE UPPER(categoria) LIKE '%ALMACENAMIENTO EXTERNO%') AS almacenamiento_ext,
+                COUNT(DISTINCT group_key) FILTER (WHERE (
                     UPPER(categoria) = 'COMPUTADORA PORTATIL'
                     OR (
-                        (UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%')
+                        (UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTÁTIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%')
                         AND UPPER(categoria) NOT LIKE '%ESTACION%'
                         AND UPPER(descripcion_producto) NOT LIKE '%TODO EN UNO%'
                     )
                 )) AS portatil,
-                COUNT(*) FILTER (WHERE (
+                COUNT(DISTINCT group_key) FILTER (WHERE (
                     (UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')
                     AND (
                         UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTÁTIL%'
@@ -1796,17 +1810,16 @@ def get_categories_count(
                         OR UPPER(descripcion_producto) LIKE '%LAPTOP%'
                     )
                 )) AS workstation_portatil,
-                COUNT(*) FILTER (WHERE (
+                COUNT(DISTINCT group_key) FILTER (WHERE (
                     UPPER(categoria) LIKE '%TABLET%' OR UPPER(descripcion_producto) LIKE '%TABLETA%'
                 )) AS tableta,
-                COUNT(*) FILTER (WHERE UPPER(categoria) LIKE '%ESCANER DE PLANOS%') AS escaner_planos,
-                COUNT(*) FILTER (WHERE (
+                COUNT(DISTINCT group_key) FILTER (WHERE UPPER(categoria) LIKE '%ESCANER DE PLANOS%') AS escaner_planos,
+                COUNT(DISTINCT group_key) FILTER (WHERE (
                     UPPER(categoria) LIKE '%ESCANER DE DOCUMENTOS%' 
                     OR (UPPER(catalogo) LIKE '%ESCANER%' AND UPPER(categoria) NOT LIKE '%PLANOS%' AND UPPER(categoria) NOT LIKE '%LIBROS%')
                 )) AS escaner_docs,
-                COUNT(*) FILTER (WHERE UPPER(categoria) LIKE '%ESCANER DE LIBROS%') AS escaner_libros
-            FROM ofertas_proveedor_history
-            WHERE 1=1 {prov_where};
+                COUNT(DISTINCT group_key) FILTER (WHERE UPPER(categoria) LIKE '%ESCANER DE LIBROS%') AS escaner_libros
+            FROM base;
         """
         row = db.execute(text(sql), params).mappings().first()
         return dict(row) if row else {
@@ -2103,6 +2116,12 @@ def _run_bulk_category_extraction(items: List[Dict[str, Any]], cat_name: str):
             cat = it.get("categoria") or cat_name or "COMPUTADORA"
             desc = it.get("descripcion_producto") or it.get("descripcion") or ""
             if not pdf or pdf == "#":
+                if desc:
+                    try:
+                        specs = extraer_especificaciones_pdf(origen="", categoria=cat, descripcion_fallback=desc)
+                        return np, specs
+                    except Exception:
+                        return np, None
                 return np, None
             try:
                 specs = extraer_especificaciones_pdf(origen=pdf, categoria=cat, descripcion_fallback=desc)
@@ -2183,11 +2202,19 @@ def extraer_specs_pdf_endpoint(
             cat_l = cat.lower()
             is_all = not cat or cat_l in ('todos', 'all')
 
-            sql = """
-                SELECT DISTINCT ON (UPPER(TRIM(nro_parte)))
+            group_key_expr = """(
+                CASE 
+                    WHEN UPPER(TRIM(COALESCE(nro_parte, ''))) IN ('', '-', 'S/N', 'SN', 'COLECTIVO', 'VARIOS', '0', 'NO TIENE', 'SIN NUMERO', 'SIN NUMERO DE PARTE', 'NO APLICA') 
+                    THEN CONCAT(COALESCE(NULLIF(TRIM(nro_parte), ''), 'S/N'), '::', MD5(COALESCE(descripcion_producto, id::text)))
+                    ELSE UPPER(TRIM(nro_parte))
+                END
+            )"""
+
+            sql = f"""
+                SELECT DISTINCT ON ({group_key_expr})
                     nro_parte, pdf_url, descripcion_producto, categoria
                 FROM ofertas_proveedor_history
-                WHERE pdf_url IS NOT NULL AND pdf_url != '#'
+                WHERE (estado_ficha_producto IS NULL OR TRIM(estado_ficha_producto) = '' OR UPPER(estado_ficha_producto) NOT LIKE 'EXCLU%')
             """
             params: Dict[str, Any] = {}
             if not is_all:
@@ -2246,7 +2273,7 @@ def extraer_specs_pdf_endpoint(
             if not req.forzar:
                 sql += " AND (raw_json->>'specs_pdf' IS NULL OR raw_json->>'specs_pdf' = '' OR raw_json->>'specs_pdf' = '{}')"
 
-            sql += " ORDER BY UPPER(TRIM(nro_parte)), id DESC"
+            sql += f" ORDER BY {group_key_expr}, (CASE WHEN pdf_url IS NOT NULL AND pdf_url != '#' THEN 1 ELSE 2 END) ASC, id DESC"
 
             rows = db.execute(text(sql), params).mappings().all()
             items_to_process = [dict(r) for r in rows]

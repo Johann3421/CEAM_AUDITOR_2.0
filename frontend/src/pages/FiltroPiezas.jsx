@@ -391,8 +391,8 @@ const FiltroPiezas = () => {
   const handleExtraerCategoria = async (forzar = true) => {
     setExtractMenuOpen(false);
     const catName = activeCategoryConfig?.label || activeCategoryConfig?.name || selectedCategory;
-    const catOfertas = categoriesCount[selectedCategory] ? `${Number(categoriesCount[selectedCategory]).toLocaleString('es-PE')} ofertas` : 'todas las ofertas';
-    const confirmMsg = `¿Deseas iniciar la extracción y actualización completa de especificaciones oficiales desde PDFs para TODA la categoría "${catName}"?\n\nEl sistema descargará las fichas técnicas oficiales únicas con PDF y actualizará automáticamente ${catOfertas} de los proveedores en la base de datos.`;
+    const catTotal = categoriesCount[selectedCategory] ? `${Number(categoriesCount[selectedCategory]).toLocaleString('es-PE')} productos` : 'todos los productos';
+    const confirmMsg = `¿Deseas iniciar la extracción y actualización completa de especificaciones oficiales para toda la categoría "${catName}"?\n\nSe procesarán ${catTotal} del catálogo.`;
     if (!window.confirm(confirmMsg)) return;
 
     setExtractingPdfs(true);
@@ -404,7 +404,7 @@ const FiltroPiezas = () => {
         forzar: forzar
       });
       if (res.data?.started) {
-        setExtractProgress(`Iniciada extracción en segundo plano de ${res.data.total} fichas oficiales únicas con PDF (${catOfertas} actualizadas en segundo plano)...`);
+        setExtractProgress(`Iniciada extracción en segundo plano de ${res.data.total} productos...`);
         startPollingStatus();
       } else if (res.data?.success === false) {
         setExtractProgress(`Error: ${res.data.error || res.data.message}`);
@@ -672,7 +672,7 @@ const FiltroPiezas = () => {
                     Extraer y Actualizar toda la categoría: {activeCategoryConfig.name || selectedCategory}
                   </strong>
                   <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginLeft: 19 }}>
-                    Descarga las fichas oficiales únicas con PDF y actualiza todas las ofertas de la categoría en BD
+                    Descarga fichas técnicas oficiales y actualiza las especificaciones de los productos en catálogo
                   </span>
                 </button>
               </div>
@@ -709,10 +709,10 @@ const FiltroPiezas = () => {
             <RefreshCw size={18} className="spin" style={{ color: 'var(--c-brand)' }} />
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-text-primary)' }}>
-                Extrayendo especificaciones oficiales desde PDFs: {bgTaskStatus.categoria}
+                Extrayendo especificaciones oficiales: {bgTaskStatus.categoria}
               </div>
               <div style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginTop: 2 }}>
-                Procesando <strong>{bgTaskStatus.processed}</strong> de <strong>{bgTaskStatus.total}</strong> fichas oficiales únicas con PDF ({Math.round((bgTaskStatus.processed / Math.max(1, bgTaskStatus.total)) * 100)}%) — actualizando automáticamente todas las ofertas en BD
+                Procesando <strong>{bgTaskStatus.processed}</strong> de <strong>{bgTaskStatus.total}</strong> productos ({Math.round((bgTaskStatus.processed / Math.max(1, bgTaskStatus.total)) * 100)}%)
               </div>
             </div>
           </div>
@@ -1413,15 +1413,10 @@ const FiltroPiezas = () => {
         </label>
 
         <span
-          title="Productos únicos mostrados en catálogo (filtrando fichas excluidas por Perú Compras)"
+          title="Total de productos únicos mostrados en catálogo para esta categoría"
           style={{ fontSize: 12, color: 'var(--c-text-secondary)', background: 'var(--c-surface)', padding: '6px 12px', borderRadius: 8, border: '1px solid var(--c-border)', display: 'inline-flex', alignItems: 'center', gap: 5 }}
         >
-          Productos en catálogo: <strong>{totalItems.toLocaleString('es-PE')}</strong>
-          {categoriesCount[selectedCategory] && selectedCategory !== 'all' && (
-            <span style={{ color: 'var(--c-text-tertiary)', fontSize: 11, marginLeft: 2 }}>
-              ({Number(categoriesCount[selectedCategory]).toLocaleString('es-PE')} ofertas)
-            </span>
-          )}
+          Total en catálogo: <strong>{totalItems.toLocaleString('es-PE')} productos</strong>
         </span>
 
         {/* Limit Selector */}
