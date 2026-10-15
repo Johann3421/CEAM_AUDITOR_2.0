@@ -49,7 +49,15 @@
 
 ---
 
-## 4. Archivos Modificados
+## 4. Desglose de Métricas y Relación de Números (8.835 vs 5.936 vs 3.339)
+- **8.835 (Ofertas Comerciales Totales):** Conteo bruto de filas en `ofertas_proveedor_history` para la categoría. Representa todas las ofertas cargadas por múltiples proveedores (King, Rojas, etc.) y regiones compitiendo en el catálogo.
+- **6.382 (Fichas Totales de Catálogo):** Productos/part numbers únicos de Perú Compras (3.339 vigentes + 3.043 excluidas por catálogo).
+- **5.936 (Fichas Oficiales Únicas con PDF):** Part numbers únicos que poseen enlace oficial a PDF descargable (6.382 menos 446 sin PDF). La extracción se realiza por número de parte único para no descargar redundancias; al extraerse estas 5.936 fichas oficiales, **se actualiza automáticamente el 100% de las 8.835 ofertas en base de datos**.
+- **3.339 (Productos en Vista):** Fichas únicas vigentes activas mostradas en las tarjetas del catálogo (ocultando por defecto las excluidas).
+
+---
+
+## 5. Archivos Modificados
 - `backend/app/api/endpoints/proveedores.py`
 - `backend/app/services/dynamic_filters.py`
 - `frontend/src/pages/FiltroPiezas.jsx`
