@@ -391,7 +391,8 @@ const FiltroPiezas = () => {
   const handleExtraerCategoria = async (forzar = true) => {
     setExtractMenuOpen(false);
     const catName = activeCategoryConfig?.label || activeCategoryConfig?.name || selectedCategory;
-    const confirmMsg = `¿Deseas iniciar la extracción y actualización completa de especificaciones oficiales desde PDFs para TODA la categoría "${catName}"?\n\nSe procesarán en segundo plano todas las fichas con PDF y se actualizarán sus tarjetas gráficas y componentes.`;
+    const catOfertas = categoriesCount[selectedCategory] ? `${Number(categoriesCount[selectedCategory]).toLocaleString('es-PE')} ofertas` : 'todas las ofertas';
+    const confirmMsg = `¿Deseas iniciar la extracción y actualización completa de especificaciones oficiales desde PDFs para TODA la categoría "${catName}"?\n\nEl sistema descargará las fichas técnicas oficiales únicas con PDF y actualizará automáticamente ${catOfertas} de los proveedores en la base de datos.`;
     if (!window.confirm(confirmMsg)) return;
 
     setExtractingPdfs(true);
@@ -403,7 +404,7 @@ const FiltroPiezas = () => {
         forzar: forzar
       });
       if (res.data?.started) {
-        setExtractProgress(`Iniciada extracción en segundo plano de ${res.data.total} fichas de ${res.data.categoria}...`);
+        setExtractProgress(`Iniciada extracción en segundo plano de ${res.data.total} fichas oficiales únicas con PDF (${catOfertas} actualizadas en segundo plano)...`);
         startPollingStatus();
       } else if (res.data?.success === false) {
         setExtractProgress(`Error: ${res.data.error || res.data.message}`);
@@ -671,7 +672,7 @@ const FiltroPiezas = () => {
                     Extraer y Actualizar toda la categoría: {activeCategoryConfig.name || selectedCategory}
                   </strong>
                   <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginLeft: 19 }}>
-                    Re-extrae y actualiza todas las fichas oficiales y gráficas en segundo plano
+                    Descarga las fichas oficiales únicas con PDF y actualiza todas las ofertas de la categoría en BD
                   </span>
                 </button>
               </div>
@@ -711,7 +712,7 @@ const FiltroPiezas = () => {
                 Extrayendo especificaciones oficiales desde PDFs: {bgTaskStatus.categoria}
               </div>
               <div style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginTop: 2 }}>
-                Procesando <strong>{bgTaskStatus.processed}</strong> de <strong>{bgTaskStatus.total}</strong> fichas técnicas ({Math.round((bgTaskStatus.processed / Math.max(1, bgTaskStatus.total)) * 100)}%)
+                Procesando <strong>{bgTaskStatus.processed}</strong> de <strong>{bgTaskStatus.total}</strong> fichas oficiales únicas con PDF ({Math.round((bgTaskStatus.processed / Math.max(1, bgTaskStatus.total)) * 100)}%) — actualizando automáticamente todas las ofertas en BD
               </div>
             </div>
           </div>
@@ -954,14 +955,17 @@ const FiltroPiezas = () => {
               >
                 <span>{cat.label}</span>
                 {count != null && (
-                  <span style={{
-                    background: isSelected ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.06)',
-                    color: isSelected ? '#fff' : 'var(--c-text-primary)',
-                    padding: '1px 6px',
-                    borderRadius: 10,
-                    fontSize: 10,
-                    fontWeight: 700
-                  }}>
+                  <span
+                    title={`${Number(count).toLocaleString('es-PE')} ofertas comerciales registradas de proveedores`}
+                    style={{
+                      background: isSelected ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.06)',
+                      color: isSelected ? '#fff' : 'var(--c-text-primary)',
+                      padding: '1px 6px',
+                      borderRadius: 10,
+                      fontSize: 10,
+                      fontWeight: 700
+                    }}
+                  >
                     {Number(count).toLocaleString('es-PE')}
                   </span>
                 )}
@@ -1408,8 +1412,16 @@ const FiltroPiezas = () => {
           </span>
         </label>
 
-        <span style={{ fontSize: 12, color: 'var(--c-text-secondary)', background: 'var(--c-surface)', padding: '6px 12px', borderRadius: 8, border: '1px solid var(--c-border)' }}>
-          Coincidencias en BD: <strong>{totalItems.toLocaleString('es-PE')}</strong> fichas
+        <span
+          title="Productos únicos mostrados en catálogo (filtrando fichas excluidas por Perú Compras)"
+          style={{ fontSize: 12, color: 'var(--c-text-secondary)', background: 'var(--c-surface)', padding: '6px 12px', borderRadius: 8, border: '1px solid var(--c-border)', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+        >
+          Productos en catálogo: <strong>{totalItems.toLocaleString('es-PE')}</strong>
+          {categoriesCount[selectedCategory] && selectedCategory !== 'all' && (
+            <span style={{ color: 'var(--c-text-tertiary)', fontSize: 11, marginLeft: 2 }}>
+              ({Number(categoriesCount[selectedCategory]).toLocaleString('es-PE')} ofertas)
+            </span>
+          )}
         </span>
 
         {/* Limit Selector */}
