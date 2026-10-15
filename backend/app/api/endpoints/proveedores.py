@@ -2130,6 +2130,11 @@ def _run_bulk_category_extraction(items: List[Dict[str, Any]], cat_name: str):
                         if batch_count >= 10:
                             db_bg.commit()
                             batch_count = 0
+                            try:
+                                from app.services.dynamic_filters import invalidar_cache_filtros
+                                invalidar_cache_filtros()
+                            except Exception:
+                                pass
                 except Exception as ex:
                     try:
                         db_bg.rollback()
@@ -2141,6 +2146,8 @@ def _run_bulk_category_extraction(items: List[Dict[str, Any]], cat_name: str):
 
             try:
                 db_bg.commit()
+                from app.services.dynamic_filters import invalidar_cache_filtros
+                invalidar_cache_filtros()
             except Exception:
                 pass
         _EXTRACTION_TASK["status"] = "completed"
@@ -2306,6 +2313,8 @@ def extraer_specs_pdf_endpoint(
                             logging.getLogger(__name__).error("Error actualizando specs_pdf para %s: %s", np, e)
             try:
                 db.commit()
+                from app.services.dynamic_filters import invalidar_cache_filtros
+                invalidar_cache_filtros()
             except Exception:
                 db.rollback()
 
@@ -2353,6 +2362,8 @@ def extraer_specs_pdf_endpoint(
                     "specs_json": json.dumps(specs, ensure_ascii=False)
                 })
                 db.commit()
+                from app.services.dynamic_filters import invalidar_cache_filtros
+                invalidar_cache_filtros()
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).error("Error individual actualizando specs_pdf para %s: %s", np, e)

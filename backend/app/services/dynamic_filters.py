@@ -279,6 +279,13 @@ def _build_context_key(categoria: Optional[str], proveedor: Optional[str]) -> st
     return f"{cat}:{prov}"
 
 
+def invalidar_cache_filtros():
+    """Limpia el caché de opciones dinámicas de filtros para forzar re-escaneo inmediato tras extracción."""
+    _FILTERS_CACHE.clear()
+    _REVERSE_MAP_CACHE.clear()
+    _CACHE_TIMESTAMPS.clear()
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 3. EXTRACTOR DINÁMICO DE FILTROS SEGÚN CONTEXTO (BASE DE DATOS REAL)
 # ═══════════════════════════════════════════════════════════════════════════

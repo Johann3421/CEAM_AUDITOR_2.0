@@ -176,15 +176,14 @@ const FiltroPiezas = () => {
   const [copiedDescId, setCopiedDescId] = useState(null);
 
   // ── Carga reactiva de opciones de filtro desde BD al cambiar categoría/proveedor ─
-  useEffect(() => {
-    let isMounted = true;
+  const reloadFilterOptions = useCallback(() => {
     setFilterOptionsLoading(true);
     proveedoresApi.getFilterOptions({
       categoria: selectedCategory !== 'all' ? selectedCategory : undefined,
       proveedor: selectedProveedor !== 'all' ? selectedProveedor : undefined,
     })
       .then(res => {
-        if (isMounted && res.data) {
+        if (res.data) {
           setFilterOptions(res.data);
         }
       })
@@ -192,11 +191,13 @@ const FiltroPiezas = () => {
         console.warn('Error cargando opciones dinámicas:', err);
       })
       .finally(() => {
-        if (isMounted) setFilterOptionsLoading(false);
+        setFilterOptionsLoading(false);
       });
-
-    return () => { isMounted = false; };
   }, [selectedCategory, selectedProveedor]);
+
+  useEffect(() => {
+    reloadFilterOptions();
+  }, [reloadFilterOptions]);
 
   // ── Fetch category counts ───────────────────────────────────────────────
   const fetchCounts = useCallback(async (prov) => {
@@ -311,6 +312,7 @@ const FiltroPiezas = () => {
           pollingRef.current = null;
           setExtractProgress(`✓ ¡Extracción completada! Se enriquecieron ${task.processed} fichas oficiales de ${task.categoria}.`);
           fetchData();
+          reloadFilterOptions();
           setTimeout(() => {
             setExtractProgress(null);
             setBgTaskStatus(null);
@@ -325,7 +327,7 @@ const FiltroPiezas = () => {
         console.error('Error consultando status de extracción:', err);
       }
     }, 2500);
-  }, [fetchData]);
+  }, [fetchData, reloadFilterOptions]);
 
   useEffect(() => {
     proveedoresApi.getExtraerSpecsStatus().then(res => {
@@ -358,7 +360,8 @@ const FiltroPiezas = () => {
           pdf_url: it.pdf_url,
           categoria: it.categoria || it.catalogo,
           descripcion: it.descripcion || it.descripcion_producto
-        }))
+        })),
+        forzar: true
       };
 
       const res = await proveedoresApi.extraerSpecsPdf(payload);
@@ -372,6 +375,7 @@ const FiltroPiezas = () => {
           }
           return it;
         }));
+        reloadFilterOptions();
         setExtractProgress(`✓ ¡Éxito! Se enriquecieron ${res.data.processed || Object.keys(specsMap).length} fichas técnicas desde sus PDFs.`);
         setTimeout(() => setExtractProgress(null), 4000);
       }
@@ -425,7 +429,8 @@ const FiltroPiezas = () => {
         nro_parte: item.nro_parte,
         pdf_url: item.pdf_url,
         categoria: item.categoria || item.catalogo,
-        descripcion: item.descripcion || item.descripcion_producto
+        descripcion: item.descripcion || item.descripcion_producto,
+        forzar: true
       };
       const res = await proveedoresApi.extraerSpecsPdf(payload);
       if (res.data?.specs) {
@@ -437,6 +442,7 @@ const FiltroPiezas = () => {
           }
           return it;
         }));
+        reloadFilterOptions();
       }
     } catch (err) {
       console.error('Error extrayendo ficha individual:', err);
