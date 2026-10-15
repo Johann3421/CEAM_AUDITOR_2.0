@@ -152,8 +152,15 @@ def get_proveedor_fichas(
                 OR UPPER(f.descripcion_producto) LIKE '%ALL IN ONE%'
                 OR UPPER(f.descripcion_producto) LIKE '%ALL-IN-ONE%'
             )""")
-        elif categ_lower in ("workstation", "estacion de trabajo", "estacion"):
-            where_clauses.append("(UPPER(f.categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(f.descripcion_producto) LIKE '%WORKSTATION%')")
+        elif categ_lower in ("workstation", "estacion de trabajo", "estacion", "workstations_torre", "workstation_torre"):
+            where_clauses.append("""(
+                (UPPER(f.categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(f.descripcion_producto) LIKE '%WORKSTATION%')
+                AND UPPER(f.categoria) NOT LIKE '%PORTATIL%'
+                AND UPPER(f.categoria) NOT LIKE '%PORTÁTIL%'
+                AND UPPER(f.descripcion_producto) NOT LIKE '%PORTATIL%'
+                AND UPPER(f.descripcion_producto) NOT LIKE '%PORTÁTIL%'
+                AND UPPER(f.descripcion_producto) NOT LIKE '%LAPTOP%'
+            )""")
         elif categ_lower in ("monitor", "monitores"):
             where_clauses.append("""(
                 UPPER(f.categoria) LIKE '%MONITOR%'
@@ -181,10 +188,14 @@ def get_proveedor_fichas(
                 AND UPPER(f.categoria) NOT LIKE '%TODO EN UNO%'
                 AND UPPER(f.categoria) NOT LIKE '%ESTACION%'
             )""")
-        elif categ_lower in ("workstation_portatil", "estacion de trabajo portatil"):
+        elif categ_lower in ("workstation_portatil", "estacion de trabajo portatil", "estacion_portatil", "workstations_portatiles"):
             where_clauses.append("""(
                 (UPPER(f.categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(f.descripcion_producto) LIKE '%WORKSTATION%')
-                AND (UPPER(f.categoria) LIKE '%PORTATIL%' OR UPPER(f.descripcion_producto) LIKE '%PORTATIL%' OR UPPER(f.descripcion_producto) LIKE '%LAPTOP%')
+                AND (
+                    UPPER(f.categoria) LIKE '%PORTATIL%' OR UPPER(f.categoria) LIKE '%PORTÁTIL%'
+                    OR UPPER(f.descripcion_producto) LIKE '%PORTATIL%' OR UPPER(f.descripcion_producto) LIKE '%PORTÁTIL%'
+                    OR UPPER(f.descripcion_producto) LIKE '%LAPTOP%'
+                )
             )""")
         elif categ_lower in ("tableta", "tablet"):
             where_clauses.append("(UPPER(f.categoria) LIKE '%TABLET%' OR UPPER(f.descripcion_producto) LIKE '%TABLET%')")
@@ -1754,8 +1765,12 @@ def get_categories_count(
                     OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%'
                 )) AS aio,
                 COUNT(*) FILTER (WHERE (
-                    UPPER(categoria) = 'ESTACION DE TRABAJO'
+                    (UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')
                     AND UPPER(categoria) NOT LIKE '%PORTATIL%'
+                    AND UPPER(categoria) NOT LIKE '%PORTÁTIL%'
+                    AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
+                    AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%'
+                    AND UPPER(descripcion_producto) NOT LIKE '%LAPTOP%'
                 )) AS workstation,
                 COUNT(*) FILTER (WHERE (
                     UPPER(categoria) = 'MONITOR' 
@@ -1774,7 +1789,12 @@ def get_categories_count(
                     )
                 )) AS portatil,
                 COUNT(*) FILTER (WHERE (
-                    UPPER(categoria) LIKE '%ESTACION DE TRABAJO PORTATIL%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION PORTATIL%'
+                    (UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')
+                    AND (
+                        UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTÁTIL%'
+                        OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTÁTIL%'
+                        OR UPPER(descripcion_producto) LIKE '%LAPTOP%'
+                    )
                 )) AS workstation_portatil,
                 COUNT(*) FILTER (WHERE (
                     UPPER(categoria) LIKE '%TABLET%' OR UPPER(descripcion_producto) LIKE '%TABLETA%'
@@ -2190,12 +2210,13 @@ def extraer_specs_pdf_endpoint(
                         (UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')
                         AND (UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTÁTIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%')
                     )"""
-                elif cat_l in ("workstation", "estacion de trabajo", "estacion", "workstations"):
+                elif cat_l in ("workstation", "estacion de trabajo", "estacion", "workstations", "workstations_torre", "workstation_torre"):
                     sql += """ AND (
                         (UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')
                         AND UPPER(categoria) NOT LIKE '%PORTATIL%'
                         AND UPPER(categoria) NOT LIKE '%PORTÁTIL%'
                         AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
+                        AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%'
                         AND UPPER(descripcion_producto) NOT LIKE '%LAPTOP%'
                     )"""
                 elif cat_l in ("aio", "todo en uno", "all in one", "computadora todo en uno"):

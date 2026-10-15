@@ -330,16 +330,22 @@ def obtener_filtros_dinamicos_fichas(
             where_clauses.append("(UPPER(categoria) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%TODO EN UNO%' OR UPPER(descripcion_producto) LIKE '%ALL IN ONE%')")
         elif cat_l in ("monitor", "monitores"):
             where_clauses.append("(UPPER(categoria) LIKE '%MONITOR%' OR UPPER(descripcion_producto) LIKE 'MONITOR%' OR UPPER(descripcion_producto) LIKE '%MONITOR LED%')")
-        elif cat_l in ("workstation_portatil", "estacion de trabajo portatil"):
+        elif cat_l in ("workstation_portatil", "estacion de trabajo portatil", "estacion_portatil", "workstations_portatiles"):
             where_clauses.append("""(
                 (UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')
-                AND (UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%LAPTOP%')
+                AND (
+                    UPPER(categoria) LIKE '%PORTATIL%' OR UPPER(categoria) LIKE '%PORTÁTIL%'
+                    OR UPPER(descripcion_producto) LIKE '%PORTATIL%' OR UPPER(descripcion_producto) LIKE '%PORTÁTIL%'
+                    OR UPPER(descripcion_producto) LIKE '%LAPTOP%'
+                )
             )""")
-        elif cat_l in ("workstation", "estacion de trabajo", "estacion"):
+        elif cat_l in ("workstation", "estacion de trabajo", "estacion", "workstations", "workstations_torre", "workstation_torre"):
             where_clauses.append("""(
                 (UPPER(categoria) LIKE '%ESTACION DE TRABAJO%' OR UPPER(descripcion_producto) LIKE '%WORKSTATION%')
                 AND UPPER(categoria) NOT LIKE '%PORTATIL%'
+                AND UPPER(categoria) NOT LIKE '%PORTÁTIL%'
                 AND UPPER(descripcion_producto) NOT LIKE '%PORTATIL%'
+                AND UPPER(descripcion_producto) NOT LIKE '%PORTÁTIL%'
                 AND UPPER(descripcion_producto) NOT LIKE '%LAPTOP%'
             )""")
         elif cat_l in ("tableta", "tablet"):

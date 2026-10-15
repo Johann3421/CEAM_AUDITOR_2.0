@@ -27,16 +27,16 @@ export function parseProductSpecs(item) {
     cat.includes('PORTATIL') || cat.includes('PORTÁTIL')
   ) {
     family = 'computadoras';
-    formFactor = (desc.includes('ESTACION') || desc.includes('WORKSTATION')) ? 'Workstation Portátil' : 'Laptop / Portátil';
+    formFactor = (desc.includes('ESTACION') || desc.includes('WORKSTATION') || cat.includes('ESTACION') || cat.includes('WORKSTATION')) ? 'Workstation Portátil' : 'Laptop / Portátil';
   } else if (
     desc.includes('TODO EN UNO') || desc.includes('ALL IN ONE') || desc.includes('ALL-IN-ONE') || desc.includes('AIO') ||
     cat.includes('TODO EN UNO')
   ) {
     family = 'computadoras';
     formFactor = 'Todo en Uno (AIO)';
-  } else if (desc.includes('ESTACION') || desc.includes('WORKSTATION') || cat.includes('ESTACION')) {
+  } else if (desc.includes('ESTACION') || desc.includes('WORKSTATION') || cat.includes('ESTACION') || cat.includes('WORKSTATION')) {
     family = 'computadoras';
-    formFactor = 'Workstation';
+    formFactor = 'Workstation Torre';
   } else if (
     desc.includes('ESCRITORIO') || desc.includes('TORRE') || desc.includes('SFF') || desc.includes('MINI PC') ||
     desc.includes('COMPUTADORA') || cat.includes('COMPUTADORA') || cat.includes('ESCRITORIO') ||

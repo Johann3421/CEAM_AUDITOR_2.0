@@ -384,18 +384,19 @@ const FiltroPiezas = () => {
     }
   };
 
-  const handleExtraerCategoria = async () => {
+  const handleExtraerCategoria = async (forzar = true) => {
     setExtractMenuOpen(false);
     const catName = activeCategoryConfig?.label || activeCategoryConfig?.name || selectedCategory;
-    const confirmMsg = `¿Deseas iniciar la extracción de especificaciones oficiales desde PDFs para TODA la categoría "${catName}"?\n\nSe procesarán en segundo plano todas las fichas con PDF.`;
+    const confirmMsg = `¿Deseas iniciar la extracción y actualización completa de especificaciones oficiales desde PDFs para TODA la categoría "${catName}"?\n\nSe procesarán en segundo plano todas las fichas con PDF y se actualizarán sus tarjetas gráficas y componentes.`;
     if (!window.confirm(confirmMsg)) return;
 
     setExtractingPdfs(true);
-    setExtractProgress(`Iniciando extracción para toda la categoría "${catName}"...`);
+    setExtractProgress(`Iniciando extracción y actualización para toda la categoría "${catName}"...`);
     try {
       const res = await proveedoresApi.extraerSpecsPdf({
         categoria: selectedCategory === 'all' ? 'COMPUTADORA DE ESCRITORIO' : selectedCategory,
-        extraer_todo_categoria: true
+        extraer_todo_categoria: true,
+        forzar: forzar
       });
       if (res.data?.started) {
         setExtractProgress(`Iniciada extracción en segundo plano de ${res.data.total} fichas de ${res.data.categoria}...`);
@@ -642,7 +643,7 @@ const FiltroPiezas = () => {
                 <div style={{ height: 1, background: 'var(--c-border)', margin: '4px 0' }} />
 
                 <button
-                  onClick={handleExtraerCategoria}
+                  onClick={() => handleExtraerCategoria(true)}
                   disabled={extractingPdfs || (bgTaskStatus && bgTaskStatus.status === 'running')}
                   style={{
                     width: '100%',
@@ -661,10 +662,10 @@ const FiltroPiezas = () => {
                 >
                   <strong style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#16a34a' }}>
                     <Layers size={13} />
-                    Extraer toda la categoría: {activeCategoryConfig.name || selectedCategory}
+                    Extraer y Actualizar toda la categoría: {activeCategoryConfig.name || selectedCategory}
                   </strong>
                   <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginLeft: 19 }}>
-                    Procesa todas las fichas oficiales en segundo plano
+                    Re-extrae y actualiza todas las fichas oficiales y gráficas en segundo plano
                   </span>
                 </button>
               </div>
