@@ -5,6 +5,7 @@ Bóveda de conocimiento y memoria técnica persistente del sistema **CEAM AUDITO
 ---
 
 ## Historial de Cambios y Sesiones
+- [[notes/cambios/2026-11-05-hardening-seguridad-docker-compose-nginx-flower|2026-11-05 — Hardening de Seguridad en Docker Compose, Nginx y Flower]]
 - [[notes/cambios/2026-10-15-unificacion-conteos-filtro-piezas-ley-tesler|2026-10-15 — Unificación de Conteos en Filtro por Piezas (Ley de Tesler)]]
 - [[notes/cambios/2026-10-14-fix-separacion-workstations-torre-portatiles-y-extraccion-automatica|2026-10-14 — Separación Estricta de Workstations Torre vs Portátiles y Automatización de Extracción de Gráficas]]
 - [[notes/cambios/2026-10-14-fix-extraccion-graficas-workstations-portatiles|2026-10-14 — Corrección de Extracción de Tarjetas Gráficas en Workstations Portátiles]]
