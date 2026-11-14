@@ -198,6 +198,11 @@ async def async_login_and_get_cookies(
             )
 
             if ok:
+                # Captura temprana de cookies de sesión tras autenticación exitosa
+                raw_cookies = await context.cookies()
+                for c in raw_cookies:
+                    cookies_dict[c["name"]] = c["value"]
+
                 # -------------------------------------------------------------
                 # PASO 4: SALTO DE VERIFICACIÓN Y ACCESO A LA RUTA /MejoraBasica
                 # -------------------------------------------------------------
@@ -276,9 +281,9 @@ async def async_login_and_get_cookies(
                             prod_item["ruc_proveedor"] = ruc_proveedor
 
                         # PASO 7: Guardar en base de datos con Upsert
-                        inserted_now = upsert_ofertas_history_db(db, products)
-                        EXTRACTION_STATUS["items_inserted"] += inserted_now
-                        add_status_log(f"✅ [PASO 7: {i}/{len(combos)}] Guardados {len(products)} productos de '{categ_nom}' para '{nombre_proveedor}'.")
+                        inserted_now = upsert_ofertas_history_db(db, products) or 0
+                        EXTRACTION_STATUS["items_inserted"] = (EXTRACTION_STATUS.get("items_inserted") or 0) + inserted_now
+                        add_status_log(f"✅ [PASO 7: {i}/{len(combos)}] Guardados/actualizados {inserted_now} productos de '{categ_nom}' para '{nombre_proveedor}'.")
                     else:
                         add_status_log(f"ℹ️ [PASO 7: {i}/{len(combos)}] 0 productos disponibles en '{categ_nom}'.")
 
@@ -522,7 +527,7 @@ async def run_worker_pool_extraction(
                             if not it.get("ruc_proveedor"):
                                 it["ruc_proveedor"] = ruc_proveedor
                         count = upsert_ofertas_history_db(db, items, default_nombre=nombre_proveedor, default_ruc=ruc_proveedor)
-                        total_inserted += count
+                        total_inserted += (count or 0)
                         EXTRACTION_STATUS["items_inserted"] = total_inserted
 
                     completed.add(combo_key)
@@ -555,7 +560,6 @@ def upsert_ofertas_history_db(db: Session, ofertas: List[Dict], default_nombre: 
     if not ofertas:
         return 0
 
-    inserted = 0
     stmt = text("""
         INSERT INTO ofertas_proveedor_history (
             nro_parte, descripcion_producto, marca, ruc_proveedor, nombre_proveedor,
@@ -574,29 +578,54 @@ def upsert_ofertas_history_db(db: Session, ofertas: List[Dict], default_nombre: 
             fecha_extraccion = NOW()
     """)
 
+    params_list = []
     for o in ofertas:
+        raw_j = o.get("raw_json")
+        if raw_j and not isinstance(raw_j, str):
+            try:
+                raw_j = json.dumps(raw_j)
+            except Exception:
+                raw_j = None
+
+        params_list.append({
+            "nro_parte": o.get("nro_parte") or "S/N",
+            "descripcion": o.get("descripcion") or o.get("descripcion_producto") or "",
+            "marca": o.get("marca") or "VARIOS",
+            "ruc_proveedor": o.get("ruc_proveedor") or default_ruc,
+            "nombre_proveedor": o.get("nombre_proveedor") or o.get("proveedor") or default_nombre,
+            "acuerdo_marco": o.get("acuerdo_marco") or "EXT-CE-2022-5",
+            "catalogo": o.get("catalogo") or "COMPUTADORAS DE ESCRITORIO",
+            "categoria": o.get("categoria") or "ESCRITORIO",
+            "region": o.get("region"),
+            "provincia": o.get("provincia"),
+            "precio_ofertado": o.get("precio_ofertado"),
+            "existencia_stock": o.get("existencia_stock"),
+            "plazo_entrega_dias": o.get("plazo_entrega_dias"),
+            "pdf_url": o.get("pdf_url"),
+            "raw_json": raw_j
+        })
+
+    inserted = 0
+    batch_size = 1000
+    for i in range(0, len(params_list), batch_size):
+        chunk = params_list[i:i + batch_size]
         try:
-            params = {
-                "nro_parte": o.get("nro_parte") or "S/N",
-                "descripcion": o.get("descripcion") or o.get("descripcion_producto") or "",
-                "marca": o.get("marca") or "VARIOS",
-                "ruc_proveedor": o.get("ruc_proveedor") or default_ruc,
-                "nombre_proveedor": o.get("nombre_proveedor") or o.get("proveedor") or default_nombre,
-                "acuerdo_marco": o.get("acuerdo_marco") or "EXT-CE-2022-5",
-                "catalogo": o.get("catalogo") or "COMPUTADORAS DE ESCRITORIO",
-                "categoria": o.get("categoria") or "ESCRITORIO",
-                "region": o.get("region"),
-                "provincia": o.get("provincia"),
-                "precio_ofertado": o.get("precio_ofertado"),
-                "existencia_stock": o.get("existencia_stock"),
-                "plazo_entrega_dias": o.get("plazo_entrega_dias"),
-                "pdf_url": o.get("pdf_url"),
-                "raw_json": json.dumps(o.get("raw_json")) if o.get("raw_json") else None
-            }
-            db.execute(stmt, params)
-            inserted += 1
+            db.execute(stmt, chunk)
+            db.commit()
+            inserted += len(chunk)
         except Exception as e:
-            logger.warning("Error guardando snapshot histórico en BD: %s", e)
+            db.rollback()
+            logger.warning("Lote de %d ofertas falló con batch insert (%s). Reintentando registro a registro...", len(chunk), e)
+            for p in chunk:
+                try:
+                    db.execute(stmt, p)
+                    db.commit()
+                    inserted += 1
+                except Exception as row_err:
+                    db.rollback()
+                    logger.warning("Error guardando registro individual %s: %s", p.get("nro_parte"), row_err)
+
+    return inserted
 
 PERU_REGIONES_OFICIALES = [
     {"codigo_region": "150000", "ubigeo_provincia": "150100", "nombre": "LIMA"},

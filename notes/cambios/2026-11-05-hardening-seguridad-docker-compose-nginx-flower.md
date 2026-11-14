@@ -37,3 +37,4 @@ Al auditar los logs del proyecto en producción (`ceam_flower`, `ceam_frontend`,
 ## 3. Próximos Pasos
 - Despliegue en Dokploy mediante push a `main`.
 - Opcionalmente configurar en Dokploy la variable `FLOWER_BASIC_AUTH` con credenciales personalizadas si se desea cambiar las predeterminadas.
+
