@@ -1055,6 +1055,21 @@ def fichas_summary(
                 rango_min = str(dt_row[0]) if dt_row[0] else None
                 rango_max = str(dt_row[1]) if dt_row[1] else None
 
+        monto_total = 0.0
+        ocam_total = 0
+        con_ventas = 0
+        if "monto_contratado" in col_set:
+            m_row = db.execute(text(
+                f"SELECT COALESCE(SUM(monto_contratado), 0), "
+                f"COALESCE(SUM(cant_ocam), 0), "
+                f"COUNT(*) FILTER (WHERE monto_contratado > 0) "
+                f"FROM {_TABLE} {where_clause}"
+            ), params).fetchone()
+            if m_row:
+                monto_total = float(m_row[0] or 0)
+                ocam_total = int(m_row[1] or 0)
+                con_ventas = int(m_row[2] or 0)
+
         if has_ref and has_vol:
             row = db.execute(text(
                 f"SELECT COUNT(*) as total, "
@@ -1081,6 +1096,9 @@ def fichas_summary(
             "coverage_pct": round(con_p / total * 100, 1) if total > 0 else 0.0,
             "volatilidad": {"baja": v_baja, "media": v_media, "alta": v_alta},
             "rango_fechas": {"min": rango_min, "max": rango_max},
+            "monto_total": monto_total,
+            "ocam_total": ocam_total,
+            "con_ventas": con_ventas,
         }
     except Exception:
         return {
