@@ -113,12 +113,18 @@ def get_proveedor_fichas(
             params["proveedor"] = f"%{proveedor}%"
 
     if search:
+        s_clean = search.strip()
+        if s_clean.lower() == "rinobox":
+            s_clean = "rhinobox"
         where_clauses.append("(UPPER(f.nro_parte) LIKE UPPER(:search) OR UPPER(f.descripcion_producto) LIKE UPPER(:search) OR UPPER(f.marca) LIKE UPPER(:search))")
-        params["search"] = f"%{search}%"
+        params["search"] = f"%{s_clean}%"
 
     if marca:
+        m_val = marca.strip()
+        if m_val.lower() == "rinobox":
+            m_val = "rhinobox"
         where_clauses.append("UPPER(f.marca) = UPPER(:marca)")
-        params["marca"] = marca
+        params["marca"] = m_val
 
     if nro_parte:
         where_clauses.append("UPPER(f.nro_parte) LIKE UPPER(:nro_parte)")

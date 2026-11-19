@@ -5,6 +5,7 @@ Bóveda de conocimiento y memoria técnica persistente del sistema **CEAM AUDITO
 ---
 
 ## Historial de Cambios y Sesiones
+- [[notes/cambios/2026-11-19-analisis-discrepancia-fichas-perucompras-rhinobox|2026-11-19 — Análisis Forense: Discrepancia de Fichas en Perú Compras, Dualidad de Plataformas y Normalización de Marca Rhinobox]]
 - [[notes/cambios/2026-11-18-fix-extraccion-fichas-nuevo-visor-monto-contratado-batch-upsert|2026-11-18 — Fix Extracción Fichas: Soporte para Nuevo Visor de Perú Compras, Auto-migración DDL y Batch Upsert]]
 - [[notes/cambios/2026-11-14-fix-extraccion-proveedores-nonetype-batch-upsert|2026-11-14 — Fix Extracción Proveedores: Resolución de TypeError NoneType y Batch Upsert en BD]]
 - [[notes/cambios/2026-11-05-hardening-seguridad-docker-compose-nginx-flower|2026-11-05 — Hardening de Seguridad en Docker Compose, Nginx y Flower]]

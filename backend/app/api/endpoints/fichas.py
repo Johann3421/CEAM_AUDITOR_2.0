@@ -168,7 +168,10 @@ def _build_fichas_where(
             filters.append(f'"{cat_col}" ILIKE :categoria')
             params["categoria"] = f"%{categoria}%"
 
-    _f("marca", marca, "marca")
+    m_val = marca
+    if m_val and str(m_val).strip().lower() == "rinobox":
+        m_val = "Rhinobox"
+    _f("marca", m_val, "marca")
     _f("estado_ficha_producto", estado, "estado")
 
     if nro_parte:
@@ -223,14 +226,18 @@ def _build_fichas_where(
                 filters.append('COALESCE("fecha_orden_max", "fecha_orden_min") < CURRENT_DATE - INTERVAL \'365 days\'')
 
     if search:
+        s_clean = search.strip()
+        if s_clean.lower() == "rinobox":
+            s_clean = "rhinobox"
         search_cols = []
         for c in ("descripción_fichaproducto", "nro_parte_o_código_único_de_identificación",
-                  "descripcin_fichaproducto", "nro_parte_o_cdigo_nico_de_identificacin"):
+                  "descripcin_fichaproducto", "nro_parte_o_cdigo_nico_de_identificacin",
+                  "marca"):
             if c in col_set:
                 search_cols.append(f'"{c}" ILIKE :search')
         if search_cols:
             filters.append("(" + " OR ".join(search_cols) + ")")
-            params["search"] = f"%{search.strip()}%"
+            params["search"] = f"%{s_clean}%"
 
     where_clause = ("WHERE " + " AND ".join(filters)) if filters else ""
     return filters, params, where_clause
