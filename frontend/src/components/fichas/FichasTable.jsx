@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ExternalLink, Package, FileSearch, Tag, Image, ChevronDown, Search, X, Check } from 'lucide-react';
+import {
+  ExternalLink, Package, FileSearch, Tag, Image, ChevronDown,
+  Search, X, Check, FileText, ArrowUpDown, ArrowUp, ArrowDown
+} from 'lucide-react';
 import { fichasProductoApi } from '../../services/api';
 
 const STATUS_CLASS = {
@@ -174,7 +177,16 @@ const ColFilter = ({ colName, apiKey, activeValue, onApply, onClear }) => {
 };
 
 /* ── Main table ───────────────────────────────────────────── */
-const FichasTable = ({ fichas, loading, onColFilter, colFilters = {} }) => {
+const FichasTable = ({
+  fichas,
+  loading,
+  onColFilter,
+  colFilters = {},
+  sortBy,
+  sortDir,
+  onSort,
+  onSelectFicha,
+}) => {
   if (loading) {
     return (
       <div className="card" style={{ marginTop: 16 }}>
@@ -202,6 +214,15 @@ const FichasTable = ({ fichas, loading, onColFilter, colFilters = {} }) => {
   const nroParteKey = Object.keys(sample).find(k => k.includes('nro_parte') || k.includes('cdigo') || k.includes('codigo'));
   const descKey     = Object.keys(sample).find(k => k.includes('descrip'));
   const catKey      = Object.keys(sample).find(k => k.startsWith('cat') && !k.includes('logo'));
+
+  const renderSortIcon = (field) => {
+    if (sortBy !== field) {
+      return <ArrowUpDown size={12} style={{ opacity: 0.35, marginLeft: 4 }} />;
+    }
+    return sortDir === 'asc'
+      ? <ArrowUp size={13} style={{ color: 'var(--c-brand)', marginLeft: 4 }} />
+      : <ArrowDown size={13} style={{ color: 'var(--c-brand)', marginLeft: 4 }} />;
+  };
 
   return (
     <div className="card" style={{ marginTop: 16 }}>
@@ -235,62 +256,177 @@ const FichasTable = ({ fichas, loading, onColFilter, colFilters = {} }) => {
                   />
                 </span>
               </th>
+              <th>
+                <button
+                  type="button"
+                  onClick={() => onSort && onSort('monto_contratado')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    font: 'inherit',
+                    color: sortBy === 'monto_contratado' ? 'var(--c-brand)' : 'inherit',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    padding: 0,
+                    fontWeight: 600,
+                  }}
+                  title="Ordenar por Monto Contratado"
+                >
+                  Monto Contratado
+                  {renderSortIcon('monto_contratado')}
+                </button>
+              </th>
+              <th>
+                <button
+                  type="button"
+                  onClick={() => onSort && onSort('cant_ocam')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    font: 'inherit',
+                    color: sortBy === 'cant_ocam' ? 'var(--c-brand)' : 'inherit',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    padding: 0,
+                    fontWeight: 600,
+                  }}
+                  title="Ordenar por Cantidad de Órdenes OCAM"
+                >
+                  OCAM
+                  {renderSortIcon('cant_ocam')}
+                </button>
+              </th>
               <th>Estado</th>
-              <th style={{ width: 50 }}>PDF</th>
-              <th style={{ width: 50 }}>Img</th>
+              <th style={{ width: 80, textAlign: 'center' }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {fichas.map((f, idx) => (
-              <tr key={f[nroParteKey] || idx} className="fade-up">
-                <td>
-                  <span style={{ fontWeight: 600, color: 'var(--c-brand)', fontFamily: 'monospace', fontSize: 12 }}>
-                    {f[nroParteKey] || '—'}
-                  </span>
-                </td>
-                <td>
-                  <div
-                    style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--c-text-secondary)', fontSize: 12 }}
-                    title={f[descKey]}
-                  >
-                    {f[descKey] || '—'}
-                  </div>
-                </td>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Tag size={12} style={{ color: 'var(--c-text-tertiary)', flexShrink: 0 }} />
-                    <span style={{ fontSize: 12 }}>{f.marca || '—'}</span>
-                  </div>
-                </td>
-                <td>
-                  <span
-                    style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', fontSize: 12, color: 'var(--c-text-secondary)' }}
-                    title={f[catKey] || f.categora || f.categoría}
-                  >
-                    {f[catKey] || f.categora || f.categoría || '—'}
-                  </span>
-                </td>
-                <td>
-                  <span className={`badge ${badgeClass(f.estado_ficha_producto)}`}>
-                    {f.estado_ficha_producto || 'S/E'}
-                  </span>
-                </td>
-                <td>
-                  {f.ficha_tcnica || f.ficha_técnica ? (
-                    <a href={f.ficha_tcnica || f.ficha_técnica} target="_blank" rel="noopener noreferrer" className="btn btn-sm" title="Ver ficha técnica (PDF)">
-                      <ExternalLink size={14} />
-                    </a>
-                  ) : <span style={{ color: 'var(--c-text-tertiary)', fontSize: 12 }}>—</span>}
-                </td>
-                <td>
-                  {f.imagen ? (
-                    <a href={f.imagen} target="_blank" rel="noopener noreferrer" className="btn btn-sm" title="Ver imagen">
-                      <Image size={14} />
-                    </a>
-                  ) : <span style={{ color: 'var(--c-text-tertiary)', fontSize: 12 }}>—</span>}
-                </td>
-              </tr>
-            ))}
+            {fichas.map((f, idx) => {
+              const part = f[nroParteKey] || '—';
+              const monto = Number(f.monto_contratado || 0);
+              const ocam = Number(f.cant_ocam || 0);
+              const pdf = f.ficha_tcnica || f.ficha_técnica;
+
+              return (
+                <tr key={part || idx} className="fade-up">
+                  <td>
+                    <button
+                      type="button"
+                      onClick={() => onSelectFicha && onSelectFicha(f)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        fontWeight: 600,
+                        color: 'var(--c-brand)',
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      }}
+                      title="Ver detalle completo"
+                    >
+                      {part}
+                    </button>
+                  </td>
+                  <td>
+                    <div
+                      style={{
+                        maxWidth: 280,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        color: 'var(--c-text-secondary)',
+                        fontSize: 12,
+                        cursor: 'pointer',
+                      }}
+                      title={f[descKey]}
+                      onClick={() => onSelectFicha && onSelectFicha(f)}
+                    >
+                      {f[descKey] || '—'}
+                    </div>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Tag size={12} style={{ color: 'var(--c-text-tertiary)', flexShrink: 0 }} />
+                      <span style={{ fontSize: 12 }}>{f.marca || '—'}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span
+                      style={{
+                        maxWidth: 140,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        display: 'block',
+                        fontSize: 12,
+                        color: 'var(--c-text-secondary)',
+                      }}
+                      title={f[catKey] || f.categora || f.categoría}
+                    >
+                      {f[catKey] || f.categora || f.categoría || '—'}
+                    </span>
+                  </td>
+                  <td>
+                    {monto > 0 ? (
+                      <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--c-text)' }}>
+                        S/ {monto.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--c-text-tertiary)', fontSize: 12 }}>—</span>
+                    )}
+                  </td>
+                  <td>
+                    {ocam > 0 ? (
+                      <span
+                        className="badge badge-info"
+                        style={{ fontWeight: 700, fontSize: 11, padding: '2px 8px' }}
+                        title={`${ocam.toLocaleString('es-PE')} órdenes formalizadas`}
+                      >
+                        {ocam.toLocaleString('es-PE')}
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--c-text-tertiary)', fontSize: 12 }}>0</span>
+                    )}
+                  </td>
+                  <td>
+                    <span className={`badge ${badgeClass(f.estado_ficha_producto)}`}>
+                      {f.estado_ficha_producto || 'S/E'}
+                    </span>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectFicha && onSelectFicha(f)}
+                        className="btn btn-sm"
+                        style={{ padding: '3px 7px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                        title="Ver ficha técnica, KPIs y especificaciones"
+                      >
+                        <FileText size={13} />
+                        Detalles
+                      </button>
+
+                      {pdf && (
+                        <a
+                          href={pdf}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-sm"
+                          style={{ padding: '3px 6px', color: 'var(--c-text-secondary)' }}
+                          title="Ficha técnica oficial (PDF)"
+                        >
+                          <ExternalLink size={13} />
+                        </a>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

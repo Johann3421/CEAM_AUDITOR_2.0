@@ -2,7 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { fichasProductoApi } from '../services/api';
 import FichasTable from '../components/fichas/FichasTable';
-import { Search, ChevronLeft, ChevronRight, X, SlidersHorizontal, FileDown } from 'lucide-react';
+import FichaDetailModal from '../components/fichas/FichaDetailModal';
+import {
+  Search, ChevronLeft, ChevronRight, X, SlidersHorizontal, FileDown,
+  ArrowUpDown, TrendingUp, ShoppingBag, DollarSign
+} from 'lucide-react';
 
 const Fichas = () => {
   const [searchParams] = useSearchParams();
@@ -12,6 +16,11 @@ const Fichas = () => {
   const [estado,    setEstado]    = useState(searchParams.get('estado')    || '');
   const [marca,     setMarca]     = useState(searchParams.get('marca')     || '');
   const [categoria, setCategoria] = useState(searchParams.get('categoria') || '');
+  const [sortBy,    setSortBy]    = useState('monto_contratado');
+  const [sortDir,   setSortDir]   = useState('desc');
+
+  // Modal detail state
+  const [selectedFicha, setSelectedFicha] = useState(null);
 
   // Data
   const [fichas,  setFichas]  = useState([]);
@@ -32,6 +41,8 @@ const Fichas = () => {
         estado:    estado    || undefined,
         marca:     marca     || undefined,
         categoria: categoria || undefined,
+        sort_by:   sortBy    || undefined,
+        sort_dir:  sortDir   || undefined,
       });
       // Backend now returns { total, items } — fall back to plain array for safety
       const data = res.data;
@@ -47,7 +58,7 @@ const Fichas = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, search, estado, marca, categoria]);
+  }, [page, search, estado, marca, categoria, sortBy, sortDir]);
 
   useEffect(() => { fetchFichas(); }, [fetchFichas]);
 
@@ -90,6 +101,16 @@ const Fichas = () => {
   const handleColFilter = (col, value) => {
     if (col === 'marca')     { setMarca(value);     setPage(0); }
     if (col === 'categoria') { setCategoria(value); setPage(0); }
+  };
+
+  const handleSort = (field) => {
+    if (sortBy === field) {
+      setSortDir(prev => prev === 'desc' ? 'asc' : 'desc');
+    } else {
+      setSortBy(field);
+      setSortDir('desc');
+    }
+    setPage(0);
   };
 
   // ── Excel export ──────────────────────────────────────────
@@ -233,6 +254,25 @@ const Fichas = () => {
           <option value="Suspendida">SUSPENDIDA</option>
         </select>
 
+        <select
+          className="form-select"
+          value={`${sortBy}:${sortDir}`}
+          onChange={(e) => {
+            const [sb, sd] = e.target.value.split(':');
+            setSortBy(sb);
+            setSortDir(sd);
+            setPage(0);
+          }}
+          title="Ordenar resultados"
+          style={{ maxWidth: 210, fontWeight: 500 }}
+        >
+          <option value="monto_contratado:desc">💰 Mayor Monto Contratado</option>
+          <option value="cant_ocam:desc">📦 Más Vendidas (OCAM)</option>
+          <option value="fecha_extraccion:desc">🕒 Más Recientes</option>
+          <option value="fecha_primera_carga:asc">📅 Más Antiguas</option>
+          <option value="marca:asc">🏷️ Marca (A-Z)</option>
+        </select>
+
         {activeFilters.length > 0 && (
           <button onClick={resetAll} className="btn" title="Limpiar todos los filtros">
             <X size={14} /> Limpiar
@@ -246,7 +286,19 @@ const Fichas = () => {
         loading={loading}
         colFilters={{ marca, categoria }}
         onColFilter={handleColFilter}
+        sortBy={sortBy}
+        sortDir={sortDir}
+        onSort={handleSort}
+        onSelectFicha={setSelectedFicha}
       />
+
+      {/* ── Detail Modal ────────────────────────────────────── */}
+      {selectedFicha && (
+        <FichaDetailModal
+          ficha={selectedFicha}
+          onClose={() => setSelectedFicha(null)}
+        />
+      )}
 
       {/* ── Pagination ──────────────────────────────────────── */}
       <div className="pagination">
