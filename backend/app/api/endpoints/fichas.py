@@ -16,10 +16,15 @@ _TABLE = "fichas_producto"
 
 _SAFE_COL_CACHE: Optional[list[str]] = None
 
-def _safe_col(db: Session) -> list[str]:
+def invalidate_safe_col_cache():
+    """Invalidate column cache so newly added columns are immediately visible."""
+    global _SAFE_COL_CACHE
+    _SAFE_COL_CACHE = None
+
+def _safe_col(db: Session, force_refresh: bool = False) -> list[str]:
     """Return actual column names from the DB table (cached in memory)."""
     global _SAFE_COL_CACHE
-    if _SAFE_COL_CACHE is not None:
+    if not force_refresh and _SAFE_COL_CACHE is not None:
         return _SAFE_COL_CACHE
     try:
         rows = db.execute(
@@ -480,6 +485,8 @@ def export_fichas_excel(
         "acuerdo_marco":              "Acuerdo Marco",
         "catálogo":                   "Catálogo",
         "catalogo":                   "Catálogo",
+        "monto_contratado":           "Monto Contratado (S/)",
+        "cant_ocam":                  "Cant. OCAM",
         "precio_min":                 "Precio Mín. (S/)",
         "monto_orden_min":           "Total Orden Mín. (S/)",
         "precio_max":                 "Precio Máx. (S/)",

@@ -259,9 +259,19 @@ async def navigate_and_download(
             logger.info("Agreement card clicked — waiting for fichas count and download button...")
 
             # Wait for the page to update and show the download button.
-            await page.wait_for_selector(
-                download_btn_selector, state="visible", timeout=30_000
-            )
+            try:
+                await page.wait_for_selector(
+                    download_btn_selector, state="visible", timeout=15_000
+                )
+            except Exception:
+                logger.info("Retrying card click with native click...")
+                try:
+                    await agreement_el.click()
+                except Exception:
+                    pass
+                await page.wait_for_selector(
+                    download_btn_selector, state="visible", timeout=45_000
+                )
             logger.info("Download button is visible.")
 
             # ── Download (context BEFORE click — see docstring) ───────────
@@ -390,6 +400,13 @@ def process_catalog_excel(filepath: str) -> pd.DataFrame:
             )
             logger.info("  → string: %s", col)
 
+    # ── Integer count columns → int64 ─────────────────────────────────────
+    count_re = re.compile(r"(cant|cantidad|unidades|num_)", re.I)
+    for col in df.columns:
+        if count_re.search(col):
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype("int64")
+            logger.info("  → int64: %s", col)
+
     # ── Extraction timestamp (UTC) ────────────────────────────────────────
     df["fecha_extraccion"] = datetime.now(tz=timezone.utc)
 
@@ -456,6 +473,13 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
     else:
         logger.info("Upsert key column: '%s'", key_col)
 
+    # Deduplicate DataFrame by key_col keeping the latest row to prevent
+    # "ON CONFLICT DO UPDATE command cannot affect row a second time" in PostgreSQL
+    orig_len = len(df)
+    df = df.drop_duplicates(subset=[key_col], keep="last").reset_index(drop=True)
+    if len(df) < orig_len:
+        logger.info("Deduplicated %d duplicate key rows (kept last). Clean rows: %d", orig_len - len(df), len(df))
+
     # Log a sample of key values to verify the right column was picked
     sample_keys = df[key_col].dropna().head(3).tolist()
     logger.info("Sample key values: %s", sample_keys)
@@ -486,29 +510,43 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
     fichas_table = Table("fichas_producto", meta, *sa_cols, extend_existing=True)
     meta.create_all(engine)
 
-    # ── Auto-migrate legacy varchar columns → TEXT ────────────────────────
-    # If the table was previously created with a String(128) column (from an
-    # old schema run), ALTER those columns to TEXT so long values fit.
-    # Runs only on PostgreSQL; silently skipped on SQLite (no varchar issue).
+    # ── Auto-migrate schema: Add ANY missing column + convert varchar to TEXT ─────
     try:
         insp = sa_inspect(engine)
         if insp.has_table("fichas_producto"):
             existing_cols = {c["name"]: c["type"] for c in insp.get_columns("fichas_producto")}
             with engine.begin() as _mc:
                 for sa_col in sa_cols:
-                    if not isinstance(sa_col.type, Text):
-                        continue
                     col_name = sa_col.name
-                    db_type = str(existing_cols.get(col_name, "")).upper()
-                    if "VARCHAR" in db_type or "CHAR" in db_type:
-                        logger.warning(
-                            "Migrating column '%s' from %s → TEXT", col_name, db_type
-                        )
-                        _mc.execute(
-                            text(f'ALTER TABLE fichas_producto ALTER COLUMN "{col_name}" TYPE TEXT')
-                        )
+                    if col_name not in existing_cols:
+                        logger.info("Auto-migrating schema: Adding missing column '%s' to fichas_producto", col_name)
+                        if isinstance(sa_col.type, Float):
+                            sql_type = "FLOAT"
+                        elif isinstance(sa_col.type, Integer):
+                            sql_type = "BIGINT"
+                        elif isinstance(sa_col.type, DateTime):
+                            sql_type = "TIMESTAMP WITH TIME ZONE"
+                        else:
+                            sql_type = "TEXT"
+                        _mc.execute(text(f'ALTER TABLE fichas_producto ADD COLUMN IF NOT EXISTS "{col_name}" {sql_type}'))
+                    elif isinstance(sa_col.type, Text):
+                        db_type = str(existing_cols.get(col_name, "")).upper()
+                        if "VARCHAR" in db_type or "CHAR" in db_type:
+                            logger.warning(
+                                "Migrating column '%s' from %s → TEXT", col_name, db_type
+                            )
+                            _mc.execute(
+                                text(f'ALTER TABLE fichas_producto ALTER COLUMN "{col_name}" TYPE TEXT')
+                            )
     except Exception as _me:
         logger.warning("Schema auto-migration skipped: %s", _me)
+
+    # Invalidate cached table columns in API endpoint
+    try:
+        from app.api.endpoints.fichas import invalidate_safe_col_cache
+        invalidate_safe_col_cache()
+    except Exception:
+        pass
 
     # ── Helpers ───────────────────────────────────────────────────────────
     def _clean(row: dict) -> dict:
@@ -558,103 +596,113 @@ def upsert_fichas(df: pd.DataFrame, engine) -> dict:
     updated = 0
     errors = 0
     deltas_suspendidas = []
+    new_keys = set()
 
     now_utc = datetime.now(tz=timezone.utc)
     rows = df.to_dict(orient="records")
+    clean_vals = []
 
-    for batch_start in range(0, len(rows), BATCH_SIZE):
-        batch_rows = rows[batch_start:batch_start + BATCH_SIZE]
-        batch_vals: list = []
-
-        for raw_row in batch_rows:
-            clean_row = _clean(raw_row)
-            key_val = clean_row.get(key_col)
-            if not key_val or str(key_val).strip() in ("", "nan", "None"):
-                errors += 1
-                continue
-
-            key_str = str(key_val).strip()
-            existing = existing_map.get(key_str)
-
-            if existing:
-                # Delta: Ofertada → Suspendida
-                try:
-                    old_state = str(existing.get("estado_ficha_producto") or "").strip().lower()
-                    new_state = str(clean_row.get("estado_ficha_producto") or "").strip().lower()
-                    if "ofertada" in old_state and "suspendida" in new_state:
-                        # Find description column (handles accent-stripped variants)
-                        desc_keys = [k for k in clean_row if "descrip" in k]
-                        desc = str(clean_row.get(desc_keys[0], "")).strip() if desc_keys else ""
-                        # Find ficha técnica URL (pandas strips accents: ficha_técnica → ficha_tcnica)
-                        ficha_url = ""
-                        for _fk in ("ficha_tcnica", "ficha_tecnica", "ficha_técnica", "url_ficha"):
-                            if clean_row.get(_fk):
-                                ficha_url = str(clean_row[_fk]).strip()
-                                break
-                        deltas_suspendidas.append({
-                            "marca": str(clean_row.get("marca", "")).strip(),
-                            "nro_parte": key_str,
-                            "descripcion": desc,
-                            "acuerdo_marco": str(clean_row.get("acuerdo_marco", "")).strip(),
-                            "ficha_url": ficha_url,
-                            "anterior": existing.get("estado_ficha_producto"),
-                            "actual": clean_row.get("estado_ficha_producto"),
-                        })
-                except Exception as diff_exc:
-                    logger.warning("Delta calc error for %s: %s", key_str, diff_exc)
-
-                # Preserve original insertion date
-                clean_row.pop("fecha_primera_carga", None)
-                updated += 1
-            else:
-                clean_row["fecha_primera_carga"] = now_utc
-                # Track in-memory so duplicate keys within same Excel don't double-insert
-                existing_map[key_str] = {"estado_ficha_producto": clean_row.get("estado_ficha_producto")}
-                inserted += 1
-
-            batch_vals.append(clean_row)
-
-        if not batch_vals:
+    for raw_row in rows:
+        clean_row = _clean(raw_row)
+        key_val = clean_row.get(key_col)
+        if not key_val or str(key_val).strip() in ("", "nan", "None"):
+            errors += 1
             continue
 
+        key_str = str(key_val).strip()
+        existing = existing_map.get(key_str)
+
+        if existing:
+            # Delta: Ofertada → Suspendida
+            try:
+                old_state = str(existing.get("estado_ficha_producto") or "").strip().lower()
+                new_state = str(clean_row.get("estado_ficha_producto") or "").strip().lower()
+                if "ofertada" in old_state and "suspendida" in new_state:
+                    # Find description column (handles accent-stripped variants)
+                    desc_keys = [k for k in clean_row if "descrip" in k]
+                    desc = str(clean_row.get(desc_keys[0], "")).strip() if desc_keys else ""
+                    # Find ficha técnica URL (pandas strips accents: ficha_técnica → ficha_tcnica)
+                    ficha_url = ""
+                    for _fk in ("ficha_tcnica", "ficha_tecnica", "ficha_técnica", "url_ficha"):
+                        if clean_row.get(_fk):
+                            ficha_url = str(clean_row[_fk]).strip()
+                            break
+                    deltas_suspendidas.append({
+                        "marca": str(clean_row.get("marca", "")).strip(),
+                        "nro_parte": key_str,
+                        "descripcion": desc,
+                        "acuerdo_marco": str(clean_row.get("acuerdo_marco", "")).strip(),
+                        "ficha_url": ficha_url,
+                        "anterior": existing.get("estado_ficha_producto"),
+                        "actual": clean_row.get("estado_ficha_producto"),
+                    })
+            except Exception as diff_exc:
+                logger.warning("Delta calc error for %s: %s", key_str, diff_exc)
+
+            # Preserve original first load date if existing
+            clean_row["fecha_primera_carga"] = existing.get("fecha_primera_carga") or now_utc
+            updated += 1
+        else:
+            clean_row["fecha_primera_carga"] = now_utc
+            existing_map[key_str] = {
+                "estado_ficha_producto": clean_row.get("estado_ficha_producto"),
+                "fecha_primera_carga": now_utc,
+            }
+            new_keys.add(key_str)
+            inserted += 1
+
+        clean_vals.append(clean_row)
+
+    if not clean_vals:
+        return {
+            "inserted": inserted,
+            "updated": updated,
+            "errors": errors,
+            "deltas_suspendidas": deltas_suspendidas,
+        }
+
+    # PostgreSQL ON CONFLICT DO UPDATE statement with batch parameter support
+    stmt = pg_insert(fichas_table)
+    up_cols = {
+        col.name: stmt.excluded[col.name]
+        for col in fichas_table.c
+        if col.name not in (key_col, "fecha_primera_carga")
+    }
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[key_col],
+        set_=up_cols,
+    )
+
+    BATCH_CHUNK_SIZE = 1000
+    for batch_start in range(0, len(clean_vals), BATCH_CHUNK_SIZE):
+        batch_rows = clean_vals[batch_start:batch_start + BATCH_CHUNK_SIZE]
         try:
             with engine.begin() as conn:
-                for val in batch_vals:
+                conn.execute(stmt, batch_rows)
+            logger.info(
+                "Batch %d–%d processed successfully (%d items)",
+                batch_start, batch_start + len(batch_rows), len(batch_rows),
+            )
+        except Exception as batch_exc:
+            logger.warning(
+                "Batch %d–%d failed (%s); retrying row-by-row with savepoints...",
+                batch_start, batch_start + len(batch_rows), batch_exc,
+            )
+            with engine.begin() as conn:
+                for val in batch_rows:
                     try:
-                        stmt = pg_insert(fichas_table).values(**val)
-                        up_cols = {
-                            col: stmt.excluded[col]
-                            for col in val
-                            if col not in (key_col, "fecha_primera_carga")
-                        }
-                        stmt = stmt.on_conflict_do_update(
-                            index_elements=[key_col],
-                            set_=up_cols,
-                        )
-                        conn.execute(stmt)
+                        with conn.begin_nested():
+                            conn.execute(stmt, [val])
                     except Exception as row_exc:
                         logger.error(
                             "Row upsert failed key=%.80s: %s",
                             val.get(key_col, "?"), row_exc,
                         )
                         errors += 1
-                        if "fecha_primera_carga" in val:
+                        if val.get(key_col) in new_keys:
                             inserted = max(0, inserted - 1)
                         else:
                             updated = max(0, updated - 1)
-        except Exception as batch_exc:
-            logger.error(
-                "Batch %d–%d failed entirely: %s",
-                batch_start, batch_start + len(batch_rows), batch_exc,
-            )
-            errors += len(batch_vals)
-            inserted = max(0, inserted - sum(1 for v in batch_vals if "fecha_primera_carga" in v))
-            updated = max(0, updated - sum(1 for v in batch_vals if "fecha_primera_carga" not in v))
-
-        logger.info(
-            "Batch %d–%d done — inserted=%d updated=%d errors=%d",
-            batch_start, batch_start + len(batch_rows), inserted, updated, errors,
-        )
 
     logger.info(
         "Upsert complete — inserted: %d, updated: %d, errors: %d",
