@@ -36,6 +36,12 @@ def scrape_catalog_task(
     )
     self.update_state(state="STARTED", meta={"progress": 0, "catalogo": catalogo})
 
+    def progress_callback(meta: dict):
+        try:
+            self.update_state(state="PROGRESS", meta=meta)
+        except Exception as p_err:
+            logger.warning("Could not update task state: %s", p_err)
+
     db = SessionLocal()
     try:
         result = run_scrape_sync(
@@ -44,6 +50,7 @@ def scrape_catalog_task(
             max_pages=max_pages,
             fecha_inicio=fecha_inicio,
             fecha_fin=fecha_fin,
+            progress_callback=progress_callback,
         )
         logger.info("Scrape completed: %s", result)
         return result

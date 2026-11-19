@@ -408,217 +408,182 @@ def _process_excel(filepath: str) -> List[PurchaseOrderCreate]:
     return orders
 
 
-# ─── Playwright RPA ───────────────────────────────────────────────────────────
+# ─── High-Performance PostgreSQL Batch Upsert ───────────────────────────────
 
-async def _download_excel(
-    catalogo_keyword: Optional[str] = None,
-    fecha_inicio: Optional[str] = None,
-    fecha_fin: Optional[str] = None,
-) -> Optional[str]:
+def batch_upsert_orders(db_session, orders: List[PurchaseOrderCreate]) -> tuple:
     """
-    Automate the Peru Compras portal to download the detailed .xlsx export.
-
-    Select2 dropdown IDs (verified 2026-04-10):
-      - Acuerdo Marco:    select#cboAcuerdo  (rendered via Select2)
-      - Entidad:          select#cboEntidad  (rendered via Select2)
-      - Proveedor:        select#cboProveedor
-      - Fecha inicial:    input#fechaInicial
-      - Fecha final:      input#fechaFinal
-      - Exportar check:   input#chkDetallado
-      - Search button:    button#btnBuscar
-      - XLSX download:    a#aExportarXLSX  (appears AFTER search returns results)
+    High-performance bulk upsert for PurchaseOrder using PostgreSQL ON CONFLICT DO UPDATE.
+    Dramatically reduces I/O compared to row-by-row commits.
+    Returns (inserted_count, updated_count).
     """
-    download_dir = tempfile.mkdtemp(prefix="ceam_scraper_")
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from app.models.purchase_order import PurchaseOrder
 
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-            ],
+    if not orders:
+        return 0, 0
+
+    # 1. Deduplicate by orden_electronica (keep the last valid occurrence in the batch)
+    unique_orders_dict = {}
+    for o in orders:
+        key = (o.orden_electronica or "").strip()
+        if not key or key in ("nan", "None"):
+            continue
+        unique_orders_dict[key] = o.model_dump()
+
+    if not unique_orders_dict:
+        return 0, 0
+
+    target_keys = list(unique_orders_dict.keys())
+
+    # 2. Query which keys already exist in the database (single SELECT)
+    existing_keys = set(
+        r[0] for r in db_session.query(PurchaseOrder.orden_electronica)
+        .filter(PurchaseOrder.orden_electronica.in_(target_keys))
+        .all()
+    )
+
+    inserted_count = len(target_keys) - len(existing_keys)
+    updated_count = len(existing_keys)
+
+    # 3. Prepare PostgreSQL ON CONFLICT DO UPDATE statement
+    stmt = pg_insert(PurchaseOrder)
+    update_cols = {
+        col.name: getattr(stmt.excluded, col.name)
+        for col in PurchaseOrder.__table__.columns
+        if col.name not in ("id", "orden_electronica")
+    }
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["orden_electronica"],
+        set_=update_cols,
+    )
+
+    # 4. Execute in chunks of 500
+    rows = list(unique_orders_dict.values())
+    chunk_size = 500
+    for i in range(0, len(rows), chunk_size):
+        batch = rows[i:i + chunk_size]
+        db_session.execute(stmt, batch)
+
+    db_session.commit()
+    logger.info("Batch upsert completed: %d inserted, %d updated", inserted_count, updated_count)
+    return inserted_count, updated_count
+
+
+# ─── Playwright RPA (Optimized Session Reuse & Fast Chunking) ────────────────
+
+def _format_date(d: str) -> str:
+    """Normalize dates to YYYY-MM-DD format."""
+    if not d:
+        return ""
+    if "/" in d:
+        parts = d.split("/")
+        if len(parts) == 3 and len(parts[0]) == 2:  # DD/MM/YYYY
+            return f"{parts[2]}-{parts[1]}-{parts[0]}"
+    return d.strip()
+
+
+async def _select_acuerdo_marco(page, catalogo_keyword: Optional[str]):
+    """Select the target Acuerdo Marco once in the Select2 dropdown."""
+    select2_container = page.locator("#select2-cboAcuerdo-container")
+    await select2_container.click()
+    await page.wait_for_timeout(1000)
+
+    raw_kw = catalogo_keyword or "COMPUTADORAS DE ESCRITORIO"
+    # Extract clean agreement code if formatted as "CODE — Title"
+    keyword = raw_kw.split("—")[0].strip() if "—" in raw_kw else raw_kw.strip()
+
+    search_input = page.locator("input.select2-search__field")
+    await search_input.fill(keyword)
+    await page.wait_for_timeout(2000)
+
+    results = page.locator(".select2-results__option")
+    count = await results.count()
+    logger.info("Found %d Select2 options for '%s'", count, keyword)
+
+    selected = False
+    for i in range(count):
+        option = results.nth(i)
+        text = (await option.inner_text()).strip()
+
+        # Skip non-vigente or placeholders
+        if "no vigente" in text.lower() or "seleccione" in text.lower() or "no se encontraron" in text.lower():
+            continue
+
+        await option.click()
+        logger.info("Selected agreement: %s", text)
+        selected = True
+        break
+
+    if not selected:
+        raise RuntimeError(
+            f"No se encontró ningún Acuerdo Marco vigente para la búsqueda: '{keyword}'. "
+            "Verifica que la palabra clave coincida con un convenio activo en el portal."
         )
-        context = await browser.new_context(accept_downloads=True)
-        page = await context.new_page()
+    await page.wait_for_timeout(1500)
 
-        logger.info("Navigating to %s", BASE_URL)
-        try:
-            await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30000)
-            await page.wait_for_timeout(3000)
-        except PWTimeout:
-            await browser.close()
-            raise RuntimeError("Timeout al cargar el portal de Perú Compras (30 s). Verifica la conexión de red.")
 
-        # ── 1. Select Acuerdo Marco via Select2 ──────────────────────────
-        try:
-            # Click the Select2 container to open the dropdown
-            select2_container = page.locator("#select2-cboAcuerdo-container")
-            await select2_container.click()
-            await page.wait_for_timeout(1000)
+async def _query_chunk(page, chunk_start: str, chunk_end: str, download_dir: str, chunk_idx: int) -> Optional[str]:
+    """Execute search for a single date range chunk and download the Excel file if results exist."""
+    # 1. Fill dates
+    fi = page.locator("#fechaInicial")
+    await fi.click()
+    await fi.fill(chunk_start)
+    await fi.press("Tab")
 
-            # Type keyword to filter options
-            search_input = page.locator("input.select2-search__field")
-            keyword = catalogo_keyword or "COMPUTADORAS DE ESCRITORIO"
-            await search_input.fill(keyword)
-            await page.wait_for_timeout(2000)
+    ff = page.locator("#fechaFinal")
+    await ff.click()
+    await ff.fill(chunk_end)
+    await ff.press("Tab")
 
-            # Get all filtered results
-            results = page.locator(".select2-results__option")
-            count = await results.count()
-            logger.info("Found %d Select2 options for '%s'", count, keyword)
+    # 2. Check "Exportar Detallado"
+    chk = page.locator("#chkDetallado")
+    if not await chk.is_checked():
+        await chk.check(force=True)
+        await page.wait_for_timeout(1000)
 
-            selected = False
-            for i in range(count):
-                option = results.nth(i)
-                text = (await option.inner_text()).strip()
-                logger.info("  Option %d: %s", i, text)
+    # 3. Click INICIAR BÚSQUEDA
+    btn = page.locator("#btnBuscar")
+    await btn.click(force=True)
+    await page.wait_for_timeout(2500)
 
-                # Skip "No Vigente" options
-                if "no vigente" in text.lower():
-                    continue
+    try:
+        await page.wait_for_load_state("networkidle", timeout=60000)
+    except Exception:
+        pass
+    await page.wait_for_timeout(2000)
 
-                # Skip placeholders
-                if "seleccione" in text.lower():
-                    continue
+    # 4. Check rows on screen: if 0, skip download immediately (avoids hanging for 10 minutes)
+    rows_on_screen = await page.locator("tr.FilaDatos").count()
+    logger.info("Chunk %d (%s..%s) returned %d rows on screen", chunk_idx + 1, chunk_start, chunk_end, rows_on_screen)
+    if rows_on_screen == 0:
+        logger.info("Zero rows found for chunk %s..%s, skipping Excel export", chunk_start, chunk_end)
+        return None
 
-                # This is a vigente option — select it
-                await option.click()
-                logger.info("Selected: %s", text)
-                selected = True
-                break
+    # 5. Click .xlsx export link
+    xlsx_link = page.locator("#aExportarXLSX").first
+    if await xlsx_link.count() == 0:
+        xlsx_link = page.locator("a:has-text('.xlsx')").first
 
-            if not selected:
-                await browser.close()
-                raise RuntimeError(
-                    f"No se encontró ningún Acuerdo Marco vigente para la búsqueda: '{keyword}'. "
-                    "Verifica que la palabra clave coincida con un convenio activo en el portal."
-                )
+    logger.info("Clicking .xlsx export link for chunk %d...", chunk_idx + 1)
+    async with page.expect_download(timeout=60000) as download_info:
+        await xlsx_link.evaluate("node => node.click()")
 
-            await page.wait_for_timeout(1500)
-
-        except RuntimeError:
-            raise
-        except Exception as exc:
-            await browser.close()
-            raise RuntimeError(f"Error al seleccionar Acuerdo Marco en el portal: {exc}") from exc
-
-        # ── 2. Fill date range ────────────────────────────────────────────
-        # Chromium <input type="date"> STRÍCTAMENTE requiere formato YYYY-MM-DD para un .fill() programático.
-        def _format_date(d: str) -> str:
-            if "/" in d:
-                parts = d.split("/")
-                if len(parts) == 3 and len(parts[0]) == 2:  # DD/MM/YYYY
-                    return f"{parts[2]}-{parts[1]}-{parts[0]}"
-            return d
-
-        fecha_inicio = _format_date(fecha_inicio) if fecha_inicio else "2025-01-01"
-        fecha_fin = _format_date(fecha_fin) if fecha_fin else "2025-03-31"
-
-        try:
-            fi = page.locator("#fechaInicial")
-            await fi.click()
-            await fi.fill(fecha_inicio)
-            await fi.press("Tab") # ASP.NET Datepickers need focus out
-            logger.info("Fecha inicial: %s", fecha_inicio)
-
-            ff = page.locator("#fechaFinal")
-            await ff.click()
-            await ff.fill(fecha_fin)
-            await ff.press("Tab")
-            logger.info("Fecha final: %s", fecha_fin)
-        except Exception as exc:
-            logger.warning("Error filling dates: %s", exc)
-
-        # ── 3. Check "Exportar Detallado" ─────────────────────────────────
-        try:
-            chk = page.locator("#chkDetallado")
-            if not await chk.is_checked():
-                await chk.check(force=True)
-                logger.info("Checked 'Exportar Detallado'")
-                # Critical: sometimes this checkbox triggers an ASP.NET UpdatePanel
-                await page.wait_for_timeout(2000)
-        except Exception as exc:
-            logger.warning("Could not check 'Exportar Detallado': %s", exc)
-
-        # ── 4. Click "INICIAR BÚSQUEDA" ──────────────────────────────────
-        try:
-            btn = page.locator("#btnBuscar")
-            await btn.click(force=True)
-            logger.info("Clicked INICIAR BÚSQUEDA")
-
-            # CRÍTICO: La consulta Detallada de Perú Compras puede tomar entre 15 y 45 segundos.
-            await page.wait_for_timeout(3000) # Dar tiempo a que el AJAX JS dispare
-
-            logger.info("Waiting for network to completely settle...")
-            await page.wait_for_load_state("networkidle", timeout=180000)
-            logger.info("Network is idle. Search should be complete.")
-
-            # Collect diagnostics
-            rows_on_screen = await page.locator("tr.FilaDatos").count()
-            first_row_text = ""
-            if rows_on_screen > 0:
-                first_row_text = await page.locator("tr.FilaDatos").first.inner_text()
-            
-            logger.info("ROWS ON SCREEN: %s, FIRST ROW: %s", rows_on_screen, first_row_text)
-
-            # Esperar unos segundos finales para asentar ViewState ASP.NET
-            await page.wait_for_timeout(5000)
-
-        except PWTimeout:
-            await browser.close()
-            raise RuntimeError("Timeout esperando los resultados de búsqueda (180 s). El portal tardó demasiado.")
-        except RuntimeError:
-            raise
-        except Exception as exc:
-            await browser.close()
-            raise RuntimeError(f"Error al ejecutar la búsqueda en el portal: {exc}") from exc
-
-        # ── 5. Click .xlsx export link to download ────────────────────────
-        try:
-            xlsx_link = page.locator("#aExportarXLSX")
-            if await xlsx_link.count() == 0:
-                # Fallback: try text-based selector
-                xlsx_link = page.locator("a:has-text('.xlsx')")
-
-            link_href = await xlsx_link.first.get_attribute("href")
-            link_class = await xlsx_link.first.get_attribute("class")
-            link_disabled = await xlsx_link.first.get_attribute("disabled")
-            
-            logger.info("Export link Diagnostics: href=%s class=%s disabled=%s", link_href, link_class, link_disabled)
-
-            logger.info("Clicking .xlsx export link...")
-
-            async with page.expect_download(timeout=600000) as download_info:
-                # Utilizamos evaluate para saltar las validaciones estrictas de Playwright.
-                # A veces el framework ASP.NET le deja un atributo 'disabled' falso al botón
-                # aunque funcionalmente ya permite la descarga.
-                await xlsx_link.first.evaluate("node => node.click()")
-
-            download = await download_info.value
-            filename = download.suggested_filename or "ordenes_export.xlsx"
-            dest_path = os.path.join(download_dir, filename)
-            await download.save_as(dest_path)
-            logger.info("Downloaded: %s (%s)", dest_path, filename)
-
-            await browser.close()
-            return dest_path, rows_on_screen, first_row_text, f"href: {link_href}, class: {link_class}, disabled: {link_disabled}"
-
-        except PWTimeout:
-            await browser.close()
-            raise RuntimeError("Timeout al descargar el archivo .xlsx (600 s). El portal no entregó el archivo a tiempo.")
-        except RuntimeError:
-            raise
-        except Exception as exc:
-            await browser.close()
-            raise RuntimeError(f"Error al descargar el archivo .xlsx: {exc}") from exc
+    download = await download_info.value
+    filename = download.suggested_filename or f"ordenes_chunk_{chunk_idx}.xlsx"
+    dest_path = os.path.join(download_dir, filename)
+    await download.save_as(dest_path)
+    logger.info("Chunk %d downloaded: %s (%s)", chunk_idx + 1, dest_path, filename)
+    return dest_path
 
 
 def _split_date_range(start_str: Optional[str], end_str: Optional[str], max_days: int = 30) -> List[tuple]:
     """Split a date range YYYY-MM-DD into sub-ranges of up to `max_days` to prevent server timeouts."""
     if not start_str or not end_str:
-        return [(start_str or "2025-01-01", end_str or "2025-03-31")]
+        return [(_format_date(start_str) or "2025-01-01", _format_date(end_str) or "2025-03-31")]
+
+    start_str = _format_date(start_str)
+    end_str = _format_date(end_str)
+
     try:
         dt_start = datetime.strptime(start_str, "%Y-%m-%d").date()
         dt_end = datetime.strptime(end_str, "%Y-%m-%d").date()
@@ -637,6 +602,161 @@ def _split_date_range(start_str: Optional[str], end_str: Optional[str], max_days
     return chunks
 
 
+async def _run_scrape_async(
+    db_session,
+    catalogo: Optional[str] = None,
+    fecha_inicio: Optional[str] = None,
+    fecha_fin: Optional[str] = None,
+    progress_callback: Optional[callable] = None,
+) -> dict:
+    """
+    Main asynchronous scraper loop reusing a SINGLE Playwright browser instance across chunks.
+    Reports real progress and bulk-upserts orders directly into PostgreSQL.
+    """
+    total_inserted = 0
+    total_updated = 0
+
+    chunks = _split_date_range(fecha_inicio, fecha_fin, max_days=30)
+    total_chunks = len(chunks)
+    logger.info("Scraping date range %s to %s split into %d chunk(s)", fecha_inicio, fecha_fin, total_chunks)
+
+    if progress_callback:
+        progress_callback({
+            "progress": 5,
+            "current_chunk": 0,
+            "total_chunks": total_chunks,
+            "phase": "init",
+            "phase_desc": f"Iniciando sesión con Perú Compras (0/{total_chunks} bloques)",
+            "inserted": 0,
+            "updated": 0,
+        })
+
+    download_dir = tempfile.mkdtemp(prefix="ceam_scraper_")
+
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ],
+        )
+        context = await browser.new_context(accept_downloads=True)
+        page = await context.new_page()
+
+        try:
+            logger.info("Navigating to %s", BASE_URL)
+            await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=45000)
+            await page.wait_for_timeout(2000)
+
+            # Dismiss modal popup if present on load
+            try:
+                modal = page.locator("#divPopUpComunicadoBloqueado")
+                if await modal.is_visible(timeout=2000):
+                    await page.evaluate("""() => {
+                        const m = document.getElementById('divPopUpComunicadoBloqueado');
+                        if (m) m.style.display = 'none';
+                        const b = document.querySelector('.modal-backdrop');
+                        if (b) b.remove();
+                        document.body.classList.remove('modal-open');
+                    }""")
+            except Exception:
+                pass
+
+            await _select_acuerdo_marco(page, catalogo)
+        except Exception as init_exc:
+            await browser.close()
+            raise RuntimeError(f"Fallo al inicializar sesión en Perú Compras: {init_exc}") from init_exc
+
+        for chunk_idx, (chunk_start, chunk_end) in enumerate(chunks):
+            pct = round(10 + (chunk_idx / total_chunks) * 80)
+            if progress_callback:
+                progress_callback({
+                    "progress": pct,
+                    "current_chunk": chunk_idx + 1,
+                    "total_chunks": total_chunks,
+                    "chunk_range": f"{chunk_start} → {chunk_end}",
+                    "phase": "fetch",
+                    "phase_desc": f"Consultando bloque {chunk_idx + 1} de {total_chunks} ({chunk_start} al {chunk_end})",
+                    "inserted": total_inserted,
+                    "updated": total_updated,
+                })
+
+            filepath = None
+            try:
+                filepath = await _query_chunk(page, chunk_start, chunk_end, download_dir, chunk_idx)
+            except Exception as chunk_exc:
+                logger.error("Error downloading chunk %d (%s..%s): %s", chunk_idx + 1, chunk_start, chunk_end, chunk_exc)
+                # Attempt recovering the page if it got into a bad state
+                try:
+                    await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30000)
+                    await page.wait_for_timeout(1500)
+                    await _select_acuerdo_marco(page, catalogo)
+                except Exception as rec_exc:
+                    logger.warning("Recovery navigation failed: %s", rec_exc)
+                continue
+
+            if filepath and os.path.exists(filepath):
+                if progress_callback:
+                    progress_callback({
+                        "progress": pct,
+                        "current_chunk": chunk_idx + 1,
+                        "total_chunks": total_chunks,
+                        "chunk_range": f"{chunk_start} → {chunk_end}",
+                        "phase": "save",
+                        "phase_desc": f"Guardando datos del bloque {chunk_idx + 1} de {total_chunks} en BD...",
+                        "inserted": total_inserted,
+                        "updated": total_updated,
+                    })
+
+                orders = _process_excel(filepath)
+                if orders and db_session:
+                    ins, upd = batch_upsert_orders(db_session, orders)
+                    total_inserted += ins
+                    total_updated += upd
+
+                try:
+                    os.remove(filepath)
+                except OSError:
+                    pass
+
+        await browser.close()
+
+    # Safe cleanup of completely corrupt / blank records
+    try:
+        from sqlalchemy import or_
+        from app.models.purchase_order import PurchaseOrder
+        pruned = db_session.query(PurchaseOrder).filter(
+            or_(
+                PurchaseOrder.orden_electronica.is_(None),
+                PurchaseOrder.orden_electronica.in_(["", "nan", "None"]),
+                PurchaseOrder.nro_orden_fisica.is_(None),
+                PurchaseOrder.nro_orden_fisica.in_(["", "nan", "None"]),
+            )
+        ).delete(synchronize_session="fetch")
+        if pruned > 0:
+            db_session.commit()
+            logger.info("Pruned %d corrupt records", pruned)
+    except Exception as exc:
+        logger.warning("Corrupt records cleanup failed (non-critical): %s", exc)
+        db_session.rollback()
+
+    if progress_callback:
+        progress_callback({
+            "progress": 100,
+            "current_chunk": total_chunks,
+            "total_chunks": total_chunks,
+            "phase": "done",
+            "phase_desc": f"¡Extracción finalizada! {total_inserted} nuevas, {total_updated} actualizadas.",
+            "inserted": total_inserted,
+            "updated": total_updated,
+        })
+
+    return {"inserted": total_inserted, "updated": total_updated}
+
+
 # ─── Sync Wrapper for Celery ──────────────────────────────────────────────────
 
 def run_scrape_sync(
@@ -645,74 +765,25 @@ def run_scrape_sync(
     max_pages: int = 10,
     fecha_inicio: Optional[str] = None,
     fecha_fin: Optional[str] = None,
+    progress_callback: Optional[callable] = None,
 ) -> dict:
     """
     Synchronous entry-point called by Celery tasks.
-    Automatically splits long date ranges into 30-day chunks to prevent Peru Compras timeouts.
+    Automatically splits long date ranges into 30-day chunks and reuses a single browser.
     """
-    from app.services import crud
-
-    inserted = 0
-    updated = 0
-
-    async def _run():
-        nonlocal inserted, updated
-
-        chunks = _split_date_range(fecha_inicio, fecha_fin, max_days=30)
-        logger.info("Scraping date range %s to %s split into %d chunk(s)", fecha_inicio, fecha_fin, len(chunks))
-
-        for chunk_start, chunk_end in chunks:
-            logger.info("Processing date chunk: %s → %s", chunk_start, chunk_end)
-            try:
-                filepath, rows_on_screen, fr_text, link_diag = await _download_excel(
-                    catalogo_keyword=catalogo,
-                    fecha_inicio=chunk_start,
-                    fecha_fin=chunk_end,
-                )
-            except Exception as exc:
-                logger.error("Error downloading excel for chunk %s..%s: %s", chunk_start, chunk_end, exc)
-                continue
-
-            if not filepath or not os.path.exists(filepath):
-                logger.warning("No Excel file downloaded for chunk %s..%s", chunk_start, chunk_end)
-                continue
-
-            orders = _process_excel(filepath)
-            for order in orders:
-                existing = crud.get_order_by_electronica(db_session, order.orden_electronica)
-                crud.upsert_order(db_session, order)
-                if existing:
-                    updated += 1
-                else:
-                    inserted += 1
-
-            try:
-                os.remove(filepath)
-            except OSError:
-                pass
-
-        # ── Limpieza de Registros Huérfanos (Función de Poda) ────────────
-        try:
-            from app.models.purchase_order import PurchaseOrder
-            pruned = db_session.query(PurchaseOrder).filter(
-                ~PurchaseOrder.orden_electronica.like("OCAM-%")
-            ).delete(synchronize_session="fetch")
-            if pruned > 0:
-                db_session.commit()
-                logger.info("Pruned %d orphan records (non-OCAM orden_electronica)", pruned)
-        except Exception as exc:
-            logger.warning("Orphan cleanup failed (non-critical): %s", exc)
-            db_session.rollback()
-
-    # asyncio.run() swallows the exception context (sys.exc_info) when the
-    # event loop closes, causing billiard to store an empty ExceptionInfo in
-    # Redis. Reading result.state then raises "Exception information must
-    # include the exception type". Use explicit loop management instead.
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(_run())
+        return loop.run_until_complete(
+            _run_scrape_async(
+                db_session,
+                catalogo=catalogo,
+                fecha_inicio=fecha_inicio,
+                fecha_fin=fecha_fin,
+                progress_callback=progress_callback,
+            )
+        )
     finally:
         loop.close()
         asyncio.set_event_loop(None)
-    return {"inserted": inserted, "updated": updated}
+

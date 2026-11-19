@@ -49,6 +49,9 @@ const ScraperControl = () => {
     try {
       const response = await scraperApi.getStatus(taskId);
       setStatus(response.data);
+      if (response.data.meta?.progress != null) {
+        setProgress(response.data.meta.progress);
+      }
       if (['SUCCESS', 'FAILURE', 'REVOKED'].includes(response.data.status)) {
         setPolling(false);
       }
@@ -66,20 +69,23 @@ const ScraperControl = () => {
     return () => clearInterval(interval);
   }, [polling, taskId]);
 
-  // ── Progress simulation ───────────────────────────────────────────────────
+  // ── Progress tracking (real backend meta with fallback simulation) ────────
   useEffect(() => {
     if (!polling) return;
     const id = setInterval(() => {
       setProgress(prev => {
-        const isStarted = status?.status === 'STARTED';
-        const target = isStarted ? 88 : 12;
-        const speed  = isStarted ? 1.4 : 0.35;
+        if (status?.meta?.progress != null) {
+          return status.meta.progress;
+        }
+        const isStarted = status?.status === 'STARTED' || status?.status === 'PROGRESS';
+        const target = isStarted ? 85 : 12;
+        const speed  = isStarted ? 0.8 : 0.35;
         if (prev >= target) return prev;
-        return Math.min(prev + speed + Math.random() * 0.6, target);
+        return Math.min(prev + speed + Math.random() * 0.4, target);
       });
-    }, 900);
+    }, 1000);
     return () => clearInterval(id);
-  }, [polling, status?.status]);
+  }, [polling, status?.status, status?.meta?.progress]);
 
   useEffect(() => { if (status?.status === 'SUCCESS') setProgress(100); }, [status?.status]);
   useEffect(() => { if (!taskId) setProgress(0); }, [taskId]);
@@ -271,11 +277,36 @@ const ScraperControl = () => {
 
                 {/* ── Progress bar + steps ── */}
                 <ScraperProgressBar
-                  pct={progress}
+                  pct={status?.meta?.progress != null ? status.meta.progress : progress}
                   done={status.status === 'SUCCESS'}
                   failed={['FAILURE', 'REVOKED'].includes(status.status)}
                   steps={ORDERS_STEPS}
+                  phaseDesc={status.meta?.phase_desc}
                 />
+
+                {/* ── Live telemetry badge (real-time chunk and records count) ── */}
+                {status.meta && (status.meta.current_chunk != null || status.meta.inserted != null) && (
+                  <div style={{
+                    marginTop: 12,
+                    padding: '8px 12px',
+                    background: 'rgba(37, 99, 235, 0.06)',
+                    border: '1px solid rgba(37, 99, 235, 0.15)',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}>
+                    <span>
+                      {status.meta.current_chunk && status.meta.total_chunks
+                        ? `Bloque ${status.meta.current_chunk} de ${status.meta.total_chunks} (${status.meta.chunk_range || ''})`
+                        : 'Sincronizando...'}
+                    </span>
+                    <span style={{ fontWeight: 600, color: 'var(--c-brand)' }}>
+                      {`Nuevas: ${status.meta.inserted || 0} | Actualizadas: ${status.meta.updated || 0}`}
+                    </span>
+                  </div>
+                )}
 
                 {/* ── Config summary ── */}
                 {catalogo && (
