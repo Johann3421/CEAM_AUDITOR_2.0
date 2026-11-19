@@ -5,6 +5,7 @@ Bóveda de conocimiento y memoria técnica persistente del sistema **CEAM AUDITO
 ---
 
 ## Historial de Cambios y Sesiones
+- [[notes/cambios/2026-11-19-diagnostico-scraper-ordenes-perucompras|2026-11-19 — Diagnóstico Forense y Auditoría Profunda del Scraper de Órdenes Públicas (/scraper)]]
 - [[notes/cambios/2026-11-19-rediseño-frontend-fichas-5-leyes-ux-kpis|2026-11-19 — Rediseño Integral de Fichas de Catálogo según las 5 Leyes UX (Tesler, Hick, Miller, Fitts, Jakob) y KPIs Agregados en Backend]]
 - [[notes/cambios/2026-11-19-implementacion-kpis-contratacion-monto-ocam-modal-detalles|2026-11-19 — Implementación de KPIs Financieros (Monto Contratado, Cant. OCAM), Ordenamiento Inteligente y Modal de Detalles de Fichas]]
 - [[notes/cambios/2026-11-19-analisis-discrepancia-fichas-perucompras-rhinobox|2026-11-19 — Análisis Forense: Discrepancia de Fichas en Perú Compras, Dualidad de Plataformas y Normalización de Marca Rhinobox]]
